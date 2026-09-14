@@ -212,7 +212,7 @@ begin
   end if;
 
   perform net.http_post(
-    url := 'https://favohmryseurvnlxocfc.supabase.co/functions/v1/appointment-reminders'::text,
+    url := 'https://nvsxgvtwmcivdmrtpdqx.supabase.co/functions/v1/appointment-reminders'::text,
     body := '{}'::jsonb,
     headers := jsonb_build_object(
       'Content-Type', 'application/json',

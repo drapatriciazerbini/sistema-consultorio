@@ -47,8 +47,8 @@ git push origin HEAD:main
 # Atencao: este login e global e substitui a sessao da CLI de outra conta.
 # npx supabase login
 
-npx supabase functions deploy whatsapp-send --project-ref favohmryseurvnlxocfc
-npx supabase functions deploy meta-webhook --project-ref favohmryseurvnlxocfc
+npx supabase functions deploy whatsapp-send --project-ref nvsxgvtwmcivdmrtpdqx
+npx supabase functions deploy meta-webhook --project-ref nvsxgvtwmcivdmrtpdqx
 
 
 # ---------------------------------------------------------------

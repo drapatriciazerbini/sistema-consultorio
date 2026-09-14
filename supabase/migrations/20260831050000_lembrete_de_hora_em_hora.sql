@@ -27,7 +27,7 @@ select cron.schedule(
   '20 * * * *',
   $$
   select net.http_post(
-    url := 'https://favohmryseurvnlxocfc.supabase.co/functions/v1/appointment-reminders',
+    url := 'https://nvsxgvtwmcivdmrtpdqx.supabase.co/functions/v1/appointment-reminders',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'CRON_SECRET')

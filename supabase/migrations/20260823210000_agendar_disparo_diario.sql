@@ -33,7 +33,7 @@ begin
   -- A funcao vive no esquema net e recebe a url como text. Com search_path
   -- vazio, o cast explicito e obrigatorio.
   perform net.http_post(
-    url := 'https://favohmryseurvnlxocfc.supabase.co/functions/v1/whatsapp-dispatch'::text,
+    url := 'https://nvsxgvtwmcivdmrtpdqx.supabase.co/functions/v1/whatsapp-dispatch'::text,
     body := '{}'::jsonb,
     headers := jsonb_build_object(
       'Content-Type', 'application/json',

@@ -1,4 +1,4 @@
-name: Publicar Central de Cuidado
+name: Publicar o sistema da Dra. Patricia
 
 on:
   push:
@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # A chave publishable faz parte do frontend público. Nunca use service_role aqui.
-      VITE_SUPABASE_URL: https://favohmryseurvnlxocfc.supabase.co
-      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_WrOPPL7wfcBEal3ewj-3qg_888iAHj3
+      VITE_SUPABASE_URL: https://nvsxgvtwmcivdmrtpdqx.supabase.co
+      VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_xX8jL729Yuns17JYaoD2JQ_sk-iwrc-
     steps:
       - name: Baixar o projeto
         uses: actions/checkout@v6
@@ -67,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      PROJECT_REF: favohmryseurvnlxocfc
+      PROJECT_REF: nvsxgvtwmcivdmrtpdqx
     steps:
       - name: Baixar o projeto
         uses: actions/checkout@v6
