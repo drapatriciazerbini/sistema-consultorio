@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<title>Propostas de cores: sem laranja</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#e9ebee;font-family:Manrope,system-ui,sans-serif;color:#081b2c}
+  h1{font-size:20px;margin:28px 32px 4px}
+  .intro{margin:0 32px 24px;font-size:13px;color:#555;max-width:90ch;line-height:1.5}
+  .prop{margin:0 32px 40px}
+  .prop h2{font-size:15px;margin:0 0 2px;color:var(--acc)}
+  .prop .desc{font-size:12px;color:#666;margin:0 0 12px}
+  .tela{display:grid;grid-template-columns:200px 1fr;background:#f6f6f4;border-radius:18px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.10);min-width:980px}
+  .side{background:#081b2c;color:#fff;padding:18px 14px}
+  .logo{font-weight:800;font-size:13px;line-height:1.1;letter-spacing:.02em}
+  .logo small{display:block;font-weight:600;font-size:6px;letter-spacing:.1em;color:#9fb0bf}
+  .cc{margin-top:10px;font-size:7px;letter-spacing:.18em;color:#a9b6c2;font-weight:700}
+  .ver{font-size:7px;color:#6d7d8c;margin-top:2px}
+  .menu{margin-top:26px;font-size:7px;letter-spacing:.18em;color:#6d7d8c;font-weight:700}
+  .it{display:flex;align-items:center;gap:9px;font-size:10.5px;font-weight:700;color:#c9d3dc;padding:9px 10px;border-radius:12px;margin-top:4px}
+  .it i{width:18px;height:18px;border-radius:7px;background:rgba(255,255,255,.07);display:inline-block}
+  .it.on{background:#fff;color:#081b2c}
+  .it.on i{background:var(--soft)}
+  .main{padding:18px 20px}
+  .top{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:12px}
+  .top .k{font-size:7px;letter-spacing:.18em;color:var(--acc);font-weight:800}
+  .top h3{margin:2px 0 0;font-size:19px;letter-spacing:-.02em}
+  .top p{margin:2px 0 0;font-size:9px;color:#8892a0}
+  .btn{background:var(--btn);color:#fff;font-size:9px;font-weight:800;padding:9px 13px;border-radius:12px;box-shadow:0 8px 18px rgba(8,27,44,.18)}
+  .radar{background:#081b2c;color:#fff;border-radius:16px;padding:18px 20px;display:flex;justify-content:space-between;align-items:center;position:relative;overflow:hidden}
+  .radar:before{content:"";position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;background:var(--glow);filter:blur(40px);opacity:.55}
+  .tag{display:inline-block;font-size:6.5px;letter-spacing:.15em;font-weight:800;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);padding:4px 8px;border-radius:99px;color:#dbe4ec}
+  .radar h4{font-size:17px;margin:8px 0 4px;letter-spacing:-.02em}
+  .radar p{font-size:9px;color:#aab6c2;margin:0;max-width:44ch}
+  .kpi2{display:flex;gap:8px;position:relative}
+  .kpi2 div{border-radius:12px;padding:10px 12px;min-width:105px}
+  .kpi2 .a{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1)}
+  .kpi2 .b{background:var(--hi);color:var(--hiText)}
+  .kpi2 small{display:block;font-size:6px;letter-spacing:.15em;font-weight:800;opacity:.8}
+  .kpi2 b{display:block;font-size:22px;margin-top:6px}
+  .kpi2 .bar{height:3px;border-radius:2px;background:var(--hiBar);margin:8px 0 0;opacity:.7}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:12px 0}
+  .card{background:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 2px 10px rgba(8,27,44,.05)}
+  .card .t{font-size:7px;letter-spacing:.15em;color:#8892a0;font-weight:800;display:flex;justify-content:space-between;align-items:center}
+  .card .t i{width:22px;height:22px;border-radius:9px;display:inline-block}
+  .card b{display:block;font-size:22px;margin-top:6px}
+  .card small{font-size:8px;color:#8892a0}
+  .i1{background:#e9edf1}.i2{background:var(--soft)}.i3{background:var(--soft2)}.i4{background:#e6f1ee}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .card h5{margin:0;font-size:11px}
+  .card .sub{font-size:8px;color:#8892a0;margin:2px 0 10px}
+  .donut{display:flex;align-items:center;gap:22px}
+  .ring{width:88px;height:88px;border-radius:50%;background:conic-gradient(var(--c1) 0 25%,#081b2c 25% 100%);display:grid;place-items:center}
+  .ring span{width:66px;height:66px;border-radius:50%;background:#fff;display:grid;place-items:center;font-weight:800;font-size:18px;text-align:center;line-height:1}
+  .ring span small{display:block;font-size:6px;letter-spacing:.14em;color:#8892a0;margin-top:3px}
+  .leg{font-size:9px;font-weight:700;color:#4a5763}
+  .leg div{display:flex;align-items:center;gap:8px;margin:5px 0;width:150px;justify-content:space-between}
+  .leg i{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px}
+  .bars div{display:grid;grid-template-columns:52px 1fr 14px;align-items:center;gap:10px;font-size:8.5px;color:#4a5763;font-weight:600;margin:6px 0}
+  .bars span{height:5px;border-radius:3px;background:#edf0f2;position:relative;overflow:hidden}
+  .bars span:after{content:"";position:absolute;inset:0;width:var(--w);background:var(--c2);border-radius:3px}
+  .bars b{text-align:right}
+  .ritmo{display:flex;justify-content:space-around;align-items:flex-end;height:110px;margin-top:10px}
+  .ritmo div{width:36px;height:100%;border-radius:8px;background:#eef0f2;position:relative}
+  .ritmo div:after{content:"";position:absolute;left:0;right:0;bottom:0;height:var(--h);border-radius:8px;background:var(--c1)}
+  .ritmo div.full:after{background:linear-gradient(180deg,var(--c1),var(--c1d))}
+  .ritmo div.full:before{content:"4";position:absolute;top:-14px;left:0;right:0;text-align:center;font-size:8px;font-weight:800}
+  .meses{display:flex;justify-content:space-around;font-size:7px;color:#8892a0;font-weight:700;margin-top:6px;letter-spacing:.1em}
+  .origem{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;font-size:8.5px;color:#4a5763;font-weight:600}
+  .origem .t2{font-size:6.5px;letter-spacing:.15em;color:#8892a0;font-weight:800;margin-bottom:6px}
+  .origem div div{display:grid;grid-template-columns:60px 1fr 14px;gap:8px;align-items:center}
+  .origem span{height:5px;border-radius:3px;display:block}
+  .paleta{display:flex;gap:8px;margin:10px 0 0}
+  .paleta i{width:26px;height:26px;border-radius:8px;display:inline-block;border:1px solid rgba(0,0,0,.06)}
+  .paleta b{font-size:9px;color:#666;align-self:center;font-weight:600}
+</style></head><body>
+
+<h1>Visão geral sem laranja: três propostas</h1>
+<p class="intro">Mesma tela, três paletas. O azul-marinho da barra lateral e os fundos brancos e cinzas ficam iguais; o que muda é a cor de destaque, que hoje é laranja em botões, ícones, gráficos e no cartão "Jornadas concluídas". Ao aprovar uma, aplico no sistema inteiro (botões, selos, avisos, gráficos, e-mails).</p>
+
+<div id="props"></div>
+
+<script>
+const props = [
+  { nome: 'Proposta 1 · Azul-marinho', desc: 'Destaque no mesmo azul dos botões (#1f4f78). Sóbrio; uma cor só, do escuro ao claro.',
+    acc:'#1f4f78', btn:'#1f4f78', soft:'#e3ebf2', soft2:'#dbe6ef', hi:'#1f4f78', hiText:'#fff', hiBar:'#fff', glow:'#3b78a8',
+    c1:'#1f4f78', c1d:'#0f2f4d', c2:'#4c7ea6', pal:['#081b2c','#1f4f78','#4c7ea6','#dbe6ef'] },
+  { nome: 'Proposta 2 · Azul-aço e cinza', desc: 'Destaque mais suave (#3b6a8f) e cartão "Jornadas concluídas" claro, com texto escuro. O mais discreto dos três.',
+    acc:'#3b6a8f', btn:'#081b2c', soft:'#e6edf2', soft2:'#e0e8ee', hi:'#dbe7f0', hiText:'#081b2c', hiBar:'#3b6a8f', glow:'#5e8bb0',
+    c1:'#3b6a8f', c1d:'#1f4f78', c2:'#7d9fbb', pal:['#081b2c','#3b6a8f','#7d9fbb','#dbe7f0'] },
+  { nome: 'Proposta 3 · Azul-céu', desc: 'Destaque mais vivo (#2f7fc1) para não perder contraste onde o laranja chamava atenção: número principal, botão, mês atual.',
+    acc:'#2f7fc1', btn:'#1f4f78', soft:'#e1eef8', soft2:'#d6e8f6', hi:'#2f7fc1', hiText:'#fff', hiBar:'#fff', glow:'#4aa3e6',
+    c1:'#2f7fc1', c1d:'#1f4f78', c2:'#6fa9d6', pal:['#081b2c','#1f4f78','#2f7fc1','#d6e8f6'] },
+];
+
+function tela(p){
+  const v = `--acc:${p.acc};--btn:${p.btn};--soft:${p.soft};--soft2:${p.soft2};--hi:${p.hi};--hiText:${p.hiText};--hiBar:${p.hiBar};--glow:${p.glow};--c1:${p.c1};--c1d:${p.c1d};--c2:${p.c2}`;
+  return `<section class="prop" style="${v}">
+  <h2>${p.nome}</h2><p class="desc">${p.desc}</p>
+  <div class="tela">
+    <div class="side">
+      <div class="logo">DR.<br>MARCELLO<br>RUIZ<small>GASTROENTEROLOGISTA PEDIÁTRICO</small></div>
+      <div class="cc">CENTRAL DE CUIDADO</div><div class="ver">Versão 80605d1 · 07/09, 17:59</div>
+      <div class="menu">MENU</div>
+      <div class="it on"><i></i>Visão geral</div><div class="it"><i></i>Agenda</div><div class="it"><i></i>Acompanhamentos</div>
+      <div class="it"><i></i>Respostas</div><div class="it"><i></i>Pacientes</div><div class="it"><i></i>Preferências</div><div class="it"><i></i>Acessos da equipe</div>
+    </div>
+    <div class="main">
+      <div class="top"><div><div class="k">PAINEL</div><h3>Visão geral</h3><p>Os números que ajudam a cuidar melhor, em um só lugar.</p></div><div class="btn">+ Novo paciente</div></div>
+      <div class="radar">
+        <div><span class="tag">RADAR DE ACOMPANHAMENTO</span><h4>Cuidado que continua depois da consulta.</h4><p>Sua base clínica transforma datas em contatos oportunos e mantém cada família próxima da equipe.</p></div>
+        <div class="kpi2"><div class="a"><small>ESTA SEMANA</small><b>0</b><small style="letter-spacing:0;font-weight:600">contatos no radar</small></div><div class="b"><small>JORNADAS CONCLUÍDAS</small><b>0%</b><div class="bar"></div></div></div>
+      </div>
+      <div class="cards">
+        <div class="card"><div class="t">PACIENTES<i class="i1"></i></div><b>4</b><small>na base clínica</small></div>
+        <div class="card"><div class="t">CONSULTAS NO MÊS<i class="i2"></i></div><b>4</b><small>atendimentos registrados</small></div>
+        <div class="card"><div class="t">PENDENTES<i class="i3"></i></div><b>0</b><small>hoje e atrasados</small></div>
+        <div class="card"><div class="t">CONCLUÍDOS<i class="i4"></i></div><b>0</b><small>30 e 90 dias</small></div>
+      </div>
+      <div class="row">
+        <div class="card"><h5>Perfil dos pacientes</h5><div class="sub">Distribuição por sexo informado</div>
+          <div class="donut"><div class="ring"><span>4<small>PACIENTES</small></span></div>
+          <div class="leg"><div><span><i style="background:var(--c1)"></i>Feminino</span><b>1</b></div><div><span><i style="background:#081b2c"></i>Masculino</span><b>3</b></div><div><span><i style="background:#c9d3dc"></i>Outro / NI</span><b>0</b></div></div></div>
+        </div>
+        <div class="card"><h5>Faixa etária</h5><div class="sub">Idade atual dos pacientes cadastrados</div>
+          <div class="bars"><div>0 a 2 anos<span style="--w:33%"></span><b>1</b></div><div>3 a 5 anos<span style="--w:0"></span><b>0</b></div><div>6 a 9 anos<span style="--w:0"></span><b>0</b></div><div>10 a 13 anos<span style="--w:0"></span><b>0</b></div><div>14+ anos<span style="--w:100%"></span><b>3</b></div></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:10px"><h5>Ritmo de atendimentos</h5><div class="sub">Consultas registradas nos últimos seis meses</div>
+        <div class="ritmo"><div style="--h:0"></div><div style="--h:0"></div><div style="--h:0"></div><div style="--h:0"></div><div style="--h:0"></div><div class="full" style="--h:100%"></div></div>
+        <div class="meses"><span>ABR</span><span>MAI</span><span>JUN</span><span>JUL</span><span>AGO</span><span>SET</span></div>
+      </div>
+      <div class="card" style="margin-top:10px"><h5>De onde vem quem atendemos</h5><div class="sub">Para decidir horário, unidade e alcance da divulgação</div>
+        <div class="origem">
+          <div><div class="t2">CIDADE DO PACIENTE</div><div>Santos<span style="background:var(--c2)"></span><b>3</b></div></div>
+          <div><div class="t2">BAIRRO / REGIÃO</div><div>Campo Grande<span style="background:var(--c1)"></span><b>3</b></div></div>
+          <div><div class="t2">UNIDADE</div><div>Liferty · Santos<span style="background:#081b2c"></span><b>4</b></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="paleta">${p.pal.map(c=>`<i style="background:${c}"></i>`).join('')}<b>${p.pal.join(' · ')}</b></div>
+</section>`;
+}
+document.getElementById('props').innerHTML = props.map(tela).join('');
+</script>
+</body></html>

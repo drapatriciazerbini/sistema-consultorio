@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prontuário — cinco arquiteturas</title>
+<style>
+  :root{
+    --tinta:#081b2c; --media:#233b50; --fraca:#6b7885;
+    --laranja:#dc8e5f; --laranja-esc:#b96535; --laranja-cl:#fdf4ef;
+    --verde:#4c7a6d; --verde-cl:#edf4f1; --vermelho:#b32424; --vermelho-cl:#fceeee;
+    --azul:#2f6ba8; --azul-cl:#eaf1f8;
+    --papel:#fbfaf8; --linha:rgba(8,27,44,.10);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#eeecea;color:var(--tinta);font-family:'Segoe UI',system-ui,sans-serif;line-height:1.55}
+  .topo{background:var(--tinta);color:#fff;padding:26px 32px}
+  .topo h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.02em}
+  .topo p{margin:8px 0 0;font-size:13px;opacity:.78;max-width:76ch}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 24px 60px}
+  .bloco{margin-bottom:48px}
+  .cab{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .n{background:var(--laranja);color:#fff;font-size:12px;font-weight:800;padding:4px 12px;border-radius:20px}
+  .t{font-size:19px;font-weight:700;letter-spacing:-.015em}
+  .d{font-size:13px;color:var(--fraca);margin:0 0 14px;max-width:80ch}
+  .card{background:#fff;border:1px solid var(--linha);border-radius:16px;padding:20px 24px;box-shadow:0 2px 14px rgba(8,27,44,.05)}
+  .rot{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--fraca);font-weight:800}
+  .txt{font-size:15px;color:var(--media);line-height:1.65}
+  .pill{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px}
+  @media(max-width:820px){.wrap{padding:20px 14px 40px}.card{padding:16px}.split{grid-template-columns:1fr !important}}
+</style>
+</head>
+<body>
+
+<div class="topo">
+  <h1>Cinco arquiteturas de prontuário</h1>
+  <p>Aqui o que muda é a estrutura da informação. Cada modelo responde a uma pergunta diferente: o que pertence ao paciente e o que pertence ao dia, como acompanhar um problema ao longo do tempo, e o que precisa estar na tela durante o atendimento.</p>
+</div>
+
+<div class="wrap">
+
+<!-- ===== A ===== -->
+<div class="bloco">
+  <div class="cab"><span class="n">A</span><span class="t">Paciente e consulta separados</span></div>
+  <p class="d">A correção estrutural mais direta. Antecedentes, alergias e medicações passam a pertencer ao paciente — escritos uma vez, sempre visíveis. A consulta guarda só o que aconteceu naquele dia, e cai de doze campos para seis.</p>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;padding-bottom:14px;border-bottom:2px solid var(--tinta)">
+      <div>
+        <div style="font-size:20px;font-weight:700;letter-spacing:-.02em">Eduardo Marques</div>
+        <div style="font-size:13px;color:var(--fraca)">42 anos · Particular · Resp. Carlos Alberto Marques</div>
+      </div>
+      <div style="text-align:right"><div class="rot">Última consulta</div><div style="font-size:14px;font-weight:700">17/08/2026</div></div>
+    </div>
+
+    <div style="background:var(--papel);border-radius:12px;padding:14px 16px;margin:14px 0 18px">
+      <div class="rot" style="margin-bottom:9px">Ficha permanente — vale para todas as consultas</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+        <div><div class="rot" style="color:var(--vermelho)">Alergias</div><div style="font-size:15px;font-weight:700;color:var(--vermelho)">Látex</div></div>
+        <div><div class="rot">Medicações em uso</div><div style="font-size:15px;font-weight:600">Corticoide, antibiótico</div></div>
+        <div><div class="rot">Antecedentes pessoais</div><div style="font-size:15px">Hipertensão</div></div>
+        <div><div class="rot">Antecedentes familiares</div><div style="font-size:15px">Doença cardiovascular</div></div>
+      </div>
+    </div>
+
+    <div style="font-size:16px;font-weight:700;margin-bottom:2px">Consulta inicial · 17/08/2026</div>
+    <div style="font-size:12px;color:var(--fraca);margin-bottom:14px">Liferty Santos · 72 kg · 178 cm · IMC 22,7 · CID J32</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+      <div><div class="rot">Queixa</div><div class="txt">Dor de barriga.</div></div>
+      <div><div class="rot">História e evolução</div><div class="txt">Mais de uma semana, com recorrência.</div></div>
+      <div><div class="rot">Exame físico</div><div class="txt">Ultrassom e tomografia solicitados.</div></div>
+      <div><div class="rot">Avaliação</div><div class="txt" style="font-weight:700">Sinusite crônica</div></div>
+      <div><div class="rot">Conduta e prescrição</div><div class="txt">Repouso. Soro fisiológico 1x ao dia.</div></div>
+      <div><div class="rot">Retorno</div><div class="txt">30 dias</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== B ===== -->
+<div class="bloco">
+  <div class="cab"><span class="n">B</span><span class="t">Organizado por problema</span></div>
+  <p class="d">Você não navega por data, navega por problema. Cada condição do paciente vira uma trilha com sua própria história, conduta e evolução. É o padrão da medicina orientada por problemas — responde "como está a sinusite dele?" sem abrir consulta por consulta.</p>
+
+  <div class="card">
+    <div style="font-size:18px;font-weight:700;margin-bottom:3px">Eduardo Marques</div>
+    <div style="font-size:13px;color:var(--fraca);margin-bottom:16px">2 problemas ativos · 1 resolvido</div>
+
+    <div style="border:1px solid var(--linha);border-left:4px solid var(--laranja);border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+        <div style="font-size:16px;font-weight:700">Sinusite crônica <span style="font-size:12px;color:var(--fraca);font-weight:600">· J32</span></div>
+        <span class="pill" style="background:var(--laranja-cl);color:var(--laranja-esc)">Ativo desde 17/08/2026</span>
+      </div>
+      <div style="font-size:14px;color:var(--media);margin:8px 0 10px">Em tratamento com soro fisiológico diário e corticoide duas vezes por semana. Ultrassom e tomografia solicitados.</div>
+      <div style="border-top:1px solid var(--linha);padding-top:9px;font-size:13px;color:var(--fraca)">
+        <b style="color:var(--media)">17/08</b> diagnóstico e início do tratamento
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--linha);border-left:4px solid var(--azul);border-radius:0 12px 12px 0;padding:14px 18px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+        <div style="font-size:16px;font-weight:700">Hipertensão</div>
+        <span class="pill" style="background:var(--azul-cl);color:var(--azul)">Controlado</span>
+      </div>
+      <div style="font-size:14px;color:var(--media);margin:8px 0 10px">Antecedente pessoal. Sem intercorrências nas últimas três consultas.</div>
+      <div style="border-top:1px solid var(--linha);padding-top:9px;font-size:13px;color:var(--fraca)">
+        <b style="color:var(--media)">02/06</b> pressão estável · <b style="color:var(--media)">14/03</b> pressão estável
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--linha);border-left:4px solid var(--linha);border-radius:0 12px 12px 0;padding:14px 18px;opacity:.62">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+        <div style="font-size:16px;font-weight:700">Rinite alérgica</div>
+        <span class="pill" style="background:#eee;color:var(--fraca)">Resolvido em 17/08</span>
+      </div>
+      <div style="font-size:14px;color:var(--media);margin-top:8px">Tratada com anti-histamínico entre março e agosto.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== C ===== -->
+<div class="bloco">
+  <div class="cab"><span class="n">C</span><span class="t">Diário clínico contínuo</span></div>
+  <p class="d">Sem cartões e sem abrir e fechar. Tudo é uma coluna só, cada consulta é uma entrada com a data ancorada à esquerda, da mais recente para a mais antiga. Rola-se para trás no tempo como quem lê um diário.</p>
+
+  <div class="card">
+    <div style="display:grid;grid-template-columns:96px 1fr;gap:18px;padding-bottom:18px;border-bottom:1px solid var(--linha)">
+      <div style="text-align:right">
+        <div style="font-size:15px;font-weight:700">17 ago</div>
+        <div style="font-size:12px;color:var(--fraca)">2026</div>
+        <div class="pill" style="background:var(--laranja-cl);color:var(--laranja-esc);margin-top:5px;font-size:11px">Inicial</div>
+      </div>
+      <div style="border-left:2px solid var(--laranja);padding-left:18px">
+        <div style="font-size:16px;font-weight:700;margin-bottom:2px">Sinusite crônica</div>
+        <div style="font-size:12px;color:var(--fraca);margin-bottom:9px">Liferty Santos · 72 kg · IMC 22,7 (+0,4)</div>
+        <div style="font-size:15px;color:var(--media);line-height:1.7">
+          Queixa de dor de barriga há mais de uma semana, com recorrência no banheiro. Ultrassom e tomografia solicitados.
+          <br><b style="color:var(--tinta)">Conduta:</b> repouso e atividade física. Soro fisiológico uma vez ao dia, corticoide duas vezes por semana. Retorno em 30 dias.
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:96px 1fr;gap:18px;padding:18px 0 0">
+      <div style="text-align:right">
+        <div style="font-size:15px;font-weight:700">02 jun</div>
+        <div style="font-size:12px;color:var(--fraca)">2026</div>
+        <div class="pill" style="background:#f0efec;color:var(--fraca);margin-top:5px;font-size:11px">Retorno</div>
+      </div>
+      <div style="border-left:2px solid var(--linha);padding-left:18px">
+        <div style="font-size:16px;font-weight:700;margin-bottom:2px">Rinite alérgica</div>
+        <div style="font-size:12px;color:var(--fraca);margin-bottom:9px">Liferty Santos · 70,5 kg · IMC 22,3</div>
+        <div style="font-size:15px;color:var(--media);line-height:1.7">
+          Melhora com anti-histamínico. Mantido tratamento.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== D ===== -->
+<div class="bloco">
+  <div class="cab"><span class="n">D</span><span class="t">Mesa de atendimento</span></div>
+  <p class="d">Pensado para o momento da consulta, não para a leitura depois. À esquerda, o que você precisa saber antes de decidir: alergias, o que ele toma, o que foi combinado da última vez. À direita, o campo onde você escreve agora. Nada de rolar para consultar o passado.</p>
+
+  <div class="card split" style="display:grid;grid-template-columns:290px 1fr;gap:22px;padding:0;overflow:hidden">
+    <div style="background:var(--papel);padding:20px;border-right:1px solid var(--linha)">
+      <div style="font-size:16px;font-weight:700">Eduardo Marques</div>
+      <div style="font-size:12px;color:var(--fraca);margin-bottom:14px">42 anos · Particular</div>
+
+      <div style="background:var(--vermelho-cl);border-radius:10px;padding:10px 12px;margin-bottom:10px">
+        <div class="rot" style="color:var(--vermelho)">Atenção</div>
+        <div style="font-size:15px;font-weight:700;color:var(--vermelho)">Alergia a látex</div>
+      </div>
+      <div style="margin-bottom:12px"><div class="rot">Em uso hoje</div><div style="font-size:14px;color:var(--media)">Corticoide<br>Antibiótico</div></div>
+      <div style="margin-bottom:12px"><div class="rot">Combinado na última</div><div style="font-size:14px;color:var(--media)">Retorno em 30 dias<br>Trazer resultado do ultrassom</div></div>
+      <div><div class="rot">Peso</div><div style="font-size:14px;color:var(--media)">72 kg <span style="color:var(--verde);font-weight:700">+1,5</span></div></div>
+    </div>
+
+    <div style="padding:20px 22px">
+      <div style="font-size:16px;font-weight:700;margin-bottom:3px">Consulta de hoje · 24/08/2026</div>
+      <div style="font-size:12px;color:var(--fraca);margin-bottom:14px">Retorno · Liferty Santos</div>
+      <div style="border:1px solid var(--linha);border-radius:12px;padding:12px 14px;margin-bottom:10px">
+        <div class="rot" style="margin-bottom:4px">Queixa e evolução</div>
+        <div style="font-size:15px;color:#9aa3ad">Escreva ou dite o que o paciente relata...</div>
+      </div>
+      <div style="border:1px solid var(--linha);border-radius:12px;padding:12px 14px">
+        <div class="rot" style="margin-bottom:4px">Conduta</div>
+        <div style="font-size:15px;color:#9aa3ad">O que fica combinado hoje...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== E ===== -->
+<div class="bloco">
+  <div class="cab"><span class="n">E</span><span class="t">Resumo do paciente</span></div>
+  <p class="d">A tela inicial deixa de ser a lista de consultas e passa a ser um retrato do paciente hoje: problemas, medicações, curva de peso e o resumo das últimas avaliações. As consultas viram um histórico que se abre só quando você quer o detalhe.</p>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+      <div><div style="font-size:20px;font-weight:700;letter-spacing:-.02em">Eduardo Marques</div><div style="font-size:13px;color:var(--fraca)">42 anos · Particular · Santos, Campo Grande</div></div>
+      <span class="pill" style="background:var(--verde-cl);color:var(--verde)">Em acompanhamento</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:18px">
+      <div style="border:1px solid var(--vermelho);background:var(--vermelho-cl);border-radius:12px;padding:12px 14px">
+        <div class="rot" style="color:var(--vermelho)">Alergias</div><div style="font-size:16px;font-weight:700;color:var(--vermelho)">Látex</div>
+      </div>
+      <div style="border:1px solid var(--linha);border-radius:12px;padding:12px 14px">
+        <div class="rot">Problemas ativos</div><div style="font-size:15px;font-weight:600">Sinusite crônica<br>Hipertensão</div>
+      </div>
+      <div style="border:1px solid var(--linha);border-radius:12px;padding:12px 14px">
+        <div class="rot">Medicações</div><div style="font-size:15px;font-weight:600">Corticoide<br>Antibiótico</div>
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--linha);border-radius:12px;padding:14px 16px;margin-bottom:16px">
+      <div class="rot" style="margin-bottom:10px">Peso ao longo do tempo</div>
+      <div style="display:flex;align-items:flex-end;gap:14px;height:70px">
+        <div style="text-align:center"><div style="width:34px;height:38px;background:#dfe6e4;border-radius:6px 6px 0 0"></div><div style="font-size:11px;color:var(--fraca);margin-top:4px">69,0<br>mar</div></div>
+        <div style="text-align:center"><div style="width:34px;height:47px;background:#cfdcd8;border-radius:6px 6px 0 0"></div><div style="font-size:11px;color:var(--fraca);margin-top:4px">70,5<br>jun</div></div>
+        <div style="text-align:center"><div style="width:34px;height:58px;background:var(--laranja);border-radius:6px 6px 0 0"></div><div style="font-size:11px;color:var(--tinta);font-weight:700;margin-top:4px">72,0<br>ago</div></div>
+      </div>
+    </div>
+
+    <div class="rot" style="margin-bottom:8px">Histórico</div>
+    <div style="border-top:1px solid var(--linha)">
+      <div style="display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--linha)">
+        <div><b style="font-size:14px">17/08/2026</b> <span style="font-size:14px;color:var(--media)">· Sinusite crônica</span></div>
+        <span style="font-size:13px;color:var(--laranja-esc);font-weight:700">abrir</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--linha)">
+        <div><b style="font-size:14px">02/06/2026</b> <span style="font-size:14px;color:var(--media)">· Rinite alérgica</span></div>
+        <span style="font-size:13px;color:var(--laranja-esc);font-weight:700">abrir</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;padding:11px 0">
+        <div><b style="font-size:14px">14/03/2026</b> <span style="font-size:14px;color:var(--media)">· Rinite alérgica</span></div>
+        <span style="font-size:13px;color:var(--laranja-esc);font-weight:700">abrir</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

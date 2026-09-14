@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<title>Chancela do prontuário: propostas 7 a 16</title>
+<style>
+  body{font-family:Georgia,'Times New Roman',serif;color:#14202c;background:#eee;margin:0;padding:30px}
+  h1{font-family:system-ui,sans-serif;font-size:18px;margin:0 0 6px}
+  .intro{font-family:system-ui,sans-serif;font-size:13px;color:#555;margin:0 0 26px;max-width:80ch}
+  .folha{background:#fff;max-width:760px;margin:0 auto 34px;padding:22px 32px 26px;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+  .num{font-family:system-ui,sans-serif;font-size:12px;font-weight:700;color:#c8703f;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4px}
+  .nome{font-family:system-ui,sans-serif;font-size:14px;color:#333;margin:0 0 14px}
+  .rodape{border-top:1px solid #d4d9de;padding-top:10px;font-size:9pt;color:#7b858e}
+  .rodape>p{margin:0 0 8px}
+  code{font-family:'Courier New',monospace;color:#14202c;letter-spacing:.02em;word-break:break-all}
+  .cinza code{color:#55606b}
+  .sans{font-family:system-ui,sans-serif}
+
+  /* 7 - selo circular */
+  .s7{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;font-size:8pt}
+  .s7 .selo{width:84px;height:84px;border-radius:50%;border:2px solid #14202c;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;font-family:system-ui,sans-serif;font-size:6.5pt;letter-spacing:.08em;text-transform:uppercase;color:#14202c;line-height:1.3;padding:6px}
+  .s7 .selo b{font-size:12pt;letter-spacing:0;margin:2px 0}
+  .s7 .quem{font-size:11.5pt;margin:0}
+  .s7 .quando{font-size:9pt;color:#55606b;margin:2px 0 6px}
+  .s7 .h{font-size:7pt;color:#7b858e}
+
+  /* 8 - cartao de assinatura com borda dupla */
+  .s8{border:3px double #14202c;padding:10px 14px;font-size:8pt;display:grid;grid-template-columns:1fr auto;gap:16px;align-items:center}
+  .s8 .t{font-family:system-ui,sans-serif;font-size:7pt;letter-spacing:.16em;text-transform:uppercase;margin:0 0 4px;color:#55606b}
+  .s8 .quem{font-size:12pt;margin:0}
+  .s8 .quando{font-size:9pt;color:#55606b;margin:2px 0 0}
+  .s8 .h{font-size:6.5pt;color:#7b858e;text-align:right;line-height:1.5}
+
+  /* 9 - lista compacta com bullets */
+  .s9{font-size:8pt;line-height:1.7}
+  .s9 .quem{font-size:10.5pt;color:#14202c;margin:0 0 4px}
+  .s9 ul{margin:0;padding-left:14px;color:#7b858e}
+  .s9 li span{color:#14202c}
+
+  /* 10 - tarja lateral verde */
+  .s10{border-left:5px solid #1c6b3a;background:#f4f9f6;padding:10px 14px;font-size:8pt}
+  .s10 .t{font-family:system-ui,sans-serif;font-size:7.5pt;letter-spacing:.12em;text-transform:uppercase;color:#1c6b3a;font-weight:700;margin:0 0 3px}
+  .s10 .quem{font-size:11.5pt;margin:0}
+  .s10 .quando{font-size:9pt;color:#55606b;margin:2px 0 6px}
+  .s10 .h{font-size:7pt;color:#7b858e}
+
+  /* 11 - tabela formal */
+  .s11{width:100%;border-collapse:collapse;font-size:8pt}
+  .s11 th,.s11 td{border:1px solid #d4d9de;padding:5px 8px;text-align:left;vertical-align:top}
+  .s11 th{font-family:system-ui,sans-serif;font-weight:600;font-size:7pt;letter-spacing:.08em;text-transform:uppercase;color:#7b858e;background:#f6f7f8;width:180px}
+  .s11 td b{font-weight:normal;font-size:10pt}
+
+  /* 12 - assinatura grande + rodape de codigos em linha */
+  .s12{font-size:8pt}
+  .s12 .quem{font-size:14pt;margin:0;letter-spacing:-.01em}
+  .s12 .quando{font-size:9pt;color:#55606b;margin:3px 0 10px}
+  .s12 .h{border-top:1px solid #d4d9de;padding-top:6px;font-size:6.8pt;color:#7b858e;display:flex;gap:18px;flex-wrap:wrap}
+
+  /* 13 - etiqueta tipo "recibo" pontilhada */
+  .s13{border:1px dashed #9aa4ad;border-radius:6px;padding:10px 14px;font-size:8pt}
+  .s13 .l{display:flex;justify-content:space-between;gap:12px;border-bottom:1px dotted #d4d9de;padding:3px 0}
+  .s13 .l span{color:#7b858e}
+  .s13 .l:last-child{border:0}
+  .s13 .l b{font-weight:normal;font-size:10pt}
+
+  /* 14 - faixa clara com icone */
+  .s14{display:flex;align-items:center;gap:14px;background:#eef3f2;border-radius:8px;padding:10px 14px;font-size:8pt}
+  .s14 .ico{width:38px;height:38px;border-radius:10px;background:#14202c;color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex:none}
+  .s14 .quem{font-size:11pt;margin:0}
+  .s14 .quando{font-size:8.5pt;color:#55606b;margin:2px 0 4px}
+  .s14 .h{font-size:6.8pt;color:#7b858e}
+
+  /* 15 - tres blocos lado a lado */
+  .s15{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;font-size:8pt}
+  .s15>div{border:1px solid #d4d9de;border-radius:6px;padding:8px 10px}
+  .s15 h4{margin:0 0 5px;font-family:system-ui,sans-serif;font-size:6.8pt;letter-spacing:.12em;text-transform:uppercase;color:#7b858e;font-weight:700}
+  .s15 .quem{font-size:10.5pt;margin:0}
+  .s15 .quando{font-size:8pt;color:#55606b;margin:2px 0 0}
+  .s15 .ok{font-size:10pt;color:#1c6b3a}
+  .s15 code{font-size:7pt}
+
+  /* 16 - marca d'agua discreta + linha unica */
+  .s16{position:relative;font-size:8pt;padding:14px 0 6px;border-top:2px solid #14202c}
+  .s16 .marca{position:absolute;right:0;top:8px;font-family:system-ui,sans-serif;font-size:34pt;font-weight:800;letter-spacing:.06em;color:rgba(20,32,44,.06);text-transform:uppercase;pointer-events:none}
+  .s16 .quem{font-size:11.5pt;margin:0}
+  .s16 .quando{font-size:9pt;color:#55606b;margin:2px 0 8px}
+  .s16 .h{font-size:6.8pt;color:#7b858e}
+</style></head><body>
+
+<h1>Chancela do prontuário: mais dez</h1>
+<p class="intro">Propostas 7 a 16. Mesmo conteúdo: quem assinou, quando, e as impressões digitais que provam que o papel corresponde ao registro. Todas em preto e branco funcionam.</p>
+
+<div class="folha">
+  <p class="num">Proposta 7</p><p class="nome">Selo circular, como um carimbo de cartório, com os dados ao lado</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <div class="s7">
+      <div class="selo">Assinado<br>digitalmente<b>✓</b>ICP-Brasil</div>
+      <div>
+        <p class="quem">Marcello Ruiz da Silva · CRM 85878</p>
+        <p class="quando">Consulta de 17/08/2026 · assinada em 06/09/2026 às 21:31 · certificado VIDaaS</p>
+        <div class="h cinza">Impressão digital <code>11e7d2f2 4ec411d2 af50d3cd b546cd29 6be31101 62cd1e14 2fa09f0a b9543618</code><br>Acervo <code>3d17f2f7 edbbd66a ae36b11e 4f7ce53c…</code> · 14 registros conferidos, íntegra</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="folha">
+  <p class="num">Proposta 8</p><p class="nome">Cartão com borda dupla: o clássico do documento oficial</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <div class="s8">
+      <div>
+        <p class="t">Assinatura digital ICP-Brasil</p>
+        <p class="quem">Marcello Ruiz da Silva</p>
+        <p class="quando">CRM 85878 · consulta de 17/08/2026 · assinada em 06/09/2026 às 21:31</p>
+      </div>
+      <div class="h cinza">Impressão digital<br><code>11e7d2f2 4ec411d2 af50d3cd b546cd29</code><br><code>6be31101 62cd1e14 2fa09f0a b9543618</code><br>Acervo <code>3d17f2f7 edbbd66a…</code> · 14 registros, íntegra</div>
+    </div>
+  </div>
+</div>
+
+<div class="folha">
+  <p class="num">Proposta 9</p><p class="nome">Lista simples, sem caixa: o mais leve de todos</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <div class="s9">
+      <p class="quem">Assinado digitalmente por Marcello Ruiz da Silva (CRM 85878) em 06/09/2026 às 21:31, com certificado ICP-Brasil.</p>
+      <ul>
+        <li>Consulta de 17/08/2026</li>
+        <li>Impressão digital do documento: <span><code>11e7d2f2 4ec411d2 af50d3cd b546cd29 6be31101 62cd1e14 2fa09f0a b9543618</code></span></li>
+        <li>Selo do acervo: <span><code>3d17f2f7 edbbd66a ae36b11e 4f7ce53c…</code></span> · cadeia de auditoria com 14 registros, íntegra</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="folha">
+  <p class="num">Proposta 10</p><p class="nome">Tarja lateral verde, o mesmo verde do selo "Assinada" na tela</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <div class="s10">
+      <p class="t">✓ Documento assinado digitalmente</p>
+      <p class="quem">Marcello Ruiz da Silva · CRM 85878</p>
+      <p class="quando">Consulta de 17/08/2026 · assinada em 06/09/2026 às 21:31 · certificado ICP-Brasil (VIDaaS)</p>
+      <div class="h cinza">Impressão digital <code>11e7d2f2 4ec411d2 af50d3cd b546cd29 6be31101 62cd1e14 2fa09f0a b9543618</code> · acervo <code>3d17f2f7 edbbd66a…</code> · 14 registros conferidos, íntegra</div>
+    </div>
+  </div>
+</div>
+
+<div class="folha">
+  <p class="num">Proposta 11</p><p class="nome">Tabela formal com bordas, estilo laudo</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <table class="s11">
+      <tr><th>Assinatura digital</th><td><b>Marcello Ruiz da Silva</b> · CRM 85878 · certificado ICP-Brasil (VIDaaS)</td></tr>
+      <tr><th>Data da assinatura</th><td>06/09/2026 às 21:31 (consulta de 17/08/2026)</td></tr>
+      <tr><th>Impressão digital</th><td><code>11e7d2f2 4ec411d2 af50d3cd b546cd29 6be31101 62cd1e14 2fa09f0a b9543618</code></td></tr>
+      <tr><th>Acervo e auditoria</th><td><code>3d17f2f7 edbbd66a ae36b11e 4f7ce53c…</code> · 14 registros conferidos, íntegra</td></tr>
+    </table>
+  </div>
+</div>
+
+<div class="folha">
+  <p class="num">Proposta 12</p><p class="nome">Nome grande, como assinatura manuscrita, e os códigos numa linha de rodapé</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <div class="s12">
+      <p class="quem">Marcello Ruiz da Silva</p>
+      <p class="quando">CRM 85878 · assinado digitalmente em 06/09/2026 às 21:31 com certificado ICP-Brasil · consulta de 17/08/2026</p>
+      <div class="h cinza"><span>Impressão digital <code>11e7d2f2 4ec411d2 af50d3cd b546cd29 6be31101 62cd1e14 2fa09f0a b9543618</code></span><span>Acervo <code>3d17f2f7 edbbd66a…</code></span><span>14 registros, íntegra</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="folha">
+  <p class="num">Proposta 13</p><p class="nome">Etiqueta pontilhada, com cada dado em uma linha</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <div class="s13">
+      <div class="l"><span>Assinado por</span><b>Marcello Ruiz da Silva · CRM 85878</b></div>
+      <div class="l"><span>Quando</span>06/09/2026 às 21:31 · certificado ICP-Brasil (VIDaaS)</div>
+      <div class="l"><span>Consulta</span>17/08/2026</div>
+      <div class="l"><span>Impressão digital</span><code>11e7d2f2 4ec411d2 af50d3cd b546cd29 6be31101 62cd1e14 2fa09f0a b9543618</code></div>
+      <div class="l"><span>Acervo</span><code>3d17f2f7 edbbd66a ae36b11e 4f7ce53c…</code> · 14 registros, íntegra</div>
+    </div>
+  </div>
+</div>
+
+<div class="folha">
+  <p class="num">Proposta 14</p><p class="nome">Faixa clara com ícone escuro, tom de aplicativo</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <div class="s14">
+      <div class="ico">✓</div>
+      <div>
+        <p class="quem">Assinado digitalmente por Marcello Ruiz da Silva · CRM 85878</p>
+        <p class="quando">06/09/2026 às 21:31 · certificado ICP-Brasil · consulta de 17/08/2026</p>
+        <div class="h cinza">Impressão digital <code>11e7d2f2 4ec411d2 af50d3cd b546cd29 6be31101 62cd1e14 2fa09f0a b9543618</code> · acervo <code>3d17f2f7…</code> · 14 registros, íntegra</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="folha">
+  <p class="num">Proposta 15</p><p class="nome">Três blocos lado a lado: assinatura, integridade, auditoria</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <div class="s15">
+      <div><h4>Assinatura ICP-Brasil</h4><p class="quem">Marcello Ruiz da Silva</p><p class="quando">CRM 85878 · 06/09/2026 21:31<br>consulta de 17/08/2026</p></div>
+      <div><h4>Impressão digital</h4><code>11e7d2f2 4ec411d2 af50d3cd b546cd29 6be31101 62cd1e14 2fa09f0a b9543618</code></div>
+      <div><h4>Auditoria</h4><p class="ok">✓ Íntegra</p><p class="quando">14 registros conferidos<br>acervo <code>3d17f2f7…</code></p></div>
+    </div>
+  </div>
+</div>
+
+<div class="folha">
+  <p class="num">Proposta 16</p><p class="nome">Linha grossa em cima e a palavra "assinado" como marca d'água discreta</p>
+  <div class="rodape">
+    <p>Documento gerado pelo sistema em 06/09/2026, 21:36. Documento sigiloso, de uso restrito conforme a legislação de proteção de dados.</p>
+    <div class="s16">
+      <div class="marca">Assinado</div>
+      <p class="quem">Marcello Ruiz da Silva · CRM 85878</p>
+      <p class="quando">Assinatura digital ICP-Brasil em 06/09/2026 às 21:31 · consulta de 17/08/2026</p>
+      <div class="h cinza">Impressão digital <code>11e7d2f2 4ec411d2 af50d3cd b546cd29 6be31101 62cd1e14 2fa09f0a b9543618</code> · acervo <code>3d17f2f7 edbbd66a…</code> · 14 registros conferidos, íntegra</div>
+    </div>
+  </div>
+</div>
+
+</body></html>

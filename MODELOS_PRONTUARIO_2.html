@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modelos de prontuário — rodada 2</title>
+<style>
+  :root{
+    --tinta:#081b2c; --tinta-media:#233b50; --tinta-fraca:#6b7885;
+    --laranja:#dc8e5f; --laranja-escuro:#b96535; --laranja-claro:#fdf4ef;
+    --verde:#557f75; --verde-claro:#eef3f2; --vermelho:#c02626; --vermelho-claro:#fdeeee;
+    --papel:#fbfaf8; --branco:#fff; --linha:rgba(8,27,44,.10);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f1efec;color:var(--tinta);
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.55}
+  .topo{background:var(--tinta);color:#fff;padding:26px 32px}
+  .topo h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.02em}
+  .topo p{margin:6px 0 0;font-size:13px;opacity:.75;max-width:72ch}
+  .conteudo{max-width:1080px;margin:0 auto;padding:28px 24px 60px}
+  .modelo{margin-bottom:44px}
+  .rotulo{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .num{background:var(--laranja);color:#fff;font-size:12px;font-weight:800;padding:4px 12px;border-radius:20px}
+  .nome{font-size:18px;font-weight:700;letter-spacing:-.01em}
+  .quando{font-size:13px;color:var(--tinta-fraca);margin:0 0 14px;max-width:78ch}
+  .cartao{background:var(--branco);border:1px solid var(--linha);border-radius:18px;
+    padding:22px 26px;box-shadow:0 2px 14px rgba(8,27,44,.05)}
+  .rot{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--tinta-fraca);font-weight:800}
+  .txt{font-size:15px;color:var(--tinta-media);line-height:1.65}
+  table{width:100%;border-collapse:collapse}
+  @media(max-width:760px){.conteudo{padding:20px 14px 40px}.cartao{padding:16px}}
+</style>
+</head>
+<body>
+
+<div class="topo">
+  <h1>Prontuário — rodada 2</h1>
+  <p>Direções diferentes da primeira leva. Aqui muda a estrutura da informação, não só a aparência: como comparar consultas, o que fica sempre visível, e quanta coisa cabe de uma vez.</p>
+</div>
+
+<div class="conteudo">
+
+<!-- ===== 6 ===== -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">6</span><span class="nome">Tabela de evolução</span></div>
+  <p class="quando">Cada coluna é uma consulta, cada linha é um campo. Lê-se na horizontal para ver como o paciente evoluiu. É o único modelo em que a comparação entre consultas é o assunto principal, e não um detalhe.</p>
+
+  <div class="cartao" style="overflow-x:auto">
+    <div style="font-size:17px;font-weight:700;margin-bottom:2px">Eduardo Marques</div>
+    <div style="font-size:13px;color:var(--tinta-fraca);margin-bottom:16px">3 consultas · da mais recente para a mais antiga</div>
+    <table style="min-width:640px">
+      <tr>
+        <td style="width:120px"></td>
+        <td style="padding:8px 12px;background:var(--laranja-claro);border-radius:10px 10px 0 0;border-bottom:2px solid var(--laranja)">
+          <div style="font-size:14px;font-weight:700">17/08/2026</div>
+          <div style="font-size:12px;color:var(--laranja-escuro)">Consulta inicial</div>
+        </td>
+        <td style="padding:8px 12px"><div style="font-size:14px;font-weight:700">02/06/2026</div><div style="font-size:12px;color:var(--tinta-fraca)">Retorno</div></td>
+        <td style="padding:8px 12px"><div style="font-size:14px;font-weight:700">14/03/2026</div><div style="font-size:12px;color:var(--tinta-fraca)">Telemedicina</div></td>
+      </tr>
+      <tr>
+        <td class="rot" style="padding:12px 0;vertical-align:top">Peso / IMC</td>
+        <td style="padding:12px;background:var(--laranja-claro);vertical-align:top"><span style="font-size:14px;font-weight:700">72 kg · 22,7</span></td>
+        <td style="padding:12px;vertical-align:top;font-size:14px">70,5 kg · 22,3</td>
+        <td style="padding:12px;vertical-align:top;font-size:14px">69 kg · 21,8</td>
+      </tr>
+      <tr>
+        <td class="rot" style="padding:12px 0;vertical-align:top;border-top:1px solid var(--linha)">Avaliação</td>
+        <td style="padding:12px;background:var(--laranja-claro);vertical-align:top;font-size:14px;border-top:1px solid var(--linha)">Sinusite crônica</td>
+        <td style="padding:12px;vertical-align:top;font-size:14px;border-top:1px solid var(--linha)">Rinite alérgica</td>
+        <td style="padding:12px;vertical-align:top;font-size:14px;border-top:1px solid var(--linha)">Rinite alérgica</td>
+      </tr>
+      <tr>
+        <td class="rot" style="padding:12px 0;vertical-align:top;border-top:1px solid var(--linha)">Prescrição</td>
+        <td style="padding:12px;background:var(--laranja-claro);vertical-align:top;font-size:14px;border-top:1px solid var(--linha)">Soro fisiológico 1x ao dia<br>Corticoide 2x semana</td>
+        <td style="padding:12px;vertical-align:top;font-size:14px;border-top:1px solid var(--linha)">Anti-histamínico</td>
+        <td style="padding:12px;vertical-align:top;font-size:14px;border-top:1px solid var(--linha)">Anti-histamínico</td>
+      </tr>
+      <tr>
+        <td class="rot" style="padding:12px 0;vertical-align:top;border-top:1px solid var(--linha)">Conduta</td>
+        <td style="padding:12px;background:var(--laranja-claro);vertical-align:top;font-size:14px;border-top:1px solid var(--linha);border-radius:0 0 10px 10px">Repouso e atividade física</td>
+        <td style="padding:12px;vertical-align:top;font-size:14px;border-top:1px solid var(--linha)">Manter tratamento</td>
+        <td style="padding:12px;vertical-align:top;font-size:14px;border-top:1px solid var(--linha)">Iniciar tratamento</td>
+      </tr>
+    </table>
+  </div>
+</div>
+
+<!-- ===== 7 ===== -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">7</span><span class="nome">Resumo permanente do paciente</span></div>
+  <p class="quando">Alergias, medicações em uso e problemas ativos ficam fixos no topo, sempre visíveis, separados do histórico. É como funcionam os prontuários hospitalares — o que pode matar o paciente não deve depender de rolagem.</p>
+
+  <div class="cartao">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:18px">
+      <div style="background:var(--vermelho-claro);border-left:4px solid var(--vermelho);padding:11px 14px">
+        <div class="rot" style="color:var(--vermelho)">Alergias</div>
+        <div style="font-size:15px;font-weight:700;color:var(--vermelho);margin-top:2px">Látex</div>
+      </div>
+      <div style="background:var(--verde-claro);border-left:4px solid var(--verde);padding:11px 14px">
+        <div class="rot" style="color:var(--verde)">Em uso</div>
+        <div style="font-size:15px;font-weight:700;color:var(--verde);margin-top:2px">Corticoide · Antibiótico</div>
+      </div>
+      <div style="background:var(--papel);border-left:4px solid var(--tinta-fraca);padding:11px 14px">
+        <div class="rot">Problemas ativos</div>
+        <div style="font-size:15px;font-weight:700;margin-top:2px">Sinusite crônica · Hipertensão</div>
+      </div>
+    </div>
+
+    <div style="border-top:1px solid var(--linha);padding-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+        <div style="font-size:16px;font-weight:700">Consulta inicial — 17/08/2026</div>
+        <div style="font-size:12px;color:var(--tinta-fraca)">Liferty Santos · 72 kg · IMC 22,7</div>
+      </div>
+      <div style="margin-bottom:12px"><div class="rot">Queixa principal</div><div class="txt">Dor de barriga.</div></div>
+      <div style="margin-bottom:12px"><div class="rot">História e evolução</div><div class="txt">Dor de barriga por mais de uma semana, com recorrência no banheiro.</div></div>
+      <div><div class="rot">Conduta e prescrição</div><div class="txt">Repouso e atividade física. Soro fisiológico uma vez ao dia.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 8 ===== -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">8</span><span class="nome">Lista densa</span></div>
+  <p class="quando">Sem cartões, sem molduras. Cada campo é uma linha com o rótulo à esquerda e o texto à direita, como uma ficha técnica. Cabe muito mais na tela — o oposto da primeira rodada, que apostava em espaço.</p>
+
+  <div class="cartao" style="padding:18px 22px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid var(--tinta);padding-bottom:9px;margin-bottom:4px">
+      <div style="font-size:16px;font-weight:700">Consulta inicial · 17/08/2026</div>
+      <div style="font-size:12px;color:var(--tinta-fraca)">72 kg · 178 cm · IMC 22,7 · J32</div>
+    </div>
+    <table>
+      <tr><td style="width:170px;padding:9px 12px 9px 0;vertical-align:top" class="rot">Queixa principal</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media);border-bottom:1px solid var(--linha)">Dor de barriga.</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot">História / evolução</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media);border-bottom:1px solid var(--linha)">Dor de barriga por mais de uma semana, com recorrência no banheiro.</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot">Antec. pessoais</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media);border-bottom:1px solid var(--linha)">Hipertensão</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot">Antec. familiares</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media);border-bottom:1px solid var(--linha)">Doença cardiovascular</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot" style="color:var(--vermelho)">Alergias</td><td style="padding:9px 0;font-size:14px;color:var(--vermelho);font-weight:700;border-bottom:1px solid var(--linha)">Alergia a látex</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot">Medicamentos</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media);border-bottom:1px solid var(--linha)">Corticoide e antibiótico</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot">Exame físico</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media);border-bottom:1px solid var(--linha)">Ultrassom e tomografia</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot">Avaliação</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media);font-weight:700;border-bottom:1px solid var(--linha)">Sinusite crônica</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot">Conduta</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media);border-bottom:1px solid var(--linha)">Repouso e atividade física</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot">Prescrição</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media);border-bottom:1px solid var(--linha)">Soro fisiológico 1x ao dia · Corticoide 2x semana</td></tr>
+      <tr><td style="padding:9px 12px 9px 0;vertical-align:top" class="rot">Retorno</td><td style="padding:9px 0;font-size:14px;color:var(--tinta-media)">30 dias</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ===== 9 ===== -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">9</span><span class="nome">Abas dentro da consulta</span></div>
+  <p class="quando">A consulta se divide em quatro abas: atendimento, antecedentes, exame e plano. Elimina a rolagem — cada aba cabe inteira na tela. Custa um clique para ver o que estava visível antes.</p>
+
+  <div class="cartao" style="padding:0;overflow:hidden">
+    <div style="padding:18px 24px 0">
+      <div style="font-size:17px;font-weight:700">Consulta inicial — 17/08/2026</div>
+      <div style="font-size:13px;color:var(--tinta-fraca);margin-bottom:14px">Liferty Santos · 72 kg · IMC 22,7 · CID J32</div>
+    </div>
+    <div style="display:flex;gap:2px;padding:0 24px;border-bottom:1px solid var(--linha)">
+      <div style="padding:10px 16px;font-size:13px;font-weight:700;border-bottom:3px solid var(--laranja);color:var(--laranja-escuro)">Atendimento</div>
+      <div style="padding:10px 16px;font-size:13px;font-weight:600;color:var(--tinta-fraca)">Antecedentes</div>
+      <div style="padding:10px 16px;font-size:13px;font-weight:600;color:var(--tinta-fraca)">Exame</div>
+      <div style="padding:10px 16px;font-size:13px;font-weight:600;color:var(--tinta-fraca)">Plano</div>
+    </div>
+    <div style="padding:20px 24px 24px">
+      <div style="margin-bottom:16px"><div class="rot">Queixa principal</div><div class="txt" style="font-size:16px">Dor de barriga.</div></div>
+      <div><div class="rot">História e evolução</div><div class="txt" style="font-size:16px">Dor de barriga por mais de uma semana, com recorrência no banheiro. Paciente relata melhora parcial com o tratamento anterior.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 10 ===== -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">10</span><span class="nome">Nota clínica corrida</span></div>
+  <p class="quando">A consulta vira um texto único, com os rótulos embutidos na frase em vez de blocos separados. É como o médico escreveria à mão. O mais compacto e o mais natural de ler, mas o mais difícil de bater o olho e achar um campo específico.</p>
+
+  <div class="cartao" style="padding:24px 30px">
+    <div style="font-size:13px;color:var(--tinta-fraca);border-bottom:1px solid var(--linha);padding-bottom:10px;margin-bottom:14px">
+      <span style="font-weight:700;color:var(--tinta);font-size:15px">Consulta inicial</span> · 17/08/2026 · Liferty Santos · 72 kg · 178 cm · IMC 22,7
+    </div>
+    <div style="font-size:16px;line-height:1.85;color:var(--tinta-media)">
+      <b style="color:var(--tinta)">Queixa:</b> dor de barriga.
+      <b style="color:var(--tinta)">HDA:</b> dor de barriga por mais de uma semana, com recorrência no banheiro.
+      <b style="color:var(--tinta)">Antecedentes:</b> hipertensão; familiares com doença cardiovascular.
+      <b style="color:var(--vermelho)">Alergias:</b> <span style="color:var(--vermelho);font-weight:700">látex</span>.
+      <b style="color:var(--tinta)">Medicações:</b> corticoide e antibiótico.
+      <b style="color:var(--tinta)">Exame:</b> ultrassom e tomografia solicitados.
+      <b style="color:var(--tinta)">Hipótese:</b> sinusite crônica (J32).
+      <b style="color:var(--tinta)">Conduta:</b> repouso e atividade física; soro fisiológico uma vez ao dia e corticoide duas vezes por semana.
+      <b style="color:var(--tinta)">Retorno:</b> 30 dias.
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

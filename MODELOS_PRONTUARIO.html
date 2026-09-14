@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modelos de prontuário — Central de Cuidado</title>
+<style>
+  :root{
+    --tinta:#081b2c; --tinta-media:#233b50; --tinta-fraca:#6b7885;
+    --laranja:#dc8e5f; --laranja-escuro:#b96535; --laranja-claro:#fdf4ef;
+    --verde:#557f75; --verde-claro:#eef3f2;
+    --papel:#fbfaf8; --branco:#ffffff; --linha:rgba(8,27,44,.10);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#f1efec;color:var(--tinta);
+    font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.55}
+  .topo{background:var(--tinta);color:#fff;padding:26px 32px}
+  .topo h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.02em}
+  .topo p{margin:6px 0 0;font-size:13px;opacity:.75;max-width:70ch}
+  .conteudo{max-width:1080px;margin:0 auto;padding:28px 24px 60px}
+  .modelo{margin-bottom:44px}
+  .rotulo{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .num{background:var(--laranja);color:#fff;font-size:12px;font-weight:800;
+    padding:4px 12px;border-radius:20px}
+  .nome{font-size:18px;font-weight:700;letter-spacing:-.01em}
+  .quando{font-size:13px;color:var(--tinta-fraca);margin:0 0 14px;max-width:75ch}
+  .cartao{background:var(--branco);border:1px solid var(--linha);border-radius:18px;
+    padding:22px 26px;box-shadow:0 2px 14px rgba(8,27,44,.05)}
+  .selo{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--tinta-fraca);font-weight:800}
+  .meta{font-size:13px;color:var(--tinta-fraca);margin:2px 0 0}
+  .campo{margin-bottom:14px}
+  .campo-rot{font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--tinta-fraca);font-weight:800;margin-bottom:3px}
+  .campo-txt{font-size:15px;color:var(--tinta-media);line-height:1.65}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 16px}
+  .chip{background:var(--verde-claro);color:var(--verde);font-size:12px;font-weight:700;
+    padding:4px 11px;border-radius:20px}
+  @media(max-width:760px){.conteudo{padding:20px 14px 40px}.cartao{padding:16px}}
+</style>
+</head>
+<body>
+
+<div class="topo">
+  <h1>Cinco modelos de prontuário</h1>
+  <p>Mesma consulta, cinco desenhos diferentes. Compare a legibilidade, o quanto cabe na tela e a facilidade de achar o que importa. Depois me diga o número.</p>
+</div>
+
+<div class="conteudo">
+
+<!-- ============ 1 ============ -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">1</span><span class="nome">Documento clínico</span></div>
+  <p class="quando">Serifado, como um prontuário de papel. Densidade alta e ar de documento oficial. É o que mais combina com a versão impressa, porque tela e papel ficam iguais.</p>
+
+  <div class="cartao" style="font-family:Georgia,'Times New Roman',serif">
+    <div style="border-bottom:2px solid var(--tinta);padding-bottom:10px;margin-bottom:16px">
+      <div style="font-size:20px;font-weight:700">Eduardo Marques</div>
+      <div class="meta" style="font-family:'Segoe UI',sans-serif">42 anos · Particular · Resp. Carlos Alberto Marques · 13991165576</div>
+    </div>
+    <div style="font-size:16px;font-weight:700">Consulta inicial — 17/08/2026</div>
+    <div class="meta" style="font-family:'Segoe UI',sans-serif;margin-bottom:16px">Liferty Santos · 72 kg · 178 cm · IMC 22,7 · CID J32</div>
+
+    <div class="campo"><div class="campo-rot" style="font-family:'Segoe UI',sans-serif">Queixa principal</div><div class="campo-txt" style="font-size:16px">Dor de barriga.</div></div>
+    <div class="campo"><div class="campo-rot" style="font-family:'Segoe UI',sans-serif">História e evolução</div><div class="campo-txt" style="font-size:16px">Dor de barriga por mais de uma semana, com recorrência no banheiro.</div></div>
+    <div class="campo"><div class="campo-rot" style="font-family:'Segoe UI',sans-serif">Avaliação e hipótese diagnóstica</div><div class="campo-txt" style="font-size:16px">Sinusite crônica.</div></div>
+    <div class="campo"><div class="campo-rot" style="font-family:'Segoe UI',sans-serif">Conduta</div><div class="campo-txt" style="font-size:16px">Repouso e atividade física.</div></div>
+    <div class="campo" style="margin-bottom:0"><div class="campo-rot" style="font-family:'Segoe UI',sans-serif">Prescrição</div><div class="campo-txt" style="font-size:16px">Soro fisiológico uma vez ao dia.<br>Corticoide duas vezes por semana.</div></div>
+  </div>
+</div>
+
+<!-- ============ 2 ============ -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">2</span><span class="nome">Linha do tempo</span></div>
+  <p class="quando">As consultas viram uma trilha à esquerda e o detalhe abre à direita. Brilha quando o paciente tem muitas consultas: dá para pular de 2024 para hoje sem rolar nada. Custa espaço horizontal.</p>
+
+  <div class="cartao" style="display:grid;grid-template-columns:200px 1fr;gap:22px">
+    <div style="border-right:1px solid var(--linha);padding-right:18px">
+      <div class="selo" style="margin-bottom:12px">Consultas</div>
+      <div style="border-left:3px solid var(--laranja);padding:2px 0 2px 12px;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700">17/08/2026</div>
+        <div style="font-size:12px;color:var(--tinta-fraca)">Consulta inicial</div>
+        <div style="font-size:12px;color:var(--laranja-escuro);font-weight:600">Sinusite crônica</div>
+      </div>
+      <div style="border-left:3px solid var(--linha);padding:2px 0 2px 12px;margin-bottom:16px;opacity:.6">
+        <div style="font-size:14px;font-weight:700">02/06/2026</div>
+        <div style="font-size:12px;color:var(--tinta-fraca)">Retorno</div>
+      </div>
+      <div style="border-left:3px solid var(--linha);padding:2px 0 2px 12px;opacity:.6">
+        <div style="font-size:14px;font-weight:700">14/03/2026</div>
+        <div style="font-size:12px;color:var(--tinta-fraca)">Telemedicina</div>
+      </div>
+    </div>
+
+    <div>
+      <div style="font-size:17px;font-weight:700">Consulta inicial</div>
+      <div class="meta">17/08/2026 · Liferty Santos</div>
+      <div class="chips"><span class="chip">72 kg</span><span class="chip">178 cm</span><span class="chip">IMC 22,7</span><span class="chip">CID J32</span></div>
+      <div class="campo"><div class="campo-rot">Queixa principal</div><div class="campo-txt">Dor de barriga.</div></div>
+      <div class="campo"><div class="campo-rot">Avaliação</div><div class="campo-txt">Sinusite crônica.</div></div>
+      <div class="campo" style="margin-bottom:0"><div class="campo-rot">Prescrição</div><div class="campo-txt">Soro fisiológico uma vez ao dia.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 3 ============ -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">3</span><span class="nome">Método SOAP</span></div>
+  <p class="quando">O único que reorganiza o conteúdo, e não só a aparência. Agrupa nos quatro momentos do raciocínio clínico: o que o paciente conta, o que você observa, o que conclui, o que faz. Seus campos atuais encaixam sem mudar nada no banco.</p>
+
+  <div class="cartao">
+    <div style="font-size:17px;font-weight:700">Consulta inicial — 17/08/2026</div>
+    <div class="meta" style="margin-bottom:16px">Liferty Santos · Eduardo Marques, 42 anos</div>
+
+    <div style="border-left:4px solid #7F77DD;background:#EEEDFE;padding:12px 16px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:800;color:#3C3489;text-transform:uppercase;letter-spacing:.06em">S — Subjetivo</div>
+      <div style="font-size:11px;color:#534AB7;margin-bottom:5px">o que o paciente relata</div>
+      <div style="font-size:15px;color:#26215C;line-height:1.65">Dor de barriga há mais de uma semana, com recorrência no banheiro. Sem alergias conhecidas além de látex. Em uso de corticoide e antibiótico.</div>
+    </div>
+
+    <div style="border-left:4px solid #1D9E75;background:#E1F5EE;padding:12px 16px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:800;color:#085041;text-transform:uppercase;letter-spacing:.06em">O — Objetivo</div>
+      <div style="font-size:11px;color:#0F6E56;margin-bottom:5px">medidas e exame físico</div>
+      <div style="font-size:15px;color:#04342C;line-height:1.65">72 kg · 178 cm · IMC 22,7 (+0,4 desde a última). Ultrassom e tomografia solicitados.</div>
+    </div>
+
+    <div style="border-left:4px solid #D85A30;background:#FAECE7;padding:12px 16px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:800;color:#712B13;text-transform:uppercase;letter-spacing:.06em">A — Avaliação</div>
+      <div style="font-size:11px;color:#993C1D;margin-bottom:5px">hipótese diagnóstica</div>
+      <div style="font-size:15px;color:#4A1B0C;line-height:1.65">Sinusite crônica · CID J32</div>
+    </div>
+
+    <div style="border-left:4px solid #378ADD;background:#E6F1FB;padding:12px 16px">
+      <div style="font-size:12px;font-weight:800;color:#0C447C;text-transform:uppercase;letter-spacing:.06em">P — Plano</div>
+      <div style="font-size:11px;color:#185FA5;margin-bottom:5px">conduta, prescrição e retorno</div>
+      <div style="font-size:15px;color:#042C53;line-height:1.65">Repouso e atividade física. Soro fisiológico uma vez ao dia, corticoide duas vezes por semana. Retorno em 30 dias.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 4 ============ -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">4</span><span class="nome">Painel com medidas no topo</span></div>
+  <p class="quando">Peso, altura e IMC ganham o melhor espaço da tela, com a variação desde a consulta anterior. Faz sentido se acompanhar medidas for central no seu dia. Se não for, ocupa lugar nobre com pouco retorno.</p>
+
+  <div class="cartao">
+    <div style="font-size:17px;font-weight:700">Consulta inicial — 17/08/2026</div>
+    <div class="meta" style="margin-bottom:16px">Liferty Santos</div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+      <div style="background:var(--papel);border-radius:14px;padding:13px 16px">
+        <div style="font-size:12px;color:var(--tinta-fraca);font-weight:600">Peso</div>
+        <div style="font-size:26px;font-weight:700;letter-spacing:-.02em">72 kg</div>
+        <div style="font-size:12px;color:var(--verde);font-weight:700">+1,5 kg</div>
+      </div>
+      <div style="background:var(--papel);border-radius:14px;padding:13px 16px">
+        <div style="font-size:12px;color:var(--tinta-fraca);font-weight:600">Altura</div>
+        <div style="font-size:26px;font-weight:700;letter-spacing:-.02em">178 cm</div>
+      </div>
+      <div style="background:var(--papel);border-radius:14px;padding:13px 16px">
+        <div style="font-size:12px;color:var(--tinta-fraca);font-weight:600">IMC</div>
+        <div style="font-size:26px;font-weight:700;letter-spacing:-.02em">22,7</div>
+        <div style="font-size:12px;color:var(--tinta-fraca);font-weight:700">+0,4</div>
+      </div>
+      <div style="background:var(--papel);border-radius:14px;padding:13px 16px">
+        <div style="font-size:12px;color:var(--tinta-fraca);font-weight:600">CID-10</div>
+        <div style="font-size:26px;font-weight:700;letter-spacing:-.02em">J32</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px">
+      <div class="campo"><div class="campo-rot">Queixa principal</div><div class="campo-txt">Dor de barriga.</div></div>
+      <div class="campo"><div class="campo-rot">História e evolução</div><div class="campo-txt">Mais de uma semana, com recorrência.</div></div>
+      <div class="campo"><div class="campo-rot">Avaliação</div><div class="campo-txt">Sinusite crônica.</div></div>
+      <div class="campo"><div class="campo-rot">Conduta</div><div class="campo-txt">Repouso e atividade física.</div></div>
+      <div class="campo" style="margin-bottom:0"><div class="campo-rot">Prescrição</div><div class="campo-txt">Soro fisiológico uma vez ao dia.</div></div>
+      <div class="campo" style="margin-bottom:0"><div class="campo-rot">Retorno</div><div class="campo-txt">30 dias.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 5 ============ -->
+<div class="modelo">
+  <div class="rotulo"><span class="num">5</span><span class="nome">Leitura corrida</span></div>
+  <p class="quando">Coluna única, sem caixas, letra grande e entrelinha folgada. O mais legível dos cinco e o mais parecido com o que você já tem — só que respirando. Cabe menos por tela.</p>
+
+  <div class="cartao" style="padding:26px 32px">
+    <div class="meta">Consulta inicial · 17/08/2026 · Liferty Santos</div>
+    <div style="font-size:24px;font-weight:700;letter-spacing:-.02em;margin:2px 0 6px">Sinusite crônica</div>
+    <div class="chips" style="margin-top:4px"><span class="chip">72 kg</span><span class="chip">IMC 22,7</span><span class="chip">CID J32</span></div>
+
+    <div style="border-top:1px solid var(--linha);padding-top:14px;margin-bottom:16px">
+      <div class="campo-rot" style="margin-bottom:5px">Queixa principal</div>
+      <div style="font-size:17px;line-height:1.8;color:var(--tinta-media)">Dor de barriga.</div>
+    </div>
+    <div style="border-top:1px solid var(--linha);padding-top:14px;margin-bottom:16px">
+      <div class="campo-rot" style="margin-bottom:5px">História e evolução</div>
+      <div style="font-size:17px;line-height:1.8;color:var(--tinta-media)">Dor de barriga por mais de uma semana, com recorrência no banheiro.</div>
+    </div>
+    <div style="border-top:1px solid var(--linha);padding-top:14px;margin-bottom:16px">
+      <div class="campo-rot" style="margin-bottom:5px">Conduta</div>
+      <div style="font-size:17px;line-height:1.8;color:var(--tinta-media)">Repouso e atividade física.</div>
+    </div>
+    <div style="border-top:1px solid var(--linha);padding-top:14px">
+      <div class="campo-rot" style="margin-bottom:5px">Prescrição</div>
+      <div style="font-size:17px;line-height:1.8;color:var(--tinta-media)">Soro fisiológico uma vez ao dia.<br>Corticoide duas vezes por semana.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>
