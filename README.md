@@ -1,4 +1,4 @@
-# Central de Cuidado - Dr. Marcello Ruiz
+# Sistema do consultorio - Dra. Patricia Zerbini
 
 Sistema web responsivo para cadastro de pacientes e organização de acompanhamentos de 30 e 90 dias após a consulta.
 

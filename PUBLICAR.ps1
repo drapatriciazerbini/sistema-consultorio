@@ -1,4 +1,4 @@
-# Publicar Central de Cuidado - site + Edge Functions
+# Publicar o sistema da Dra. Patricia - site + Edge Functions
 # Rode bloco por bloco no PowerShell. Nao rode tudo de uma vez na primeira vez.
 
 cd "C:\Users\Edu\Desktop\dr marcelo\sistema-followup"

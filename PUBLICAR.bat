@@ -3,7 +3,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ============================================
-echo   Publicar Central de Cuidado
+echo   Publicar o sistema da Dra. Patricia
 echo ============================================
 echo.
 
@@ -27,8 +27,8 @@ echo.
 rem Fixa a conta do GitHub na URL do repositorio. Sem isso, com mais de uma
 rem conta salva no Windows, o git abre uma janela perguntando qual usar - e no
 rem agendador de tarefas nao ha ninguem para clicar nela.
-git remote set-url origin https://clinicamarcelloruiz@github.com/clinicamarcelloruiz/central-de-cuidado.git
-git config credential.username clinicamarcelloruiz
+git remote set-url origin https://drapatriciazerbini@github.com/drapatriciazerbini/sistema-consultorio.git
+git config credential.username drapatriciazerbini
 
 rem A mensagem do commit leva data e hora, entao nao precisa digitar nada.
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format \"dd/MM/yyyy HH:mm\""') do set "AGORA=%%i"
@@ -84,7 +84,7 @@ echo   Se mostrar outro, a pagina ainda esta velha:
 echo   atualize com Ctrl+F5.
 echo.
 echo   Acompanhe a publicacao em:
-echo   github.com/clinicamarcelloruiz/central-de-cuidado/actions
+echo   github.com/drapatriciazerbini/sistema-consultorio/actions
 echo ============================================
 echo.
 echo Esta janela fecha em 30 segundos.
