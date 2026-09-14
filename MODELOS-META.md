@@ -53,7 +53,7 @@ Idioma: Português (BR)
 **Corpo**
 
 ```
-Olá, {{1}}. Lembrete da consulta com a Dra. Patrícia Zerbini em {{2}}, às {{3}}, {{4}}. Podemos confirmar a presença?
+Olá, {{1}}. Lembrete da consulta com a Dra. Patrícia Zerbini em {{2}}, às {{3}}. Local: {{4}}. Podemos confirmar a presença?
 ```
 
 **Botões** (resposta rápida, nesta ordem)
@@ -68,14 +68,13 @@ Preciso remarcar
 - {{1}} = Maria Aparecida
 - {{2}} = terça, 22/09
 - {{3}} = 14:30
-- {{4}} = no consultório, no Gonzaga
+- {{4}} = Consultório (Gonzaga)
 
-O {{4}} recebe o nome da unidade cadastrada na agenda. Como a Dra. Patrícia
-atende dos dois jeitos, os nomes das unidades precisam completar a frase
-sozinhos. Cadastre assim:
+O {{4}} recebe o nome da unidade cadastrada na agenda. Como ele entra depois de
+"Local:", o nome pode ser curto e legível também na tela:
 
-- `no consultório, no Gonzaga`
-- `em visita domiciliar`
+- `Consultório (Gonzaga)`
+- `Visita domiciliar`
 
 ---
 

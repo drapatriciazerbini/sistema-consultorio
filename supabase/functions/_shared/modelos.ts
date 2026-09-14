@@ -37,13 +37,14 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
     rodape: 'Para não receber novos acompanhamentos, responda SAIR.',
     botoes: ['Estou bem', 'Preciso de ajuda', 'Não quero receber'],
   },
-  // O {{4}} recebe o nome da unidade cadastrada na agenda. Como a Dra. Patrícia
-  // atende nos dois formatos, os nomes das unidades precisam completar a frase
-  // sozinhos: "no consultório, no Gonzaga" e "em visita domiciliar".
+  // O {{4}} recebe o nome da unidade cadastrada na agenda, e por isso entra
+  // depois de "Local:" em vez de no meio da frase: assim o nome da unidade pode
+  // ser curto e legivel na tela ("Consultório (Gonzaga)", "Visita domiciliar")
+  // sem precisar completar uma frase que nunca foi escrita para ele.
   lembrete_consulta: {
     corpo:
-      'Olá, {{1}}. Lembrete da consulta com a Dra. Patrícia Zerbini em {{2}}, às {{3}}, ' +
-      '{{4}}. Podemos confirmar a presença?',
+      'Olá, {{1}}. Lembrete da consulta com a Dra. Patrícia Zerbini em {{2}}, às {{3}}. ' +
+      'Local: {{4}}. Podemos confirmar a presença?',
     botoes: ['Confirmar presença', 'Preciso remarcar'],
   },
   // Cancelamento fora da janela de 24 horas. O cancelamento costuma acontecer
