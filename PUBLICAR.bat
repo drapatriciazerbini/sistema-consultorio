@@ -52,7 +52,21 @@ if errorlevel 1 goto erro
 echo.
 echo --- Registrando a alteracao ---
 git commit -m "%MSG%"
-if errorlevel 1 (
+if not errorlevel 1 goto enviar
+
+rem "Nada para registrar" nao quer dizer "nada para enviar".
+rem
+rem Em 14/09/2026 este arquivo parou aqui com tres commits prontos e nenhum
+rem deles no GitHub: eles tinham sido registrados antes, fora deste arquivo. A
+rem janela dizia "tudo ja estava enviado" e nao estava. Agora, quando nao ha o
+rem que registrar, ele pergunta ao GitHub quantos commits faltam la.
+echo.
+echo Nada novo para registrar. Conferindo se ha commit pendente...
+git fetch origin main
+if errorlevel 1 goto erro
+for /f %%i in ('git rev-list --count origin/main..HEAD') do set "PENDENTES=%%i"
+
+if "%PENDENTES%"=="0" (
   echo.
   echo Nada novo para publicar. Tudo ja estava enviado.
   echo.
@@ -60,6 +74,10 @@ if errorlevel 1 (
   timeout /t 10 >nul
   exit /b 0
 )
+
+echo Existem %PENDENTES% commit(s) registrados e ainda nao enviados.
+
+:enviar
 
 echo.
 echo --- Enviando para o GitHub ---
