@@ -88,7 +88,15 @@ rem Guarda o codigo desta publicacao para conferir depois.
 rem "Publiquei" e "esta no ar" sao duas coisas diferentes: o GitHub leva alguns
 rem minutos para servir o build novo e o navegador ainda guarda o antigo. Sem um
 rem codigo para comparar, so restava adivinhar olhando a tela.
-for /f %%i in ('git rev-parse --short=7 HEAD') do set "VERSAO=%%i"
+rem O codigo sai para um arquivo e volta numa variavel. Ler direto do FOR /F
+rem falhou em 14/09/2026 com "Needed a single revision", e a janela mostrou
+rem "VERSAO PUBLICADA:" em branco depois de um envio que deu certo. O que o
+rem arquivo promete conferir nao pode depender de como o cmd interpreta aspas.
+git rev-parse --short=7 HEAD > "%TEMP%\versao-patricia.txt" 2>nul
+set "VERSAO="
+if exist "%TEMP%\versao-patricia.txt" set /p VERSAO=<"%TEMP%\versao-patricia.txt"
+del "%TEMP%\versao-patricia.txt" 2>nul
+if not defined VERSAO set "VERSAO=(nao consegui ler o codigo)"
 
 echo.
 echo ============================================
