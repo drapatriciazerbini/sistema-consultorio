@@ -36,3 +36,6 @@ ABRIR SISTEMA.html
 *.sw?
 tests/atendimento.build.mjs
 tests/lembrete.build.mjs
+
+# Previa local gerada para conferir a aparencia, nao faz parte do projeto
+PREVIA-VISUAL.html
