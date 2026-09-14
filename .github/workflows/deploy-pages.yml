@@ -107,8 +107,17 @@ jobs:
       # Aplica as migrations pendentes. Sem isto, toda alteracao de banco tem de
       # ser colada na mao no SQL Editor, o que ja causou schema publicado
       # diferente do repositorio.
+      # Vai direto ao banco, sem "supabase link".
+      #
+      # O link pergunta a API da Supabase quem e o projeto, e para isso exige do
+      # token de acesso permissoes que nada tem a ver com migration: chaves da
+      # API, configuracao de autenticacao. Em 14/09/2026 o primeiro envio parou
+      # exatamente ai, com "necessary privileges", embora o token ja pudesse
+      # aplicar migrations. Em vez de abrir o token, tiramos a pergunta.
+      #
+      # O endereco e o do pooler em modo sessao porque a conexao direta do
+      # Postgres so atende IPv6, e a maquina do GitHub so tem IPv4.
       - name: Aplicar migrations do banco
-        if: steps.token.outputs.presente == 'true'
         env:
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: |
@@ -116,5 +125,9 @@ jobs:
             echo "::warning::SUPABASE_DB_PASSWORD nao configurado. As migrations nao serao aplicadas automaticamente."
             exit 0
           fi
-          supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
-          supabase db push --password "$SUPABASE_DB_PASSWORD"
+          # A senha entra dentro de uma URL: caractere especial precisa virar
+          # codigo, senao a URL quebra no meio e o erro nao explica por que.
+          SENHA=$(python3 -c 'import os,urllib.parse;print(urllib.parse.quote(os.environ["SUPABASE_DB_PASSWORD"],safe=""))')
+          # Esconde tambem a versao codificada do log, que o GitHub nao mascara.
+          echo "::add-mask::$SENHA"
+          supabase db push --db-url "postgresql://postgres.$PROJECT_REF:$SENHA@aws-0-sa-east-1.pooler.supabase.com:5432/postgres"
