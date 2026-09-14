@@ -122,6 +122,57 @@ conferir(
   interpretarResposta('bom dia, tudo bem?', true).respondeuLembrete === false,
 )
 
+// Cumprimento nao e resposta ao acompanhamento: "tudo bem?" e pergunta, e
+// trata-la como "estou bem" faria o robo se calar diante de um bom dia.
+conferir(
+  '"bom dia, tudo bem?" não é a resposta "Estou bem"',
+  interpretarResposta('bom dia, tudo bem?', true).isWell === false,
+)
+
+// ---------------------------------------------------------------------------
+// O rótulo do botão mora na Meta, não aqui
+// ---------------------------------------------------------------------------
+//
+// O modelo aprovado manda de volta o proprio texto do botao. Enquanto a
+// comparacao era exata, um botao escrito "Confirmar presenca" nao batia com
+// nada: o paciente tocava em confirmar e a consulta continuava nao confirmada,
+// sem erro nenhum na tela. Estes casos existem para que trocar o texto do botao
+// na Meta nunca mais quebre o sistema em silencio.
+
+for (const rotulo of ['Confirmar presença', 'Confirmar presenca', 'CONFIRMAR PRESENÇA', 'quero confirmar minha consulta']) {
+  conferir(`"${rotulo}" confirma a consulta`, interpretarResposta(rotulo, true).confirma === true)
+}
+
+for (const rotulo of ['Preciso remarcar', 'quero remarcar', 'Reagendar consulta', 'preciso de outro horario']) {
+  conferir(`"${rotulo}" pede remarcação`, interpretarResposta(rotulo, true).remarca === true)
+}
+
+for (const rotulo of ['Cancelar consulta', 'preciso cancelar', 'quero desmarcar']) {
+  conferir(`"${rotulo}" cancela`, interpretarResposta(rotulo, true).cancela === true)
+}
+
+// A negacao inverte a frase inteira: melhor cair no atendimento humano do que
+// confirmar a presenca de quem acabou de dizer que nao vai.
+for (const frase of ['não posso confirmar', 'não vou poder confirmar', 'não quero cancelar']) {
+  const r = interpretarResposta(frase, true)
+  conferir(`"${frase}" não é tratada como resposta ao lembrete`, r.respondeuLembrete === false)
+}
+
+conferir(
+  '"Preciso de ajuda" continua chamando a equipe',
+  interpretarResposta('Preciso de ajuda', false).pediuAjuda === true,
+)
+
+conferir(
+  '"vou sair de viagem" não descadastra ninguém',
+  interpretarResposta('vou sair de viagem', false).optedOut === false,
+)
+
+conferir(
+  '"Não quero receber" descadastra',
+  interpretarResposta('Não quero receber', false).optedOut === true,
+)
+
 // ---------------------------------------------------------------------------
 // Quem precisa aparecer para a equipe
 // ---------------------------------------------------------------------------

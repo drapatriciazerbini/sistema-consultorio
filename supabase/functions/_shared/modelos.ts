@@ -23,9 +23,12 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
   // isso a pergunta não é "como você está", e sim como estão as coisas desde a
   // consulta: serve tanto para o próprio paciente quanto para o acompanhante.
   //
-  // Os rótulos dos botões são os que o robô reconhece de volta em
-  // lembrete.ts (interpretarResposta). A Meta devolve o rótulo como resposta,
-  // então mudar uma palavra aqui, ou na Meta, desliga o entendimento.
+  // Os rótulos precisam ser iguais aos aprovados na Meta, que é quem devolve o
+  // texto do botão quando a pessoa toca. Desde 14/09/2026 o robô entende por
+  // palavra contida, em lembrete.ts, então "Confirmar presença" e "Confirmar"
+  // funcionam igual: o rótulo pode ser escrito para o paciente, não para o
+  // código. O que não pode é a cópia daqui divergir do texto aprovado, senão a
+  // tela de conversas mostra um botão que ninguém viu.
   acompanhamento_pos_consulta: {
     corpo:
       'Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini. Estamos acompanhando ' +
@@ -41,7 +44,7 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
     corpo:
       'Olá, {{1}}. Lembrete da consulta com a Dra. Patrícia Zerbini em {{2}}, às {{3}}, ' +
       '{{4}}. Podemos confirmar a presença?',
-    botoes: ['Confirmar', 'Remarcar'],
+    botoes: ['Confirmar presença', 'Preciso remarcar'],
   },
   // A resposta da equipe fora da janela de 24 horas. O {{2}} é o texto que a
   // pessoa digitou na tela - por isso o registro precisa deste modelo aqui:

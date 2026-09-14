@@ -59,8 +59,8 @@ Olá, {{1}}. Lembrete da consulta com a Dra. Patrícia Zerbini em {{2}}, às {{3
 **Botões** (resposta rápida, nesta ordem)
 
 ```
-Confirmar
-Remarcar
+Confirmar presença
+Preciso remarcar
 ```
 
 **Exemplos que a Meta pede**
@@ -107,26 +107,23 @@ de 24 horas. O {{2}} é o texto digitado na tela.
 
 ---
 
-## O detalhe que quebra tudo em silêncio
+## Sobre os rótulos dos botões
 
 O sistema não manda um código junto com o botão: quando o paciente toca, a
-Meta devolve o próprio rótulo do botão, e o robô compara esse rótulo com as
-palavras que ele conhece, em `_shared/lembrete.ts`.
+Meta devolve o próprio rótulo, e o robô lê esse texto.
 
-As palavras que ele reconhece são exatamente estas:
+Desde 14/09/2026 ele entende por palavra contida, e não por texto exato, nos
+dois sistemas. Então "Confirmar", "Confirmar presença" e até "quero confirmar
+minha consulta" chegam no mesmo lugar. As palavras que ele procura são
+confirmar, remarcar ou reagendar, cancelar ou desmarcar, preciso de ajuda,
+estou bem, e não quero receber. Uma negação na frase bloqueia a ação: "não
+posso confirmar" não confirma, vai para a equipe.
 
-| Rótulo do botão | O que o robô faz |
-|---|---|
-| Confirmar | marca presença confirmada |
-| Remarcar | avisa a equipe e acende a bandeira de remarcação |
-| Estou bem | fecha o acompanhamento e agradece |
-| Preciso de ajuda | entrega a conversa para a equipe |
-| Não quero receber | desliga os acompanhamentos daquele número |
-
-Se a Meta sugerir "Confirmar presença" ou "Sim, confirmo" na hora da
-aprovação, e você aceitar, o paciente vai tocar o botão, a mensagem vai
-chegar, e a consulta não vai ser confirmada. Nada dá erro: só não acontece.
-Aceite a sugestão só se me avisar, para eu ajustar o código junto.
+Ou seja, se a Meta sugerir outro rótulo na hora da aprovação, aceite sem
+medo, desde que a palavra principal continue lá. Só me diga qual ficou, para
+eu igualar a cópia em `modelos.ts`: ela existe só para a tela de conversas
+mostrar o botão que o paciente viu. Se divergir, a tela exibe um botão que
+não existe. É cosmético, não quebra nada.
 
 ## Por que um modelo é recusado
 
