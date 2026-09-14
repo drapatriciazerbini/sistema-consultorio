@@ -1,10 +1,21 @@
 begin;
 
--- The automatic-RLS project option installs this event-trigger function in
--- public. It must continue to run internally, but it does not need to be
--- callable through the Data API.
-revoke all on function public.rls_auto_enable()
-  from public, anon, authenticated;
+-- A opcao de RLS automatica do projeto instala esta funcao de gatilho no
+-- esquema public. Ela precisa continuar rodando por dentro, mas nao precisa
+-- ser chamavel pela API de dados.
+--
+-- Em 14/09/2026 esta migration parou no projeto da Dra. Patricia: la a opcao
+-- de RLS automatica foi criada desligada, a funcao nao existe, e revogar
+-- permissao de algo inexistente e erro. Nao ha nada a consertar no banco: as
+-- proprias migrations ligam e forcam RLS tabela por tabela. So a revogacao e
+-- que precisa aceitar os dois cenarios, para a mesma sequencia servir a um
+-- projeto com a opcao ligada e a outro sem ela.
+do $$
+begin
+  if to_regprocedure('public.rls_auto_enable()') is not null then
+    execute 'revoke all on function public.rls_auto_enable() from public, anon, authenticated';
+  end if;
+end $$;
 
 -- Cover the composite foreign key used when patients are archived or checked.
 create index if not exists followups_patient_clinic_idx
