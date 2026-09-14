@@ -6,42 +6,23 @@ echo ============================================
 echo   Instalar as dependencias do sistema
 echo ============================================
 echo.
-echo As dependencias sao dezenas de milhares de arquivos
-echo pequenos. Dentro do OneDrive isso vira fila de
-echo sincronizacao e o computador engasga.
-echo.
-echo Por isso elas vao morar FORA do OneDrive, em
-echo C:\dev\patricia-node_modules, e a pasta do projeto
-echo recebe so um atalho apontando para la. Para o npm e
-echo para o Vite nada muda.
+echo O projeto vive fora do OneDrive, entao a instalacao
+echo e a normal: nada de atalho, nada de sincronizacao.
 echo.
 
 if exist "node_modules\" (
-  echo Ja existe uma pasta node_modules aqui.
-  echo Apague ou renomeie antes de rodar este arquivo.
-  echo.
-  pause
-  exit /b 1
+  echo Apagando a instalacao antiga, que ficou pela metade...
+  rmdir /s /q "node_modules"
 )
 
-if not exist "C:\dev\patricia-node_modules" mkdir "C:\dev\patricia-node_modules"
-if errorlevel 1 goto erro
-
-mklink /J "node_modules" "C:\dev\patricia-node_modules"
-if errorlevel 1 goto erro
-
-echo.
 echo --- Instalando (leva alguns minutos) ---
 call npm ci
 if errorlevel 1 goto erro
 
 echo.
 echo ============================================
-echo   Pronto.
-echo.
-echo   Agora o PUBLICAR.bat funciona: ele confere
-echo   lint, build e testes antes de enviar.
-echo   O ENVIAR.bat deixa de ser necessario.
+echo   Pronto. Agora use o PUBLICAR.bat: ele
+echo   confere lint, build e testes antes de enviar.
 echo ============================================
 echo.
 pause
