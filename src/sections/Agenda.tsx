@@ -182,11 +182,11 @@ function CaixaDeCancelamento({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#081b2c]/40 p-4">
-      <div className="w-full max-w-[440px] rounded-[22px] bg-white p-5 shadow-[0_24px_60px_rgba(8,27,44,.22)]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#193d36]/40 p-4">
+      <div className="w-full max-w-[440px] rounded-[22px] bg-white p-5 shadow-[0_24px_60px_rgba(25,61,54,.22)]">
         {resultado ? (
           <>
-            <p className="text-sm font-extrabold text-[#081b2c]">Consulta cancelada</p>
+            <p className="text-sm font-extrabold text-[#193d36]">Consulta cancelada</p>
             <p className="mt-1.5 text-[11px] font-semibold leading-relaxed text-slate-500">
               O horário voltou a ficar livre.
             </p>
@@ -205,14 +205,14 @@ function CaixaDeCancelamento({
             <button
               type="button"
               onClick={onFechar}
-              className="mt-4 w-full rounded-xl bg-[#081b2c] px-4 py-2.5 text-[11px] font-extrabold text-white transition hover:bg-[#102d47]"
+              className="mt-4 w-full rounded-xl bg-[#193d36] px-4 py-2.5 text-[11px] font-extrabold text-white transition hover:bg-[#13453c]"
             >
               Entendi
             </button>
           </>
         ) : (
           <>
-            <p className="text-sm font-extrabold text-[#081b2c]">Cancelar a consulta</p>
+            <p className="text-sm font-extrabold text-[#193d36]">Cancelar a consulta</p>
             <p className="mt-1 text-[11px] font-semibold text-slate-500">
               {consulta.paciente} · {consulta.quando}
             </p>
@@ -226,8 +226,8 @@ function CaixaDeCancelamento({
                   key={opcao}
                   className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-[11px] font-bold transition ${
                     motivo === opcao
-                      ? 'border-[#2f7fc1] bg-[#eff6fd] text-[#081b2c]'
-                      : 'border-[#081b2c]/10 bg-white text-slate-600 hover:bg-slate-50'
+                      ? 'border-[#2f7f74] bg-[#eff6fd] text-[#193d36]'
+                      : 'border-[#193d36]/10 bg-white text-slate-600 hover:bg-slate-50'
                   }`}
                 >
                   <input
@@ -235,7 +235,7 @@ function CaixaDeCancelamento({
                     name="motivo"
                     checked={motivo === opcao}
                     onChange={() => setMotivo(opcao)}
-                    className="h-3.5 w-3.5 accent-[#1f4f78]"
+                    className="h-3.5 w-3.5 accent-[#1f5f55]"
                   />
                   {opcao}
                 </label>
@@ -249,16 +249,16 @@ function CaixaDeCancelamento({
                 onChange={(evento) => setOutro(evento.target.value)}
                 maxLength={140}
                 placeholder="O que o paciente vai ler como motivo"
-                className="mt-2 w-full rounded-xl border border-[#081b2c]/10 bg-[#fafaf8] px-3.5 py-2.5 text-[11px] font-semibold text-[#081b2c] outline-none focus:border-[#2f7fc1] focus:bg-white"
+                className="mt-2 w-full rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3.5 py-2.5 text-[11px] font-semibold text-[#193d36] outline-none focus:border-[#2f7f74] focus:bg-white"
               />
             )}
 
-            <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl bg-[#f8f7f4] px-3.5 py-3 text-[11px] font-bold text-slate-600">
+            <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl bg-[#f8f6f0] px-3.5 py-3 text-[11px] font-bold text-slate-600">
               <input
                 type="checkbox"
                 checked={avisar}
                 onChange={(evento) => setAvisar(evento.target.checked)}
-                className="mt-0.5 h-3.5 w-3.5 accent-[#1f4f78]"
+                className="mt-0.5 h-3.5 w-3.5 accent-[#1f5f55]"
               />
               <span>
                 Avisar o paciente pelo WhatsApp
@@ -271,12 +271,12 @@ function CaixaDeCancelamento({
             {/* So faz sentido dentro do aviso: sugerir horario a quem nao vai
                 receber mensagem nenhuma seria conversa com a parede. */}
             {avisar && (
-              <label className="mt-1.5 flex cursor-pointer items-start gap-2.5 rounded-xl bg-[#f8f7f4] px-3.5 py-3 text-[11px] font-bold text-slate-600">
+              <label className="mt-1.5 flex cursor-pointer items-start gap-2.5 rounded-xl bg-[#f8f6f0] px-3.5 py-3 text-[11px] font-bold text-slate-600">
                 <input
                   type="checkbox"
                   checked={sugerir}
                   onChange={(evento) => setSugerir(evento.target.checked)}
-                  className="mt-0.5 h-3.5 w-3.5 accent-[#1f4f78]"
+                  className="mt-0.5 h-3.5 w-3.5 accent-[#1f5f55]"
                 />
                 <span>
                   Sugerir 3 horários da mesma unidade
@@ -302,7 +302,7 @@ function CaixaDeCancelamento({
                 type="button"
                 onClick={onFechar}
                 disabled={enviando}
-                className="rounded-xl border border-[#081b2c]/10 px-4 py-2.5 text-[11px] font-bold text-slate-500 transition hover:bg-slate-50"
+                className="rounded-xl border border-[#193d36]/10 px-4 py-2.5 text-[11px] font-bold text-slate-500 transition hover:bg-slate-50"
               >
                 Voltar
               </button>
@@ -592,7 +592,7 @@ export default function Agenda({
       {units.length === 0 ? (
         <div className="surface-card rounded-[22px] p-8">
           <Building2 className="mx-auto h-8 w-8 text-slate-300" />
-          <p className="mt-3 text-center text-sm font-bold text-[#081b2c]">
+          <p className="mt-3 text-center text-sm font-bold text-[#193d36]">
             Cadastre a primeira unidade
           </p>
           <p className="mx-auto mt-1 max-w-md text-center text-xs text-slate-500">
@@ -604,13 +604,13 @@ export default function Agenda({
               value={novaUnidade.nome}
               onChange={(e) => setNovaUnidade({ ...novaUnidade, nome: e.target.value })}
               placeholder="Nome da unidade"
-              className="rounded-xl border border-[#081b2c]/10 bg-[#fafaf8] px-3 py-2 text-xs outline-none focus:border-[#2f7fc1]"
+              className="rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3 py-2 text-xs outline-none focus:border-[#2f7f74]"
             />
             <input
               value={novaUnidade.endereco}
               onChange={(e) => setNovaUnidade({ ...novaUnidade, endereco: e.target.value })}
               placeholder="Endereço (opcional)"
-              className="rounded-xl border border-[#081b2c]/10 bg-[#fafaf8] px-3 py-2 text-xs outline-none focus:border-[#2f7fc1]"
+              className="rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3 py-2 text-xs outline-none focus:border-[#2f7f74]"
             />
             <button
               type="button"
@@ -622,7 +622,7 @@ export default function Agenda({
                   setNovaUnidade({ nome: '', endereco: '' })
                 }, 'Unidade cadastrada.')
               }
-              className="rounded-xl bg-[#081b2c] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#102d47] disabled:opacity-40"
+              className="rounded-xl bg-[#193d36] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#13453c] disabled:opacity-40"
             >
               Cadastrar unidade
             </button>
@@ -635,7 +635,7 @@ export default function Agenda({
               <select
                 value={unitId ?? ''}
                 onChange={(e) => setUnitId(e.target.value)}
-                className="rounded-xl border border-[#081b2c]/10 bg-white px-3 py-1.5 text-[11px] font-bold text-[#081b2c] outline-none"
+                className="rounded-xl border border-[#193d36]/10 bg-white px-3 py-1.5 text-[11px] font-bold text-[#193d36] outline-none"
               >
                 {units.map((u) => (
                   <option key={u.id} value={u.id}>
@@ -650,7 +650,7 @@ export default function Agenda({
                     type="button"
                     onClick={() => setAba(chave)}
                     className={`rounded-lg px-3 py-1.5 text-[10px] font-extrabold transition ${
-                      aba === chave ? 'bg-white text-[#081b2c] shadow-sm' : 'text-[#557f75]'
+                      aba === chave ? 'bg-white text-[#193d36] shadow-sm' : 'text-[#557f75]'
                     }`}
                   >
                     {chave === 'calendario' ? 'Calendário' : 'Configuração'}
@@ -671,7 +671,7 @@ export default function Agenda({
           {aba === 'calendario' ? (
             <div className="space-y-3">
               {rules.length === 0 && (
-                <div className="flex items-start gap-2 rounded-[16px] border border-[#2f7fc1]/40 bg-[#eef5fd] p-3 text-[11px] font-bold text-[#16456b]">
+                <div className="flex items-start gap-2 rounded-[16px] border border-[#2f7f74]/40 bg-[#f2ece0] p-3 text-[11px] font-bold text-[#17564d]">
                   <Clock className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
                     Esta unidade ainda não tem horário de atendimento definido, então não há
@@ -689,7 +689,7 @@ export default function Agenda({
               {dias.map(([dia, { livres, marcados, bloqueio }]) => (
                 <div key={dia} className={`surface-card rounded-[20px] p-4 ${bloqueio ? 'opacity-80' : ''}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-extrabold capitalize text-[#081b2c]">
+                    <p className="text-xs font-extrabold capitalize text-[#193d36]">
                       {diaLegivel(dia + 'T12:00:00')}
                     </p>
                     {bloqueio ? (
@@ -698,7 +698,7 @@ export default function Agenda({
                         onClick={() =>
                           void acao(() => deleteScheduleException(bloqueio.id), 'Dia liberado.')
                         }
-                        className="rounded-lg border border-[#081b2c]/10 px-2.5 py-1 text-[10px] font-bold text-[#557f75] transition hover:bg-[#eef3f2]"
+                        className="rounded-lg border border-[#193d36]/10 px-2.5 py-1 text-[10px] font-bold text-[#557f75] transition hover:bg-[#eef3f2]"
                       >
                         Liberar dia
                       </button>
@@ -712,7 +712,7 @@ export default function Agenda({
                             if (e.key === 'Escape') setBloqueandoDia(null)
                           }}
                           placeholder="Motivo (ex.: outro consultório)"
-                          className="w-52 rounded-lg border border-[#081b2c]/10 bg-white px-2.5 py-1 text-[10px] outline-none focus:border-[#1f4f78]"
+                          className="w-52 rounded-lg border border-[#193d36]/10 bg-white px-2.5 py-1 text-[10px] outline-none focus:border-[#1f5f55]"
                         />
                         <button
                           type="button"
@@ -724,7 +724,7 @@ export default function Agenda({
                               'Dia bloqueado. Ele não é mais oferecido no WhatsApp.',
                             )
                           }}
-                          className="rounded-lg bg-[#1f4f78] px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-[#183f61]"
+                          className="rounded-lg bg-[#1f5f55] px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-[#183f61]"
                         >
                           Bloquear
                         </button>
@@ -741,14 +741,14 @@ export default function Agenda({
                         type="button"
                         title="Ninguém consegue marcar neste dia; as consultas já marcadas continuam"
                         onClick={() => setBloqueandoDia({ dia, motivo: '' })}
-                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-400 transition hover:bg-[#f3f4f6] hover:text-[#081b2c]"
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-400 transition hover:bg-[#f3f4f6] hover:text-[#193d36]"
                       >
                         <CalendarOff className="h-3 w-3" /> Bloquear dia
                       </button>
                     )}
                   </div>
                   {bloqueio && (
-                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#e9edf1] px-3 py-1.5 text-[10px] font-bold text-[#081b2c]">
+                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#e9edf1] px-3 py-1.5 text-[10px] font-bold text-[#193d36]">
                       <CalendarOff className="h-3 w-3" /> Dia bloqueado{bloqueio.reason ? ` · ${bloqueio.reason}` : ''}
                       {bloqueio.unitId === null ? ' · todas as unidades' : ''}
                     </p>
@@ -759,9 +759,9 @@ export default function Agenda({
                       {marcados.map((item) => ehReserva(item) ? (
                         <div
                           key={item.id}
-                          className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-[#081b2c]/20 bg-[#e9edf1] px-3 py-2"
+                          className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-[#193d36]/20 bg-[#e9edf1] px-3 py-2"
                         >
-                          <p className="min-w-0 flex-1 truncate text-[11px] font-bold text-[#081b2c]">
+                          <p className="min-w-0 flex-1 truncate text-[11px] font-bold text-[#193d36]">
                             {hora(item.startsAt)} · Reservado{item.staffNote ? ` · ${item.staffNote}` : ''}
                             <span className="ml-1 font-semibold text-slate-500">(não aparece no WhatsApp)</span>
                           </p>
@@ -774,7 +774,7 @@ export default function Agenda({
                                 'Horário liberado.',
                               )
                             }
-                            className="shrink-0 rounded-lg p-1.5 text-slate-500 transition hover:bg-white hover:text-[#081b2c]"
+                            className="shrink-0 rounded-lg p-1.5 text-slate-500 transition hover:bg-white hover:text-[#193d36]"
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
@@ -784,8 +784,8 @@ export default function Agenda({
                           key={item.id}
                           className={`flex items-center justify-between gap-2 rounded-xl px-3 py-2 ${
                             item.confirmedByClinic
-                              ? 'bg-[#081b2c]'
-                              : 'border border-[#2f7fc1] bg-[#16456b]'
+                              ? 'bg-[#193d36]'
+                              : 'border border-[#2f7f74] bg-[#17564d]'
                           }`}
                         >
                           <button
@@ -808,7 +808,7 @@ export default function Agenda({
                               </span>
                             )}
                             {item.rescheduleRequestedAt && !item.confirmedAt && (
-                              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#2f7fc1] px-2 py-0.5 text-[9px] font-extrabold text-white">
+                              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#2f7f74] px-2 py-0.5 text-[9px] font-extrabold text-white">
                                 Pediu para remarcar
                               </span>
                             )}
@@ -833,7 +833,7 @@ export default function Agenda({
                               <span
                                 className={`mt-1 ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-extrabold ${
                                   item.rescheduleCount >= 2
-                                    ? 'bg-[#2f7fc1] text-white'
+                                    ? 'bg-[#2f7f74] text-white'
                                     : 'bg-white/15 text-white/70'
                                 }`}
                               >
@@ -845,7 +845,7 @@ export default function Agenda({
                                 pessoa nao vem. Sem a etiqueta a recepcao
                                 esperaria alguem na porta. */}
                             {item.ficha.telemedicina && (
-                              <span className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full bg-[#7ab8ea] px-2 py-0.5 text-[9px] font-extrabold text-[#081b2c]">
+                              <span className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full bg-[#7ab8ea] px-2 py-0.5 text-[9px] font-extrabold text-[#193d36]">
                                 <Video className="h-2.5 w-2.5" strokeWidth={3} />
                                 Telemedicina
                               </span>
@@ -919,7 +919,7 @@ export default function Agenda({
                           key={slot}
                           type="button"
                           onClick={() => setSlotEscolhido(slot)}
-                          className="rounded-lg border border-[#081b2c]/10 bg-[#fafaf8] px-2.5 py-1.5 text-[10px] font-bold text-[#081b2c] transition hover:border-[#2f7fc1] hover:bg-white"
+                          className="rounded-lg border border-[#193d36]/10 bg-[#faf9f4] px-2.5 py-1.5 text-[10px] font-bold text-[#193d36] transition hover:border-[#2f7f74] hover:bg-white"
                         >
                           {hora(slot)}
                         </button>
@@ -933,8 +933,8 @@ export default function Agenda({
             <div className="grid gap-4 lg:grid-cols-2">
               {/* Horarios de atendimento */}
               <div className="surface-card rounded-[20px] p-4">
-                <p className="flex items-center gap-1.5 text-xs font-extrabold text-[#081b2c]">
-                  <Clock className="h-3.5 w-3.5 text-[#2f7fc1]" />
+                <p className="flex items-center gap-1.5 text-xs font-extrabold text-[#193d36]">
+                  <Clock className="h-3.5 w-3.5 text-[#2f7f74]" />
                   Horários de atendimento
                 </p>
                 <p className="mt-1 text-[10px] text-slate-500">
@@ -949,9 +949,9 @@ export default function Agenda({
                   {rules.map((regra) => (
                     <div
                       key={regra.id}
-                      className="flex items-center justify-between gap-2 rounded-xl bg-[#fafaf8] px-3 py-2"
+                      className="flex items-center justify-between gap-2 rounded-xl bg-[#faf9f4] px-3 py-2"
                     >
-                      <span className="text-[11px] font-bold text-[#081b2c]">
+                      <span className="text-[11px] font-bold text-[#193d36]">
                         {WEEKDAY_LABEL[regra.weekday]} · {regra.startsAt} às {regra.endsAt}
                       </span>
                       <button
@@ -967,11 +967,11 @@ export default function Agenda({
                   ))}
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#081b2c]/[0.07] pt-3">
+                <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#193d36]/[0.07] pt-3">
                   <select
                     value={novaRegra.weekday}
                     onChange={(e) => setNovaRegra({ ...novaRegra, weekday: Number(e.target.value) })}
-                    className="rounded-xl border border-[#081b2c]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
+                    className="rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
                   >
                     {WEEKDAY_LABEL.map((nome, indice) => (
                       <option key={nome} value={indice}>
@@ -983,13 +983,13 @@ export default function Agenda({
                     type="time"
                     value={novaRegra.inicio}
                     onChange={(e) => setNovaRegra({ ...novaRegra, inicio: e.target.value })}
-                    className="rounded-xl border border-[#081b2c]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
+                    className="rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
                   />
                   <input
                     type="time"
                     value={novaRegra.fim}
                     onChange={(e) => setNovaRegra({ ...novaRegra, fim: e.target.value })}
-                    className="rounded-xl border border-[#081b2c]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
+                    className="rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
                   />
                   <button
                     type="button"
@@ -1008,7 +1008,7 @@ export default function Agenda({
                         )
                       }, 'Período adicionado.')
                     }
-                    className="inline-flex items-center gap-1 rounded-xl bg-[#081b2c] px-3 py-1.5 text-[10px] font-bold text-white transition hover:bg-[#102d47]"
+                    className="inline-flex items-center gap-1 rounded-xl bg-[#193d36] px-3 py-1.5 text-[10px] font-bold text-white transition hover:bg-[#13453c]"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Adicionar
@@ -1018,8 +1018,8 @@ export default function Agenda({
 
               {/* Datas bloqueadas */}
               <div className="surface-card rounded-[20px] p-4">
-                <p className="flex items-center gap-1.5 text-xs font-extrabold text-[#081b2c]">
-                  <CalendarOff className="h-3.5 w-3.5 text-[#2f7fc1]" />
+                <p className="flex items-center gap-1.5 text-xs font-extrabold text-[#193d36]">
+                  <CalendarOff className="h-3.5 w-3.5 text-[#2f7f74]" />
                   Datas bloqueadas
                 </p>
                 <p className="mt-1 text-[10px] text-slate-500">
@@ -1034,9 +1034,9 @@ export default function Agenda({
                   {exceptions.map((excecao) => (
                     <div
                       key={excecao.id}
-                      className="flex items-center justify-between gap-2 rounded-xl bg-[#fafaf8] px-3 py-2"
+                      className="flex items-center justify-between gap-2 rounded-xl bg-[#faf9f4] px-3 py-2"
                     >
-                      <span className="min-w-0 truncate text-[11px] font-bold text-[#081b2c]">
+                      <span className="min-w-0 truncate text-[11px] font-bold text-[#193d36]">
                         {new Intl.DateTimeFormat('pt-BR').format(
                           new Date(excecao.date + 'T12:00:00'),
                         )}
@@ -1060,18 +1060,18 @@ export default function Agenda({
                   ))}
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#081b2c]/[0.07] pt-3">
+                <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#193d36]/[0.07] pt-3">
                   <input
                     type="date"
                     value={novoBloqueio.data}
                     onChange={(e) => setNovoBloqueio({ ...novoBloqueio, data: e.target.value })}
-                    className="rounded-xl border border-[#081b2c]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
+                    className="rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
                   />
                   <input
                     value={novoBloqueio.motivo}
                     onChange={(e) => setNovoBloqueio({ ...novoBloqueio, motivo: e.target.value })}
                     placeholder="Motivo"
-                    className="min-w-[120px] flex-1 rounded-xl border border-[#081b2c]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
+                    className="min-w-[120px] flex-1 rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
                   />
                   <button
                     type="button"
@@ -1088,7 +1088,7 @@ export default function Agenda({
                         setNovoBloqueio({ data: '', motivo: '' })
                       }, 'Data bloqueada.')
                     }
-                    className="inline-flex items-center gap-1 rounded-xl bg-[#081b2c] px-3 py-1.5 text-[10px] font-bold text-white transition hover:bg-[#102d47] disabled:opacity-40"
+                    className="inline-flex items-center gap-1 rounded-xl bg-[#193d36] px-3 py-1.5 text-[10px] font-bold text-white transition hover:bg-[#13453c] disabled:opacity-40"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Bloquear
@@ -1098,8 +1098,8 @@ export default function Agenda({
 
               {/* Preferencias */}
               <div className="surface-card rounded-[20px] p-4">
-                <p className="flex items-center gap-1.5 text-xs font-extrabold text-[#081b2c]">
-                  <Settings2 className="h-3.5 w-3.5 text-[#2f7fc1]" />
+                <p className="flex items-center gap-1.5 text-xs font-extrabold text-[#193d36]">
+                  <Settings2 className="h-3.5 w-3.5 text-[#2f7f74]" />
                   Preferências da agenda
                 </p>
                 <div className="mt-3 grid grid-cols-3 gap-2">
@@ -1139,7 +1139,7 @@ export default function Agenda({
                         onChange={(e) =>
                           setPrefs({ ...prefs, [campo.chave]: Number(e.target.value) })
                         }
-                        className="mt-1 w-full rounded-xl border border-[#081b2c]/10 bg-white px-2 py-1.5 text-[11px] outline-none focus:border-[#2f7fc1]"
+                        className="mt-1 w-full rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none focus:border-[#2f7f74]"
                       />
                     </label>
                   ))}
@@ -1151,15 +1151,15 @@ export default function Agenda({
                 {/* Lembrete de consulta. Fica junto das preferencias porque e
                     salvo no mesmo botao - dois "salvar" no mesmo cartao
                     confundiriam sobre o que cada um grava. */}
-                <div className="mt-4 border-t border-[#081b2c]/[0.07] pt-3">
+                <div className="mt-4 border-t border-[#193d36]/[0.07] pt-3">
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       checked={prefs.reminderEnabled}
                       onChange={(e) => setPrefs({ ...prefs, reminderEnabled: e.target.checked })}
-                      className="h-3.5 w-3.5 accent-[#2f7fc1]"
+                      className="h-3.5 w-3.5 accent-[#2f7f74]"
                     />
-                    <span className="text-[11px] font-bold text-[#081b2c]">
+                    <span className="text-[11px] font-bold text-[#193d36]">
                       Enviar lembrete de consulta pelo WhatsApp
                     </span>
                   </label>
@@ -1171,7 +1171,7 @@ export default function Agenda({
                       disabled={!prefs.reminderEnabled}
                       value={prefs.reminderDays}
                       onChange={(e) => setPrefs({ ...prefs, reminderDays: Number(e.target.value) })}
-                      className="w-16 rounded-xl border border-[#081b2c]/10 bg-white px-2 py-1.5 text-[11px] outline-none focus:border-[#2f7fc1] disabled:bg-slate-50 disabled:text-slate-400"
+                      className="w-16 rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none focus:border-[#2f7f74] disabled:bg-slate-50 disabled:text-slate-400"
                     />
                     <span className="text-[11px] text-slate-600">
                       {prefs.reminderDays === 0
@@ -1195,7 +1195,7 @@ export default function Agenda({
                       await saveSchedulePreferences(clinicId, prefs)
                     }, 'Preferências salvas.')
                   }
-                  className="mt-3 rounded-xl bg-[#081b2c] px-4 py-2 text-[10px] font-bold text-white transition hover:bg-[#102d47]"
+                  className="mt-3 rounded-xl bg-[#193d36] px-4 py-2 text-[10px] font-bold text-white transition hover:bg-[#13453c]"
                 >
                   Salvar preferências
                 </button>
@@ -1203,17 +1203,17 @@ export default function Agenda({
 
               {/* Unidades */}
               <div className="surface-card rounded-[20px] p-4">
-                <p className="flex items-center gap-1.5 text-xs font-extrabold text-[#081b2c]">
-                  <Building2 className="h-3.5 w-3.5 text-[#2f7fc1]" />
+                <p className="flex items-center gap-1.5 text-xs font-extrabold text-[#193d36]">
+                  <Building2 className="h-3.5 w-3.5 text-[#2f7f74]" />
                   Unidades
                 </p>
                 <div className="mt-3 space-y-1.5">
                   {units.map((u) => (
                     <div
                       key={u.id}
-                      className="flex items-center justify-between gap-2 rounded-xl bg-[#fafaf8] px-3 py-2"
+                      className="flex items-center justify-between gap-2 rounded-xl bg-[#faf9f4] px-3 py-2"
                     >
-                      <span className="min-w-0 truncate text-[11px] font-bold text-[#081b2c]">
+                      <span className="min-w-0 truncate text-[11px] font-bold text-[#193d36]">
                         {u.name}
                         {u.address && (
                           <span className="font-normal text-slate-500"> · {u.address}</span>
@@ -1236,18 +1236,18 @@ export default function Agenda({
                     </div>
                   ))}
                 </div>
-                <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#081b2c]/[0.07] pt-3">
+                <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#193d36]/[0.07] pt-3">
                   <input
                     value={novaUnidade.nome}
                     onChange={(e) => setNovaUnidade({ ...novaUnidade, nome: e.target.value })}
                     placeholder="Nome"
-                    className="min-w-[100px] flex-1 rounded-xl border border-[#081b2c]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
+                    className="min-w-[100px] flex-1 rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
                   />
                   <input
                     value={novaUnidade.endereco}
                     onChange={(e) => setNovaUnidade({ ...novaUnidade, endereco: e.target.value })}
                     placeholder="Endereço"
-                    className="min-w-[100px] flex-1 rounded-xl border border-[#081b2c]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
+                    className="min-w-[100px] flex-1 rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
                   />
                   <button
                     type="button"
@@ -1259,7 +1259,7 @@ export default function Agenda({
                         setNovaUnidade({ nome: '', endereco: '' })
                       }, 'Unidade cadastrada.')
                     }
-                    className="inline-flex items-center gap-1 rounded-xl bg-[#081b2c] px-3 py-1.5 text-[10px] font-bold text-white transition hover:bg-[#102d47] disabled:opacity-40"
+                    className="inline-flex items-center gap-1 rounded-xl bg-[#193d36] px-3 py-1.5 text-[10px] font-bold text-white transition hover:bg-[#13453c] disabled:opacity-40"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Adicionar
@@ -1273,10 +1273,10 @@ export default function Agenda({
 
       {/* Marcar consulta num horario livre */}
       {slotEscolhido && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#081b2c]/40 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#193d36]/40 p-4">
           <div className="w-full max-w-sm rounded-[22px] bg-white p-5 shadow-xl">
-            <p className="flex items-center gap-1.5 text-sm font-extrabold text-[#081b2c]">
-              <CalendarPlus className="h-4 w-4 text-[#1f4f78]" />
+            <p className="flex items-center gap-1.5 text-sm font-extrabold text-[#193d36]">
+              <CalendarPlus className="h-4 w-4 text-[#1f5f55]" />
               Marcar consulta
             </p>
             <p className="mt-1 text-[11px] text-slate-500">
@@ -1287,7 +1287,7 @@ export default function Agenda({
                 nao pode ser oferecida no WhatsApp. Fica aqui em cima, curto,
                 porque e o caso mais comum de clique num horario vazio depois
                 de marcar consulta. */}
-            <div className="mt-4 rounded-[14px] border border-dashed border-[#081b2c]/15 bg-[#f6f7f9] p-3">
+            <div className="mt-4 rounded-[14px] border border-dashed border-[#193d36]/15 bg-[#f6f7f9] p-3">
               <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
                 Reservar sem paciente
               </p>
@@ -1296,7 +1296,7 @@ export default function Agenda({
                   value={motivoReserva}
                   onChange={(e) => setMotivoReserva(e.target.value)}
                   placeholder="Motivo (ex.: outro consultório)"
-                  className="min-w-0 flex-1 rounded-xl border border-[#081b2c]/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#1f4f78]"
+                  className="min-w-0 flex-1 rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
                 />
                 <button
                   type="button"
@@ -1310,7 +1310,7 @@ export default function Agenda({
                       await createAppointment(clinicId, unitId, null, inicio, prefs.slotMinutes, motivo)
                     }, 'Horário reservado. Ele não é mais oferecido no WhatsApp.')
                   }}
-                  className="shrink-0 rounded-xl bg-[#1f4f78] px-3 py-2 text-[11px] font-bold text-white transition hover:bg-[#183f61]"
+                  className="shrink-0 rounded-xl bg-[#1f5f55] px-3 py-2 text-[11px] font-bold text-white transition hover:bg-[#183f61]"
                 >
                   Reservar
                 </button>
@@ -1324,7 +1324,7 @@ export default function Agenda({
             <select
               value={novaConsulta.patientId}
               onChange={(e) => setNovaConsulta({ patientId: e.target.value, nome: '', telefone: '' })}
-              className="mt-2 w-full rounded-xl border border-[#081b2c]/10 bg-[#fafaf8] px-3 py-2 text-xs outline-none focus:border-[#1f4f78]"
+              className="mt-2 w-full rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
             >
               <option value="">Selecione o paciente</option>
               {patients.map((p) => (
@@ -1339,7 +1339,7 @@ export default function Agenda({
                 vespera e o sistema tambem nao consegue criar o cadastro
                 sozinho. Dois campos evitam as duas coisas. */}
             {!novaConsulta.patientId && (
-              <div className="mt-3 rounded-[14px] border border-[#081b2c]/10 bg-[#fafaf8] p-3">
+              <div className="mt-3 rounded-[14px] border border-[#193d36]/10 bg-[#faf9f4] p-3">
                 <p className="text-[10px] font-bold text-slate-500">
                   Ainda não é cadastrado? Informe nome e WhatsApp.
                 </p>
@@ -1347,14 +1347,14 @@ export default function Agenda({
                   value={novaConsulta.nome}
                   onChange={(e) => setNovaConsulta({ ...novaConsulta, nome: e.target.value })}
                   placeholder="Nome do paciente"
-                  className="mt-2 w-full rounded-xl border border-[#081b2c]/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#1f4f78]"
+                  className="mt-2 w-full rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
                 />
                 <input
                   value={novaConsulta.telefone}
                   onChange={(e) => setNovaConsulta({ ...novaConsulta, telefone: e.target.value })}
                   placeholder="WhatsApp com DDD"
                   inputMode="tel"
-                  className="mt-2 w-full rounded-xl border border-[#081b2c]/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#1f4f78]"
+                  className="mt-2 w-full rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
                 />
                 <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
                   Na véspera ele recebe o lembrete para confirmar, e o cadastro é criado
@@ -1401,7 +1401,7 @@ export default function Agenda({
                     ? 'Consulta marcada. Sem WhatsApp completo, essa pessoa não recebe o lembrete da véspera.'
                     : 'Consulta marcada.')
                 }}
-                className="rounded-xl bg-[#081b2c] px-4 py-2 text-[11px] font-bold text-white transition hover:bg-[#102d47] disabled:opacity-40"
+                className="rounded-xl bg-[#193d36] px-4 py-2 text-[11px] font-bold text-white transition hover:bg-[#13453c] disabled:opacity-40"
               >
                 Confirmar
               </button>
@@ -1413,12 +1413,12 @@ export default function Agenda({
       <Sheet open={emEdicao !== null} onOpenChange={(aberto) => !aberto && setEmEdicao(null)}>
         <SheetContent
           side="right"
-          className="w-full gap-0 border-l border-[#081b2c]/10 bg-[#fbfaf8] p-0 sm:max-w-[520px]"
+          className="w-full gap-0 border-l border-[#193d36]/10 bg-[#fbfaf5] p-0 sm:max-w-[520px]"
         >
           {emEdicao && (
             <>
-              <SheetHeader className="border-b border-[#081b2c]/[0.07] bg-white px-5 pb-5 pt-6">
-                <SheetTitle className="text-left text-lg font-extrabold tracking-[-0.03em] text-[#081b2c]">
+              <SheetHeader className="border-b border-[#193d36]/[0.07] bg-white px-5 pb-5 pt-6">
+                <SheetTitle className="text-left text-lg font-extrabold tracking-[-0.03em] text-[#193d36]">
                   {diaLegivel(emEdicao.startsAt)}, {hora(emEdicao.startsAt)}
                 </SheetTitle>
                 <SheetDescription className="mt-1 text-left text-[11px]">
@@ -1489,7 +1489,7 @@ export default function Agenda({
                         value={buscaPaciente}
                         onChange={(e) => setBuscaPaciente(e.target.value)}
                         placeholder="Buscar entre os pacientes cadastrados"
-                        className="mt-2 w-full rounded-[12px] border border-[#081b2c]/10 bg-white px-3 py-2 text-[11px] outline-none focus:border-[#2f7fc1]"
+                        className="mt-2 w-full rounded-[12px] border border-[#193d36]/10 bg-white px-3 py-2 text-[11px] outline-none focus:border-[#2f7f74]"
                       />
                       <div className="mt-2 space-y-1">
                         {encontrados.slice(0, MAX_SUGESTOES).map((p) => (
@@ -1497,9 +1497,9 @@ export default function Agenda({
                             key={p.id}
                             type="button"
                             onClick={() => setFormConsulta({ ...formConsulta, patientId: p.id })}
-                            className="flex w-full items-center justify-between gap-2 rounded-[12px] border border-[#081b2c]/10 bg-white px-3 py-2 text-left transition hover:border-[#2f7fc1]"
+                            className="flex w-full items-center justify-between gap-2 rounded-[12px] border border-[#193d36]/10 bg-white px-3 py-2 text-left transition hover:border-[#2f7f74]"
                           >
-                            <span className="truncate text-[11px] font-bold text-[#081b2c]">
+                            <span className="truncate text-[11px] font-bold text-[#193d36]">
                               {p.nome}
                             </span>
                             <span className="shrink-0 text-[10px] text-slate-400">{p.telefone}</span>
@@ -1549,7 +1549,7 @@ export default function Agenda({
                               unidade: unidadeAtual?.name,
                             })
                           }
-                          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-[12px] border border-[#081b2c]/15 bg-white px-3 py-2.5 text-[10px] font-extrabold text-[#081b2c] transition hover:border-[#2f7fc1] hover:text-[#16456b]"
+                          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-[12px] border border-[#193d36]/15 bg-white px-3 py-2.5 text-[10px] font-extrabold text-[#193d36] transition hover:border-[#2f7f74] hover:text-[#17564d]"
                         >
                           <Plus className="h-3.5 w-3.5" />
                           Cadastrar como paciente novo
@@ -1564,21 +1564,21 @@ export default function Agenda({
                   emEdicao.ficha.responsavel ||
                   emEdicao.ficha.cpf ||
                   emEdicao.ficha.email) && (
-                  <div className="rounded-[16px] border border-[#2f7fc1]/25 bg-[#f1f7fd] p-3.5">
-                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-[#1f4f78]">
+                  <div className="rounded-[16px] border border-[#2f7f74]/25 bg-[#f1f7fd] p-3.5">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wide text-[#1f5f55]">
                       Informado pela família no WhatsApp
                     </p>
                     <dl className="mt-2 space-y-1.5">
                       {[
                         ['Paciente', emEdicao.ficha.nome],
                         ['Nascimento', emEdicao.ficha.nascimento],
-                        ['Responsável', emEdicao.ficha.responsavel],
+                        ['Acompanhante', emEdicao.ficha.responsavel],
                         ['CPF', emEdicao.ficha.cpf],
                         ['E-mail', emEdicao.ficha.email],
                       ].map(([rotulo, valor]) => (
                         <div key={rotulo} className="grid grid-cols-[92px_1fr] gap-2 text-[11px]">
                           <dt className="font-bold text-slate-400">{rotulo}</dt>
-                          <dd className={valor ? 'font-semibold text-[#081b2c]' : 'text-slate-300'}>
+                          <dd className={valor ? 'font-semibold text-[#193d36]' : 'text-slate-300'}>
                             {valor || 'não informado'}
                           </dd>
                         </div>
@@ -1606,7 +1606,7 @@ export default function Agenda({
                       setFormConsulta({ ...formConsulta, contactName: e.target.value })
                     }
                     placeholder="Nome informado no contato"
-                    className="mt-1 w-full rounded-[12px] border border-[#081b2c]/10 bg-white px-3 py-2 text-[11px] outline-none focus:border-[#2f7fc1]"
+                    className="mt-1 w-full rounded-[12px] border border-[#193d36]/10 bg-white px-3 py-2 text-[11px] outline-none focus:border-[#2f7f74]"
                   />
                   <input
                     value={formConsulta.contactPhone}
@@ -1614,7 +1614,7 @@ export default function Agenda({
                       setFormConsulta({ ...formConsulta, contactPhone: e.target.value })
                     }
                     placeholder="Telefone"
-                    className="mt-2 w-full rounded-[12px] border border-[#081b2c]/10 bg-white px-3 py-2 text-[11px] outline-none focus:border-[#2f7fc1]"
+                    className="mt-2 w-full rounded-[12px] border border-[#193d36]/10 bg-white px-3 py-2 text-[11px] outline-none focus:border-[#2f7f74]"
                   />
                 </div>
 
@@ -1629,17 +1629,17 @@ export default function Agenda({
                     }
                     rows={4}
                     placeholder="Recado interno sobre esta consulta"
-                    className="mt-1 w-full resize-y rounded-[12px] border border-[#081b2c]/10 bg-white p-3 text-[11px] leading-relaxed outline-none focus:border-[#2f7fc1]"
+                    className="mt-1 w-full resize-y rounded-[12px] border border-[#193d36]/10 bg-white p-3 text-[11px] leading-relaxed outline-none focus:border-[#2f7f74]"
                   />
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2 border-t border-[#081b2c]/[0.07] bg-white px-5 py-4">
+              <div className="flex flex-wrap items-center gap-2 border-t border-[#193d36]/[0.07] bg-white px-5 py-4">
                 <button
                   type="button"
                   onClick={() => void salvarConsulta()}
                   disabled={salvandoConsulta}
-                  className="rounded-xl bg-[#081b2c] px-4 py-2.5 text-[11px] font-extrabold text-white transition hover:bg-[#102d47] disabled:opacity-40"
+                  className="rounded-xl bg-[#193d36] px-4 py-2.5 text-[11px] font-extrabold text-white transition hover:bg-[#13453c] disabled:opacity-40"
                 >
                   {salvandoConsulta ? 'Salvando...' : 'Salvar'}
                 </button>

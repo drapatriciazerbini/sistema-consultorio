@@ -6,34 +6,34 @@
 
 @layer base {
   :root {
-    --background: 36 28% 97%;
-    --foreground: 211 67% 11%;
+    --background: 45 33% 97%;
+    --foreground: 166 42% 17%;
     --card: 0 0% 100%;
-    --card-foreground: 211 67% 11%;
+    --card-foreground: 166 42% 17%;
     --popover: 0 0% 100%;
-    --popover-foreground: 211 67% 11%;
-    --primary: 211 67% 11%;
+    --popover-foreground: 166 42% 17%;
+    --primary: 166 42% 17%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 31 43% 94%;
-    --secondary-foreground: 211 67% 11%;
-    --muted: 210 20% 96%;
-    --muted-foreground: 215 15% 45%;
-    --accent: 24 58% 92%;
-    --accent-foreground: 211 67% 11%;
+    --secondary: 42 35% 94%;
+    --secondary-foreground: 166 42% 17%;
+    --muted: 160 14% 96%;
+    --muted-foreground: 168 12% 42%;
+    --accent: 40 40% 91%;
+    --accent-foreground: 166 42% 17%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 210 19% 89%;
-    --input: 210 19% 86%;
-    --ring: 24 62% 62%;
+    --border: 160 14% 89%;
+    --input: 160 14% 86%;
+    --ring: 36 52% 62%;
     --radius: 1rem;
-    --sidebar-background: 211 67% 11%;
-    --sidebar-foreground: 210 20% 96%;
-    --sidebar-primary: 24 62% 62%;
-    --sidebar-primary-foreground: 211 67% 11%;
-    --sidebar-accent: 212 52% 18%;
+    --sidebar-background: 166 42% 17%;
+    --sidebar-foreground: 45 25% 95%;
+    --sidebar-primary: 36 52% 62%;
+    --sidebar-primary-foreground: 166 42% 17%;
+    --sidebar-accent: 166 38% 24%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 212 42% 22%;
-    --sidebar-ring: 24 62% 62%;
+    --sidebar-border: 166 30% 28%;
+    --sidebar-ring: 36 52% 62%;
   }
 
   * {
@@ -41,7 +41,7 @@
   }
 
   html {
-    background: #f7f5f1;
+    background: #f7f5ef;
   }
 
   body {
@@ -67,13 +67,13 @@
   }
 
   :focus-visible {
-    outline: 3px solid rgba(47, 127, 193, 0.32);
+    outline: 3px solid rgba(47, 127, 116, 0.32);
     outline-offset: 2px;
   }
 
   ::selection {
-    background: #cfe4f6;
-    color: #081b2c;
+    background: #e8dcc6;
+    color: #193d36;
   }
 }
 
@@ -83,11 +83,11 @@
   }
 
   .surface-card {
-    border: 1px solid rgba(8, 27, 44, 0.075);
+    border: 1px solid rgba(25, 61, 54, 0.075);
     background: rgba(255, 255, 255, 0.92);
     box-shadow:
-      0 1px 2px rgba(8, 27, 44, 0.025),
-      0 14px 34px rgba(8, 27, 44, 0.045);
+      0 1px 2px rgba(25, 61, 54, 0.025),
+      0 14px 34px rgba(25, 61, 54, 0.045);
   }
 
   .soft-grid {
@@ -102,7 +102,7 @@
   }
 
   .scrollbar-subtle {
-    scrollbar-color: rgba(8, 27, 44, 0.18) transparent;
+    scrollbar-color: rgba(25, 61, 54, 0.18) transparent;
     scrollbar-width: thin;
   }
 }

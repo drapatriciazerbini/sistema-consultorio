@@ -11,9 +11,9 @@ export default function App() {
 
   if (loading) {
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-[#f7f5f1] text-[#081b2c]">
+      <main className="flex min-h-dvh items-center justify-center bg-[#f7f5ef] text-[#193d36]">
         <div className="text-center">
-          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-[20px] bg-[#081b2c] text-[#6fadde] shadow-[0_18px_45px_rgba(8,27,44,.18)]">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-[20px] bg-[#193d36] text-[#dfc49b] shadow-[0_18px_45px_rgba(25,61,54,.18)]">
             <HeartHandshake className="h-6 w-6 animate-pulse" />
           </span>
           <p className="mt-4 text-xs font-extrabold uppercase tracking-[0.16em] text-slate-400">

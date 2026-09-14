@@ -15,7 +15,7 @@ import { useAuth } from '@/auth/AuthProvider'
 import logo from '@/assets/logo.webp'
 
 const inputClass =
-  'w-full rounded-2xl border border-[#081b2c]/10 bg-[#fafaf8] py-3.5 pl-11 pr-4 text-sm font-semibold text-[#081b2c] outline-none transition placeholder:font-normal placeholder:text-slate-300 focus:border-[#2f7fc1] focus:bg-white focus:ring-4 focus:ring-[#2f7fc1]/10 disabled:cursor-not-allowed disabled:opacity-60'
+  'w-full rounded-2xl border border-[#193d36]/10 bg-[#faf9f4] py-3.5 pl-11 pr-4 text-sm font-semibold text-[#193d36] outline-none transition placeholder:font-normal placeholder:text-slate-300 focus:border-[#2f7f74] focus:bg-white focus:ring-4 focus:ring-[#2f7f74]/10 disabled:cursor-not-allowed disabled:opacity-60'
 
 export default function Login() {
   const { signIn, requestAccess, sendPasswordReset, authError, configurationError, clearAuthError } = useAuth()
@@ -98,42 +98,42 @@ export default function Login() {
   }
 
   return (
-    <main className="relative min-h-dvh overflow-hidden bg-[#f7f5f1] text-[#081b2c]">
+    <main className="relative min-h-dvh overflow-hidden bg-[#f7f5ef] text-[#193d36]">
       <div className="pointer-events-none absolute -left-32 -top-40 h-[440px] w-[440px] rounded-full bg-[#9fc2b8]/20 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-52 -right-32 h-[520px] w-[520px] rounded-full bg-[#86bce4]/25 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-52 -right-32 h-[520px] w-[520px] rounded-full bg-[#c9ae86]/25 blur-3xl" />
 
       <div className="relative mx-auto grid min-h-dvh max-w-[1500px] lg:grid-cols-[minmax(0,1.08fr)_minmax(440px,.92fr)]">
-        <section className="soft-grid relative hidden overflow-hidden bg-[#081b2c] p-12 text-white lg:flex lg:flex-col lg:justify-between">
-          <div className="absolute -right-24 top-20 h-80 w-80 rounded-full bg-[#2f7fc1]/15 blur-3xl" />
+        <section className="soft-grid relative hidden overflow-hidden bg-[#193d36] p-12 text-white lg:flex lg:flex-col lg:justify-between">
+          <div className="absolute -right-24 top-20 h-80 w-80 rounded-full bg-[#2f7f74]/15 blur-3xl" />
           <div className="absolute -bottom-28 -left-20 h-72 w-72 rounded-full bg-[#6f9d91]/15 blur-3xl" />
 
           <div className="relative">
             <img
               src={logo}
-              alt="Dr. Marcello Ruiz"
-              className="h-14 w-auto max-w-[220px] brightness-0 invert"
+              alt="Dra. Patrícia Zerbini"
+              className="h-14 w-auto max-w-[220px]"
             />
             <div className="mt-6 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-white/45">
-              <HeartHandshake className="h-4 w-4 text-[#6aa8d9]" />
+              <HeartHandshake className="h-4 w-4 text-[#dfc49b]" />
               Central de cuidado
             </div>
           </div>
 
           <div className="relative max-w-2xl py-12">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#8dbde4]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#dfc49b]">
               <Sparkles className="h-3.5 w-3.5" />
               Cuidado contínuo
             </div>
             <h1 className="mt-6 max-w-xl text-balance text-4xl font-extrabold leading-[1.08] tracking-[-0.05em] xl:text-5xl">
-              Cada família acompanhada no momento certo.
+              Cada pessoa acompanhada no tempo dela.
             </h1>
             <p className="mt-5 max-w-xl text-sm leading-relaxed text-white/50 xl:text-base">
-              Uma visão segura da jornada de cada paciente, das consultas aos contatos de 15, 30 e 90 dias.
+              Uma visão segura da jornada de cada paciente, da consulta no consultório à visita em casa.
             </p>
 
             <div className="mt-9 grid max-w-xl grid-cols-2 gap-3">
               <div className="rounded-[22px] border border-white/10 bg-white/[0.06] p-4 backdrop-blur">
-                <ShieldCheck className="h-5 w-5 text-[#6aa8d9]" />
+                <ShieldCheck className="h-5 w-5 text-[#dfc49b]" />
                 <p className="mt-3 text-xs font-extrabold text-white/90">Acesso protegido</p>
                 <p className="mt-1 text-[10px] leading-relaxed text-white/40">Somente para a equipe autorizada</p>
               </div>
@@ -146,32 +146,32 @@ export default function Login() {
           </div>
 
           <p className="relative text-[10px] font-semibold text-white/30">
-            Gastroenterologia pediátrica · Central de Cuidado
+            Cuidado e longevidade · Central de Cuidado
           </p>
         </section>
 
         <section className="flex min-h-dvh items-center justify-center px-4 py-10 sm:px-8 lg:px-12">
           <div className="w-full max-w-[470px]">
             <div className="mb-8 flex justify-center lg:hidden">
-              <div className="rounded-[22px] bg-[#081b2c] px-6 py-4 shadow-[0_18px_40px_rgba(8,27,44,.18)]">
+              <div className="rounded-[22px] bg-[#193d36] px-6 py-4 shadow-[0_18px_40px_rgba(25,61,54,.18)]">
                 <img
                   src={logo}
-                  alt="Dr. Marcello Ruiz"
-                  className="h-10 w-auto max-w-[180px] brightness-0 invert"
+                  alt="Dra. Patrícia Zerbini"
+                  className="h-10 w-auto max-w-[180px]"
                 />
               </div>
             </div>
 
-            <div className="surface-card rounded-[30px] p-6 shadow-[0_24px_70px_rgba(8,27,44,.11)] sm:p-8">
+            <div className="surface-card rounded-[30px] p-6 shadow-[0_24px_70px_rgba(25,61,54,.11)] sm:p-8">
               <div className="flex items-start gap-3">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-[#dceaf7] text-[#1f4f78]">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[16px] bg-[#eae3d4] text-[#1f5f55]">
                   {mode === 'request' ? <UserRoundPlus className="h-5 w-5" /> : <LockKeyhole className="h-5 w-5" />}
                 </span>
                 <div>
-                  <p className="text-[9px] font-extrabold uppercase tracking-[0.17em] text-[#1f4f78]">
+                  <p className="text-[9px] font-extrabold uppercase tracking-[0.17em] text-[#1f5f55]">
                     {mode === 'login' ? 'Área restrita' : mode === 'reset' ? 'Recuperar acesso' : 'Solicitação de acesso'}
                   </p>
-                  <h2 className="mt-1.5 text-2xl font-extrabold tracking-[-0.04em] text-[#081b2c]">
+                  <h2 className="mt-1.5 text-2xl font-extrabold tracking-[-0.04em] text-[#193d36]">
                     {mode === 'login' ? 'Acesse sua conta' : mode === 'reset' ? 'Esqueceu a senha?' : 'Peça seu acesso'}
                   </h2>
                   <p className="mt-2 text-xs leading-relaxed text-slate-400">
@@ -279,7 +279,7 @@ export default function Login() {
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
                       disabled={disabled}
-                      className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 transition hover:bg-[#f3eee9] hover:text-[#1f4f78] disabled:pointer-events-none"
+                      className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 transition hover:bg-[#f3eee9] hover:text-[#1f5f55] disabled:pointer-events-none"
                       aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -331,7 +331,7 @@ export default function Login() {
                 <button
                   type="submit"
                   disabled={disabled}
-                  className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#081b2c] px-5 py-3.5 text-xs font-extrabold text-white shadow-[0_12px_26px_rgba(8,27,44,.18)] transition hover:-translate-y-0.5 hover:bg-[#102d47] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+                  className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#193d36] px-5 py-3.5 text-xs font-extrabold text-white shadow-[0_12px_26px_rgba(25,61,54,.18)] transition hover:-translate-y-0.5 hover:bg-[#13453c] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
                 >
                   {submitting ? (
                     <>
@@ -341,14 +341,14 @@ export default function Login() {
                   ) : (
                     <>
                       {mode === 'login' ? 'Entrar com segurança' : mode === 'reset' ? 'Enviar link' : 'Solicitar aprovação'}
-                      <ArrowRight className="h-4 w-4 text-[#6fadde] transition-transform group-hover:translate-x-0.5" />
+                      <ArrowRight className="h-4 w-4 text-[#dfc49b] transition-transform group-hover:translate-x-0.5" />
                     </>
                   )}
                 </button>
               </form>
               )}
 
-              {!requestSent && !resetSent && <div className="mt-6 flex items-center gap-2 border-t border-[#081b2c]/[0.06] pt-5 text-[10px] leading-relaxed text-slate-400">
+              {!requestSent && !resetSent && <div className="mt-6 flex items-center gap-2 border-t border-[#193d36]/[0.06] pt-5 text-[10px] leading-relaxed text-slate-400">
                 <ShieldCheck className="h-4 w-4 shrink-0 text-[#6f9d91]" />
                 {mode === 'login' ? (
                   <button type="button" onClick={() => switchMode('request')} className="text-left font-semibold text-[#416f65] underline underline-offset-4">

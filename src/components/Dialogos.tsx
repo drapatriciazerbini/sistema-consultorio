@@ -31,7 +31,7 @@ type Pergunta = {
 const CORES: Record<Tom, { fundo: string; borda: string; texto: string; Icone: typeof Check }> = {
   ok: { fundo: '#eef7f3', borda: '#6f9d91', texto: '#2f6357', Icone: Check },
   erro: { fundo: '#fdf2f2', borda: '#d98b87', texto: '#a3312a', Icone: AlertTriangle },
-  aviso: { fundo: '#eff6fd', borda: '#6aa8d9', texto: '#1f4f78', Icone: Info },
+  aviso: { fundo: '#eff6fd', borda: '#dfc49b', texto: '#1f5f55', Icone: Info },
 }
 
 export function ProvedorDeDialogos({ children }: { children: ReactNode }) {
@@ -84,7 +84,7 @@ export function ProvedorDeDialogos({ children }: { children: ReactNode }) {
             <div
               key={aviso.id}
               role="status"
-              className="pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-[16px] border px-4 py-3 shadow-[0_14px_34px_rgba(8,27,44,.16)]"
+              className="pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-[16px] border px-4 py-3 shadow-[0_14px_34px_rgba(25,61,54,.16)]"
               style={{ background: cor.fundo, borderColor: `${cor.borda}66`, color: cor.texto }}
             >
               <cor.Icone className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2.5} />
@@ -104,16 +104,16 @@ export function ProvedorDeDialogos({ children }: { children: ReactNode }) {
 
       {pergunta && (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-[#081b2c]/45 p-4"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-[#193d36]/45 p-4"
           role="dialog"
           aria-modal="true"
           onClick={() => responder(false)}
         >
           <div
-            className="w-full max-w-sm rounded-[22px] bg-white p-5 shadow-[0_30px_70px_rgba(8,27,44,.3)]"
+            className="w-full max-w-sm rounded-[22px] bg-white p-5 shadow-[0_30px_70px_rgba(25,61,54,.3)]"
             onClick={(evento) => evento.stopPropagation()}
           >
-            <p className="text-sm font-extrabold leading-snug text-[#081b2c]">{pergunta.titulo}</p>
+            <p className="text-sm font-extrabold leading-snug text-[#193d36]">{pergunta.titulo}</p>
             {pergunta.detalhe && (
               <p className="mt-2 whitespace-pre-line text-[11px] leading-relaxed text-slate-500">
                 {pergunta.detalhe}
@@ -132,7 +132,7 @@ export function ProvedorDeDialogos({ children }: { children: ReactNode }) {
                 autoFocus
                 onClick={() => responder(true)}
                 className={`rounded-xl px-4 py-2.5 text-[11px] font-extrabold text-white transition ${
-                  pergunta.perigo ? 'bg-[#b42318] hover:bg-[#96190f]' : 'bg-[#081b2c] hover:bg-[#102d47]'
+                  pergunta.perigo ? 'bg-[#b42318] hover:bg-[#96190f]' : 'bg-[#193d36] hover:bg-[#13453c]'
                 }`}
               >
                 {pergunta.confirmar}

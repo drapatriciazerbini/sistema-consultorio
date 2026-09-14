@@ -9,7 +9,7 @@ import {
 } from '@/lib/repository'
 
 const campo =
-  'mt-1.5 w-full rounded-[13px] border border-[#081b2c]/10 bg-[#fafaf8] px-3.5 py-2.5 text-xs font-semibold text-[#081b2c] outline-none transition placeholder:font-normal placeholder:text-slate-300 focus:border-[#2f7fc1] focus:bg-white focus:ring-4 focus:ring-[#2f7fc1]/10'
+  'mt-1.5 w-full rounded-[13px] border border-[#193d36]/10 bg-[#faf9f4] px-3.5 py-2.5 text-xs font-semibold text-[#193d36] outline-none transition placeholder:font-normal placeholder:text-slate-300 focus:border-[#2f7f74] focus:bg-white focus:ring-4 focus:ring-[#2f7f74]/10'
 
 const vazio: Dados = {
   medicoNome: '',
@@ -75,14 +75,14 @@ export default function DadosDaClinica() {
 
   return (
     <section className="surface-card overflow-hidden rounded-[26px]">
-      <div className="border-b border-[#081b2c]/[0.06] bg-gradient-to-r from-white to-[#f3f7f5] p-5 sm:p-6">
+      <div className="border-b border-[#193d36]/[0.06] bg-gradient-to-r from-white to-[#f3f7f5] p-5 sm:p-6">
         <div className="flex items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] bg-[#e4efeb] text-[#557f75]">
             <Stethoscope className="h-5 w-5" />
           </span>
           <div>
             <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#557f75]">Identificação</p>
-            <h2 className="mt-1 text-base font-extrabold tracking-[-0.03em] text-[#081b2c]">Médico e clínica</h2>
+            <h2 className="mt-1 text-base font-extrabold tracking-[-0.03em] text-[#193d36]">Médico e clínica</h2>
             <p className="mt-1.5 max-w-2xl text-[11px] leading-relaxed text-slate-400">
               É o que sai no prontuário assinado, no cabeçalho da receita e no cadastro do médico na Memed. Os endereços ficam em Agenda → Unidades.
             </p>
@@ -140,11 +140,11 @@ export default function DadosDaClinica() {
             type="button"
             onClick={() => void salvar()}
             disabled={salvando || !clinicId}
-            className={`inline-flex items-center justify-center gap-2 rounded-[14px] px-5 py-3 text-xs font-extrabold text-white shadow-[0_10px_22px_rgba(8,27,44,.15)] transition disabled:opacity-60 ${
-              salvo ? 'bg-[#6f9d91]' : 'bg-[#081b2c] hover:bg-[#102d47]'
+            className={`inline-flex items-center justify-center gap-2 rounded-[14px] px-5 py-3 text-xs font-extrabold text-white shadow-[0_10px_22px_rgba(25,61,54,.15)] transition disabled:opacity-60 ${
+              salvo ? 'bg-[#6f9d91]' : 'bg-[#193d36] hover:bg-[#13453c]'
             }`}
           >
-            {salvo ? <Check className="h-4 w-4" strokeWidth={3} /> : <Save className="h-4 w-4 text-[#6aa8d9]" />}
+            {salvo ? <Check className="h-4 w-4" strokeWidth={3} /> : <Save className="h-4 w-4 text-[#dfc49b]" />}
             {salvando ? 'Salvando...' : salvo ? 'Dados salvos' : 'Salvar dados'}
           </button>
         </div>

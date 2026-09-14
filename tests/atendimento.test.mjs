@@ -149,8 +149,8 @@ const SLOTS_CHEIOS = {
 const SLOTS_VAZIOS = { 'u-santos': [], 'u-andre': [], 'u-vila': [] }
 
 const TEXTOS = {
-  saudacao: 'Olá! Aqui é o consultório do Dr. Marcello Ruiz, gastropediatra.',
-  saudacaoConhecida: 'Olá, {nome}! Aqui é o consultório do Dr. Marcello Ruiz.',
+  saudacao: 'Olá! Aqui é o consultório da Dra. Patrícia Zerbini.',
+  saudacaoConhecida: 'Olá, {nome}! Aqui é o consultório da Dra. Patrícia Zerbini.',
   informacoes: 'O valor da consulta é R$ 450,00.\n13 3273-6828',
 }
 
@@ -546,7 +546,7 @@ await caso('Mensagem de áudio não quebra o fluxo', [
 
 await caso(
   'Sem textos configurados, ainda existe uma saudação',
-  [['Oi', ['Aqui é o consultório do Dr. Marcello Ruiz, Gastroenterologista Pediátrico', '*1* 💬 Dúvidas']]],
+  [['Oi', ['Aqui é o consultório da Dra. Patrícia Zerbini', '*1* 💬 Dúvidas']]],
   { textos: { saudacao: '', saudacaoConhecida: '', informacoes: '' } },
 )
 
@@ -979,11 +979,11 @@ await caso('Depois da resposta pronta o 2 ainda marca consulta', [
 ], { respostasProntas: RESPOSTAS })
 
 await caso('Pergunta clínica não é respondida, mas recebe o caminho certo', [
-  ['Meu filho está com dor de barriga, posso dar dipirona?', ['quem responde é o Dr. Marcello', 'Digite *3*']],
+  ['Minha mãe está com dor de barriga, posso dar dipirona?', ['quem responde é a Dra. Patrícia', 'Digite *3*']],
 ], { respostasProntas: RESPOSTAS })
 
 await caso('Palavra de valor junto de sintoma não recebe o preço', [
-  ['Ele está com febre, quanto custa a consulta?', 'quem responde é o Dr. Marcello'],
+  ['Ele está com febre, quanto custa a consulta?', 'quem responde é a Dra. Patrícia'],
 ], { respostasProntas: RESPOSTAS })
 
 await caso('Assunto que ninguém cadastrou cai no menu, sem inventar', [
@@ -991,7 +991,7 @@ await caso('Assunto que ninguém cadastrou cai no menu, sem inventar', [
 ], { respostasProntas: RESPOSTAS })
 
 await caso('Sintoma junto de "quero marcar" continua podendo marcar pelo menu', [
-  ['oi, meu filho tem refluxo, queria marcar uma consulta', 'quem responde é o Dr. Marcello'],
+  ['oi, meu pai tem refluxo, queria marcar uma consulta', 'quem responde é a Dra. Patrícia'],
   ['2', 'Em qual unidade'],
 ], { respostasProntas: RESPOSTAS })
 

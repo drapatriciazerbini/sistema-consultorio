@@ -1,6 +1,6 @@
 # Modelos da Meta, consultório da Dra. Patrícia Zerbini
 
-Três modelos para submeter no WhatsApp Manager, em Ferramentas de conta,
+Cinco modelos para submeter no WhatsApp Manager, em Ferramentas de conta,
 Modelos de mensagem, Criar modelo. Idioma **Português (BR)**, categoria
 **Utilidade** nos três.
 
@@ -104,6 +104,56 @@ Sem rodapé e sem botões.
 
 Este é o modelo que a equipe usa para responder alguém que escreveu há mais
 de 24 horas. O {{2}} é o texto digitado na tela.
+
+---
+
+## 4. consulta_cancelada
+
+Nome: `consulta_cancelada`
+Categoria: Utilidade
+Idioma: Português (BR)
+
+**Corpo**
+
+```
+Olá, {{1}}. Precisamos cancelar a consulta com a Dra. Patrícia Zerbini marcada para {{2}}. Motivo: {{3}}. Responda esta mensagem para escolher uma nova data.
+```
+
+Sem rodapé e sem botões.
+
+**Exemplos que a Meta pede**
+
+- {{1}} = Maria Aparecida
+- {{2}} = terça, 22/09, às 14:30
+- {{3}} = imprevisto da agenda médica
+
+Cancelamento costuma acontecer com dias de antecedência, quando o paciente já
+não escreve há tempo. Sem este modelo, o sistema sabe que a consulta caiu, sabe
+o telefone, e mesmo assim não consegue avisar: a pessoa descobre ao chegar.
+
+---
+
+## 5. retomar_atendimento
+
+Nome: `retomar_atendimento`
+Categoria: Utilidade
+Idioma: Português (BR)
+
+**Corpo**
+
+```
+Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini. Podemos continuar nossa conversa por aqui? É só responder esta mensagem.
+```
+
+Sem rodapé e sem botões.
+
+**Exemplo que a Meta pede**
+
+- {{1}} = Maria Aparecida
+
+Serve para reabrir a conversa depois de 24 horas em silêncio. Ele não trata do
+assunto: quando o paciente responde, a janela de 24 horas volta a contar e a
+equipe escreve o que precisar.
 
 ---
 

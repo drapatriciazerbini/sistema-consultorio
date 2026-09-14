@@ -28,9 +28,9 @@ import {
 import { supabase } from '@/lib/supabase'
 
 export const DEFAULT_TEMPLATES: Record<FollowupKey, string> = {
-  d15: 'Olá! Aqui é da equipe do Dr. Marcello Ruiz, gastroenterologista pediátrico. Já se passaram 15 dias da consulta de {nome}. Como {pronome} está se adaptando às orientações? Se surgiu qualquer dúvida, é só responder por aqui. 💙',
-  d30: 'Olá! Aqui é da equipe do Dr. Marcello Ruiz, gastroenterologista pediátrico. Já se passaram 30 dias da consulta de {nome}. Como {pronome} está? Está tudo bem? Se precisarem de qualquer auxílio, é só responder por aqui. 💙',
-  m90: 'Olá! Aqui é da equipe do Dr. Marcello Ruiz. Já se passaram 3 meses da consulta de {nome} e gostaríamos de saber como {pronome} está. Está tudo bem? Qualquer necessidade, estamos à disposição. 💙',
+  d15: 'Olá! Aqui é da equipe da Dra. Patrícia Zerbini. Já se passaram 15 dias da consulta de {nome}. Como {pronome} está se adaptando às orientações? Se surgiu qualquer dúvida, é só responder por aqui. 💙',
+  d30: 'Olá! Aqui é da equipe da Dra. Patrícia Zerbini. Já se passaram 30 dias da consulta de {nome}. Como {pronome} está? Está tudo bem? Se precisar de qualquer auxílio, é só responder por aqui. 💙',
+  m90: 'Olá! Aqui é da equipe da Dra. Patrícia Zerbini. Já se passaram 3 meses da consulta de {nome} e gostaríamos de saber como {pronome} está. Está tudo bem? Qualquer necessidade, estamos à disposição. 💙',
 }
 
 export type PatientDraft = Omit<

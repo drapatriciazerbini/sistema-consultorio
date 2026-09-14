@@ -22,7 +22,7 @@ import RespostasProntas from '@/sections/RespostasProntas'
 import InformacoesDoWhatsApp from '@/sections/InformacoesDoWhatsApp'
 
 const inputClass =
-  'mt-3 min-h-[138px] w-full resize-y rounded-[18px] border border-[#081b2c]/10 bg-[#fafaf8] p-4 text-xs font-medium leading-relaxed text-[#203546] outline-none transition placeholder:text-slate-300 focus:border-[#2f7fc1] focus:bg-white focus:ring-4 focus:ring-[#2f7fc1]/10'
+  'mt-3 min-h-[138px] w-full resize-y rounded-[18px] border border-[#193d36]/10 bg-[#faf9f4] p-4 text-xs font-medium leading-relaxed text-[#203546] outline-none transition placeholder:text-slate-300 focus:border-[#2f7f74] focus:bg-white focus:ring-4 focus:ring-[#2f7f74]/10'
 
 interface Props {
   db: Db
@@ -136,14 +136,14 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
       <InformacoesDoWhatsApp />
       <RespostasProntas />
       <section className="surface-card overflow-hidden rounded-[26px]">
-        <div className="border-b border-[#081b2c]/[0.06] bg-gradient-to-r from-white to-[#f0f6fc] p-5 sm:p-6">
+        <div className="border-b border-[#193d36]/[0.06] bg-gradient-to-r from-white to-[#f0f6fc] p-5 sm:p-6">
           <div className="flex items-start gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] bg-[#dceaf7] text-[#1f4f78]">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] bg-[#eae3d4] text-[#1f5f55]">
               <MessageCircleHeart className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#1f4f78]">Tom de voz</p>
-              <h2 className="mt-1 text-base font-extrabold tracking-[-0.03em] text-[#081b2c]">Mensagens de acompanhamento</h2>
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#1f5f55]">Tom de voz</p>
+              <h2 className="mt-1 text-base font-extrabold tracking-[-0.03em] text-[#193d36]">Mensagens de acompanhamento</h2>
               <p className="mt-1.5 max-w-2xl text-[11px] leading-relaxed text-slate-400">
                 Personalize o contato que será preparado para a família em cada etapa da jornada.
               </p>
@@ -152,20 +152,20 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
         </div>
 
         <div className="space-y-5 p-5 sm:p-6">
-          <div className="flex flex-wrap items-center gap-2 rounded-[16px] border border-[#081b2c]/[0.06] bg-[#f8f7f4] px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2 rounded-[16px] border border-[#193d36]/[0.06] bg-[#f8f6f0] px-4 py-3">
             <Info className="h-4 w-4 text-[#6f9d91]" />
             <span className="text-[10px] font-bold text-slate-500">Variáveis disponíveis:</span>
-            <code className="rounded-lg bg-white px-2 py-1 text-[9px] font-extrabold text-[#1f4f78] shadow-sm">{'{nome}'}</code>
+            <code className="rounded-lg bg-white px-2 py-1 text-[9px] font-extrabold text-[#1f5f55] shadow-sm">{'{nome}'}</code>
             <span className="text-[9px] text-slate-400">primeiro nome</span>
-            <code className="rounded-lg bg-white px-2 py-1 text-[9px] font-extrabold text-[#1f4f78] shadow-sm">{'{pronome}'}</code>
+            <code className="rounded-lg bg-white px-2 py-1 text-[9px] font-extrabold text-[#1f5f55] shadow-sm">{'{pronome}'}</code>
             <span className="text-[9px] text-slate-400">ele ou ela</span>
           </div>
 
-          <label className="block rounded-[22px] border border-[#081b2c]/[0.07] bg-white p-4 sm:p-5">
+          <label className="block rounded-[22px] border border-[#193d36]/[0.07] bg-white p-4 sm:p-5">
             <div className="flex items-center gap-3">
-              <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#e1eef8] text-[10px] font-extrabold text-[#2f7fc1]">15</span>
+              <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#e1eef8] text-[10px] font-extrabold text-[#2f7f74]">15</span>
               <div>
-                <p className="text-xs font-extrabold text-[#081b2c]">Mensagem de 15 dias</p>
+                <p className="text-xs font-extrabold text-[#193d36]">Mensagem de 15 dias</p>
                 <p className="mt-0.5 text-[9px] text-slate-400">Adaptação às orientações da consulta</p>
               </div>
             </div>
@@ -173,11 +173,11 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
             <p className="mt-2 text-right text-[9px] font-semibold text-slate-300">{d15.length} caracteres</p>
           </label>
 
-          <label className="block rounded-[22px] border border-[#081b2c]/[0.07] bg-white p-4 sm:p-5">
+          <label className="block rounded-[22px] border border-[#193d36]/[0.07] bg-white p-4 sm:p-5">
             <div className="flex items-center gap-3">
               <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#eaf3f0] text-[10px] font-extrabold text-[#557f75]">30</span>
               <div>
-                <p className="text-xs font-extrabold text-[#081b2c]">Mensagem de 30 dias</p>
+                <p className="text-xs font-extrabold text-[#193d36]">Mensagem de 30 dias</p>
                 <p className="mt-0.5 text-[9px] text-slate-400">Primeira checagem após a consulta</p>
               </div>
             </div>
@@ -185,11 +185,11 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
             <p className="mt-2 text-right text-[9px] font-semibold text-slate-300">{d30.length} caracteres</p>
           </label>
 
-          <label className="block rounded-[22px] border border-[#081b2c]/[0.07] bg-white p-4 sm:p-5">
+          <label className="block rounded-[22px] border border-[#193d36]/[0.07] bg-white p-4 sm:p-5">
             <div className="flex items-center gap-3">
-              <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#e5eef7] text-[10px] font-extrabold text-[#1f4f78]">90</span>
+              <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#e5eef7] text-[10px] font-extrabold text-[#1f5f55]">90</span>
               <div>
-                <p className="text-xs font-extrabold text-[#081b2c]">Mensagem de 3 meses</p>
+                <p className="text-xs font-extrabold text-[#193d36]">Mensagem de 3 meses</p>
                 <p className="mt-0.5 text-[9px] text-slate-400">Continuidade do cuidado e disponibilidade</p>
               </div>
             </div>
@@ -197,7 +197,7 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
             <p className="mt-2 text-right text-[9px] font-semibold text-slate-300">{m90.length} caracteres</p>
           </label>
 
-          <div className="flex flex-col-reverse gap-2 border-t border-[#081b2c]/[0.06] pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col-reverse gap-2 border-t border-[#193d36]/[0.06] pt-5 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
               onClick={restoreDefaults}
@@ -210,11 +210,11 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
               type="button"
               onClick={() => void save()}
               disabled={saving}
-              className={`inline-flex items-center justify-center gap-2 rounded-[14px] px-5 py-3 text-xs font-extrabold text-white shadow-[0_10px_22px_rgba(8,27,44,.15)] transition ${
-                saved ? 'bg-[#6f9d91]' : 'bg-[#081b2c] hover:bg-[#102d47]'
+              className={`inline-flex items-center justify-center gap-2 rounded-[14px] px-5 py-3 text-xs font-extrabold text-white shadow-[0_10px_22px_rgba(25,61,54,.15)] transition ${
+                saved ? 'bg-[#6f9d91]' : 'bg-[#193d36] hover:bg-[#13453c]'
               }`}
             >
-              {saved ? <Check className="h-4 w-4" strokeWidth={3} /> : <Save className="h-4 w-4 text-[#6aa8d9]" />}
+              {saved ? <Check className="h-4 w-4" strokeWidth={3} /> : <Save className="h-4 w-4 text-[#dfc49b]" />}
               {saving ? 'Salvando...' : saved ? 'Mensagens salvas' : 'Salvar mensagens'}
             </button>
           </div>
@@ -223,12 +223,12 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
       </div>
 
       <aside className="space-y-4">
-        <section className="soft-grid relative overflow-hidden rounded-[26px] bg-[#081b2c] p-5 text-white shadow-[0_18px_40px_rgba(8,27,44,.14)]">
-          <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#2f7fc1]/20 blur-3xl" />
+        <section className="soft-grid relative overflow-hidden rounded-[26px] bg-[#193d36] p-5 text-white shadow-[0_18px_40px_rgba(25,61,54,.14)]">
+          <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#2f7f74]/20 blur-3xl" />
           <div className="relative">
             <div className="flex items-center justify-between">
               <span className="flex h-10 w-10 items-center justify-center rounded-[14px] border border-white/10 bg-white/[0.07]">
-                <DatabaseBackup className="h-5 w-5 text-[#6fadde]" />
+                <DatabaseBackup className="h-5 w-5 text-[#dfc49b]" />
               </span>
               <span className="rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-[8px] font-extrabold uppercase tracking-[0.12em] text-white/45">
                 {db.patients.length} pacientes
@@ -242,7 +242,7 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
             <button
               type="button"
               onClick={exportData}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-[14px] bg-[#5b9fd5] px-4 py-3 text-xs font-extrabold text-[#081b2c] transition hover:bg-[#7ab6e6]"
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-[14px] bg-[#5b9fd5] px-4 py-3 text-xs font-extrabold text-[#193d36] transition hover:bg-[#7ab6e6]"
             >
               <Download className="h-4 w-4" />
               Exportar cadastros
@@ -282,14 +282,14 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
               <ShieldCheck className="h-4 w-4" />
             </span>
             <div>
-              <h2 className="text-xs font-extrabold text-[#081b2c]">Banco seguro na nuvem</h2>
+              <h2 className="text-xs font-extrabold text-[#193d36]">Banco seguro na nuvem</h2>
               <p className="mt-1.5 text-[10px] leading-relaxed text-slate-400">
                 Os registros ficam no projeto Supabase da clínica e só podem ser acessados por usuários autorizados.
               </p>
             </div>
           </div>
-          <div className="mt-4 flex items-center gap-2 rounded-xl bg-[#f8f7f4] px-3 py-2.5">
-            <FileJson className="h-3.5 w-3.5 text-[#2f7fc1]" />
+          <div className="mt-4 flex items-center gap-2 rounded-xl bg-[#f8f6f0] px-3 py-2.5">
+            <FileJson className="h-3.5 w-3.5 text-[#2f7f74]" />
             <span className="text-[9px] font-bold text-slate-400">Formato do backup: arquivo JSON</span>
           </div>
         </section>
@@ -304,9 +304,9 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
               <ImageUp className="h-4 w-4" />
             </span>
             <div>
-              <h2 className="text-xs font-extrabold text-[#081b2c]">Perfil no WhatsApp</h2>
+              <h2 className="text-xs font-extrabold text-[#193d36]">Perfil no WhatsApp</h2>
               <p className="mt-1.5 text-[10px] leading-relaxed text-slate-400">
-                Usa a imagem publicada em drmarcelloruiz.com.br/assets/perfil-whatsapp.png. É ela
+                Usa a imagem publicada em drapatriciazerbini.github.io/sistema-consultorio/logo-email.png. É ela
                 que os pacientes veem ao receber as mensagens da clínica.
               </p>
             </div>
@@ -314,10 +314,10 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
           {/* O estado do nome vem da propria Meta. Antes disto so dava para
               olhar o Gerenciador e adivinhar o que cada rotulo queria dizer. */}
           {situacao && (
-            <dl className="mt-4 space-y-1.5 rounded-xl bg-[#f8f7f4] px-3 py-2.5 text-[10px]">
+            <dl className="mt-4 space-y-1.5 rounded-xl bg-[#f8f6f0] px-3 py-2.5 text-[10px]">
               <div className="flex justify-between gap-3">
                 <dt className="font-bold text-slate-400">Nome em uso</dt>
-                <dd className="text-right font-extrabold text-[#081b2c]">{situacao.nomeAtual ?? '—'}</dd>
+                <dd className="text-right font-extrabold text-[#193d36]">{situacao.nomeAtual ?? '—'}</dd>
               </div>
               <div className="flex justify-between gap-3">
                 <dt className="font-bold text-slate-400">Situação desse nome</dt>
@@ -337,7 +337,7 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
             type="button"
             onClick={() => void trocarFoto()}
             disabled={trocandoFoto}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#081b2c] px-4 py-2.5 text-[10px] font-extrabold text-white transition hover:bg-[#102d47] disabled:cursor-wait disabled:opacity-70"
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#193d36] px-4 py-2.5 text-[10px] font-extrabold text-white transition hover:bg-[#13453c] disabled:cursor-wait disabled:opacity-70"
           >
             {trocandoFoto ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ImageUp className="h-3.5 w-3.5" />}
             {trocandoFoto ? 'Enviando para a Meta...' : 'Atualizar foto do perfil'}

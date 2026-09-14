@@ -84,8 +84,8 @@ const RESPOSTAS_PRONTAS = [
 ]
 
 const TEXTOS = {
-  saudacao: 'Olá! 👋 Aqui é o consultório do Dr. Marcello Ruiz, Gastroenterologista Pediátrico.',
-  saudacaoConhecida: 'Olá, {nome}! 👋 Aqui é o consultório do Dr. Marcello Ruiz.',
+  saudacao: 'Olá! 👋 Aqui é o consultório da Dra. Patrícia Zerbini.',
+  saudacaoConhecida: 'Olá, {nome}! 👋 Aqui é o consultório da Dra. Patrícia Zerbini.',
   informacoes: FECHO,
 }
 

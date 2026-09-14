@@ -211,9 +211,9 @@ export default function Home() {
 
   if (loading) {
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-[#f7f5f1] text-[#081b2c]">
+      <main className="flex min-h-dvh items-center justify-center bg-[#f7f5ef] text-[#193d36]">
         <div className="text-center">
-          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-[20px] bg-[#081b2c] text-[#6fadde] shadow-[0_18px_45px_rgba(8,27,44,.18)]">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-[20px] bg-[#193d36] text-[#dfc49b] shadow-[0_18px_45px_rgba(25,61,54,.18)]">
             <HeartHandshake className="h-6 w-6 animate-pulse" />
           </span>
           <p className="mt-4 text-xs font-extrabold uppercase tracking-[0.16em] text-slate-400">
@@ -230,7 +230,7 @@ export default function Home() {
   if (loadError) {
     const pendingApproval = loadError === PENDING_ACCESS_MESSAGE
     return (
-      <main className="flex min-h-dvh items-center justify-center bg-[#f7f5f1] px-4 text-[#081b2c]">
+      <main className="flex min-h-dvh items-center justify-center bg-[#f7f5ef] px-4 text-[#193d36]">
         <section className="surface-card w-full max-w-md rounded-[28px] p-7 text-center">
           <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-500">
             <ShieldCheck className="h-5 w-5" />
@@ -246,7 +246,7 @@ export default function Home() {
           <button
             type="button"
             onClick={() => (pendingApproval ? void signOut() : void retry())}
-            className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-[#081b2c] px-5 py-3 text-xs font-extrabold text-white"
+            className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-[#193d36] px-5 py-3 text-xs font-extrabold text-white"
           >
             {pendingApproval ? <LogOut className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
             {pendingApproval ? 'Voltar para entrar' : 'Tentar novamente'}
@@ -257,15 +257,15 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-dvh bg-[#f7f5f1] text-[#081b2c]">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[286px] flex-col overflow-hidden bg-[#081b2c] text-white lg:flex">
+    <div className="min-h-dvh bg-[#f7f5ef] text-[#193d36]">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[286px] flex-col overflow-hidden bg-[#193d36] text-white lg:flex">
         <div className="soft-grid absolute inset-0 opacity-40" />
-        <div className="absolute -right-24 top-24 h-64 w-64 rounded-full bg-[#2f7fc1]/10 blur-3xl" />
+        <div className="absolute -right-24 top-24 h-64 w-64 rounded-full bg-[#2f7f74]/10 blur-3xl" />
         <div className="relative flex h-full flex-col">
           <div className="px-7 pb-7 pt-8 [@media(max-height:820px)]:pb-4 [@media(max-height:820px)]:pt-5">
-            <img src={logo} alt="Dr. Marcello Ruiz" className="h-12 w-auto max-w-[190px] brightness-0 invert [@media(max-height:820px)]:h-9" />
+            <img src={logo} alt="Dra. Patrícia Zerbini" className="h-12 w-auto max-w-[190px] [@media(max-height:820px)]:h-9" />
             <div className="mt-5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-white/45 [@media(max-height:820px)]:mt-3">
-              <HeartHandshake className="h-3.5 w-3.5 text-[#6aa8d9]" />
+              <HeartHandshake className="h-3.5 w-3.5 text-[#dfc49b]" />
               Central de cuidado
             </div>
             {/* Versao publicada, logo abaixo do nome: e o que responde, sem
@@ -302,13 +302,13 @@ export default function Home() {
                   aria-current={active ? 'page' : undefined}
                   className={`group flex w-full items-center gap-3 rounded-2xl px-3.5 py-3.5 text-sm font-semibold transition-all [@media(max-height:820px)]:py-2.5 ${
                     active
-                      ? 'bg-white text-[#081b2c] shadow-[0_12px_28px_rgba(0,0,0,.18)]'
+                      ? 'bg-white text-[#193d36] shadow-[0_12px_28px_rgba(0,0,0,.18)]'
                       : 'text-white/55 hover:bg-white/[0.06] hover:text-white'
                   }`}
                 >
                   <span
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors [@media(max-height:820px)]:h-8 [@media(max-height:820px)]:w-8 ${
-                      active ? 'bg-[#d9e8f7] text-[#1f4f78]' : 'bg-white/[0.055] text-white/60 group-hover:text-white'
+                      active ? 'bg-[#d9e8f7] text-[#1f5f55]' : 'bg-white/[0.055] text-white/60 group-hover:text-white'
                     }`}
                   >
                     <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
@@ -318,18 +318,18 @@ export default function Home() {
                       vaga fica reservada 24h e depois volta para a fila. */}
                   {item.key === 'agenda' && solicitacoes.length > 0 ? (
                     <span className={`min-w-6 rounded-full px-1.5 py-1 text-center text-[10px] font-extrabold ${
-                      active ? 'bg-[#081b2c] text-white' : 'bg-red-500 text-white'
+                      active ? 'bg-[#193d36] text-white' : 'bg-red-500 text-white'
                     }`}>
                       {solicitacoes.length}
                     </span>
                   ) : item.key === 'followups' && pendentes > 0 ? (
                     <span className={`min-w-6 rounded-full px-1.5 py-1 text-center text-[10px] font-extrabold ${
-                      active ? 'bg-[#081b2c] text-white' : 'bg-[#3585c6] text-white'
+                      active ? 'bg-[#193d36] text-white' : 'bg-[#3585c6] text-white'
                     }`}>
                       {pendentes}
                     </span>
                   ) : active ? (
-                    <ChevronRight className="h-4 w-4 text-[#2f7fc1]" />
+                    <ChevronRight className="h-4 w-4 text-[#2f7f74]" />
                   ) : null}
                 </button>
               )
@@ -337,9 +337,9 @@ export default function Home() {
           </nav>
 
           <div className="relative mx-4 mb-4 overflow-hidden rounded-[22px] border border-white/10 bg-white/[0.055] p-4 [@media(max-height:900px)]:hidden">
-            <div className="absolute -right-5 -top-5 h-20 w-20 rounded-full bg-[#2f7fc1]/15 blur-2xl" />
+            <div className="absolute -right-5 -top-5 h-20 w-20 rounded-full bg-[#2f7f74]/15 blur-2xl" />
             <div className="relative flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2f7fc1] text-white">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2f7f74] text-white">
                 <ShieldCheck className="h-5 w-5" />
               </span>
               <div>
@@ -354,7 +354,7 @@ export default function Home() {
               <CircleUserRound className="h-5 w-5 text-white/60" />
             </span>
             <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-white/90">Dr. Marcello Ruiz</p>
+              <p className="truncate text-xs font-bold text-white/90">Dra. Patrícia Zerbini</p>
               <p className="mt-0.5 truncate text-[10px] text-white/40">{user?.email ?? 'Equipe clínica'}</p>
             </div>
             <button
@@ -370,9 +370,9 @@ export default function Home() {
         </div>
       </aside>
 
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#081b2c]/95 px-4 py-3 text-white backdrop-blur-xl lg:hidden">
+      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#193d36]/95 px-4 py-3 text-white backdrop-blur-xl lg:hidden">
         <div className="mx-auto flex max-w-2xl items-center justify-between">
-          <img src={logo} alt="Dr. Marcello Ruiz" className="h-8 w-auto max-w-[150px] brightness-0 invert" />
+          <img src={logo} alt="Dra. Patrícia Zerbini" className="h-8 w-auto max-w-[150px]" />
           <button
             type="button"
             onClick={() => setTab('followups')}
@@ -381,7 +381,7 @@ export default function Home() {
           >
             <Bell className="h-[18px] w-[18px] text-white/75" />
             {pendentes > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#4a94cf] px-1 text-[9px] font-extrabold text-white ring-2 ring-[#081b2c]">
+              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#4a94cf] px-1 text-[9px] font-extrabold text-white ring-2 ring-[#193d36]">
                 {pendentes}
               </span>
             )}
@@ -391,34 +391,34 @@ export default function Home() {
 
       <main className="relative min-h-dvh pb-28 lg:ml-[286px] lg:pb-12">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-80 overflow-hidden">
-          <div className="absolute -right-20 -top-32 h-96 w-96 rounded-full bg-[#86bce4]/10 blur-3xl" />
+          <div className="absolute -right-20 -top-32 h-96 w-96 rounded-full bg-[#c9ae86]/10 blur-3xl" />
           <div className="absolute left-1/3 -top-48 h-80 w-80 rounded-full bg-[#9fc2b8]/10 blur-3xl" />
         </div>
 
         <div className="relative mx-auto max-w-[1460px] px-4 py-6 sm:px-7 lg:px-10 lg:py-9 xl:px-12">
           <div className="mb-7 flex flex-col gap-5 xl:mb-8 xl:flex-row xl:items-end xl:justify-between">
             <div>
-              <div className="mb-2 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1f4f78]">
+              <div className="mb-2 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1f5f55]">
                 <Sparkles className="h-3.5 w-3.5" />
                 {meta.eyebrow}
               </div>
-              <h1 className="text-2xl font-extrabold tracking-[-0.035em] text-[#081b2c] sm:text-3xl lg:text-[34px]">
+              <h1 className="text-2xl font-extrabold tracking-[-0.035em] text-[#193d36] sm:text-3xl lg:text-[34px]">
                 {meta.title}
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-500">{meta.subtitle}</p>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="hidden items-center gap-2.5 rounded-2xl border border-[#081b2c]/[0.07] bg-white/70 px-4 py-3 text-xs font-semibold text-slate-500 shadow-sm backdrop-blur sm:flex">
-                <CalendarDays className="h-4 w-4 text-[#2f7fc1]" />
+              <div className="hidden items-center gap-2.5 rounded-2xl border border-[#193d36]/[0.07] bg-white/70 px-4 py-3 text-xs font-semibold text-slate-500 shadow-sm backdrop-blur sm:flex">
+                <CalendarDays className="h-4 w-4 text-[#2f7f74]" />
                 {formatToday()}
               </div>
               <button
                 type="button"
                 onClick={createPatient}
-                className="group flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#081b2c] px-5 py-3 text-xs font-bold text-white shadow-[0_12px_26px_rgba(8,27,44,.18)] transition hover:-translate-y-0.5 hover:bg-[#102d47] sm:flex-none"
+                className="group flex flex-1 items-center justify-center gap-2 rounded-2xl bg-[#193d36] px-5 py-3 text-xs font-bold text-white shadow-[0_12px_26px_rgba(25,61,54,.18)] transition hover:-translate-y-0.5 hover:bg-[#13453c] sm:flex-none"
               >
-                <Plus className="h-4 w-4 text-[#6fadde] transition-transform group-hover:rotate-90" />
+                <Plus className="h-4 w-4 text-[#dfc49b] transition-transform group-hover:rotate-90" />
                 Novo paciente
               </button>
             </div>
@@ -485,7 +485,7 @@ export default function Home() {
       </main>
 
       <nav
-        className="fixed inset-x-3 bottom-3 z-40 flex rounded-[22px] border border-[#081b2c]/10 bg-white/95 px-1.5 py-1.5 shadow-[0_18px_55px_rgba(8,27,44,.2)] backdrop-blur-xl lg:hidden"
+        className="fixed inset-x-3 bottom-3 z-40 flex rounded-[22px] border border-[#193d36]/10 bg-white/95 px-1.5 py-1.5 shadow-[0_18px_55px_rgba(25,61,54,.2)] backdrop-blur-xl lg:hidden"
         style={{ paddingBottom: 'max(.375rem, env(safe-area-inset-bottom))' }}
         aria-label="Navegação móvel"
       >
@@ -499,13 +499,13 @@ export default function Home() {
               onClick={() => setTab(item.key)}
               aria-current={active ? 'page' : undefined}
               className={`relative flex flex-1 flex-col items-center gap-1 rounded-[17px] px-1 py-2.5 text-[9px] font-bold transition-colors ${
-                active ? 'bg-[#081b2c] text-white' : 'text-slate-400'
+                active ? 'bg-[#193d36] text-white' : 'text-slate-400'
               }`}
             >
-              <Icon className={`h-[18px] w-[18px] ${active ? 'text-[#6fadde]' : ''}`} strokeWidth={2} />
+              <Icon className={`h-[18px] w-[18px] ${active ? 'text-[#dfc49b]' : ''}`} strokeWidth={2} />
               <span>{item.shortLabel}</span>
               {item.key === 'followups' && pendentes > 0 && !active && (
-                <span className="absolute right-[25%] top-1.5 h-2 w-2 rounded-full bg-[#2f7fc1] ring-2 ring-white" />
+                <span className="absolute right-[25%] top-1.5 h-2 w-2 rounded-full bg-[#2f7f74] ring-2 ring-white" />
               )}
             </button>
           )

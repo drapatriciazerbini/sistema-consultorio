@@ -22,8 +22,8 @@ import {
 } from '@/lib/followup'
 import { supabase } from '@/lib/supabase'
 
-const NAVY = '#081b2c'
-const AZUL = '#2f7fc1'
+const NAVY = '#193d36'
+const AZUL = '#2f7f74'
 /** Cor de cada etapa: azul aos 15 dias, verde aos 30, marinho aos 90. */
 const COR_DA_ETAPA: Record<FollowupKey, string> = { d15: AZUL, d30: '#6f9d91', m90: NAVY }
 
@@ -39,7 +39,7 @@ type Accent = 'danger' | 'today' | 'upcoming' | 'scheduled'
 
 const GROUP_STYLE: Record<Accent, { text: string; bg: string; icon: typeof AlertCircle }> = {
   danger: { text: 'text-[#c64d4a]', bg: 'bg-[#c64d4a]', icon: AlertCircle },
-  today: { text: 'text-[#1f4f78]', bg: 'bg-[#2f7fc1]', icon: Sparkles },
+  today: { text: 'text-[#1f5f55]', bg: 'bg-[#2f7f74]', icon: Sparkles },
   upcoming: { text: 'text-[#557f75]', bg: 'bg-[#6f9d91]', icon: CalendarClock },
   scheduled: { text: 'text-slate-500', bg: 'bg-slate-400', icon: Clock3 },
 }
@@ -108,13 +108,13 @@ function Group({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className={`text-xs font-extrabold uppercase tracking-[0.12em] ${style.text}`}>{title}</h2>
-            <span className="rounded-full bg-[#081b2c]/[0.055] px-2 py-0.5 text-[9px] font-extrabold text-slate-500">
+            <span className="rounded-full bg-[#193d36]/[0.055] px-2 py-0.5 text-[9px] font-extrabold text-slate-500">
               {items.length}
             </span>
           </div>
           <p className="mt-0.5 truncate text-[10px] text-slate-400">{hint}</p>
         </div>
-        <div className="h-px flex-1 bg-[#081b2c]/[0.06]" />
+        <div className="h-px flex-1 bg-[#193d36]/[0.06]" />
       </div>
       <div className="space-y-2.5">{items.map(children)}</div>
     </section>
@@ -198,7 +198,7 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
     return (
       <article
         key={`${patient.id}-${item.key}`}
-        className="surface-card group relative overflow-hidden rounded-[22px] p-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(8,27,44,.08)] sm:p-5"
+        className="surface-card group relative overflow-hidden rounded-[22px] p-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(25,61,54,.08)] sm:p-5"
       >
         <span className="absolute inset-y-4 left-0 w-1 rounded-r-full" style={{ background: accent }} />
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -212,7 +212,7 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
 
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="truncate text-sm font-extrabold tracking-[-0.02em] text-[#081b2c]">{patient.nome}</h3>
+                <h3 className="truncate text-sm font-extrabold tracking-[-0.02em] text-[#193d36]">{patient.nome}</h3>
                 <span
                   className="rounded-full px-2 py-1 text-[8px] font-extrabold uppercase tracking-[0.12em]"
                   style={{ background: `${COR_DA_ETAPA[item.key]}12`, color: COR_DA_ETAPA[item.key] }}
@@ -291,7 +291,7 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
             <button
               type="button"
               onClick={() => onAbrirConversa(patient.id)}
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-[#081b2c]/12 bg-white px-3 py-2.5 text-[10px] font-extrabold text-[#557f75] transition hover:border-[#081b2c]/25 hover:bg-[#fafaf8]"
+              className="flex items-center justify-center gap-1.5 rounded-xl border border-[#193d36]/12 bg-white px-3 py-2.5 text-[10px] font-extrabold text-[#557f75] transition hover:border-[#193d36]/25 hover:bg-[#faf9f4]"
               aria-label={`Abrir conversa de ${patient.nome}`}
               title="Abrir a conversa deste paciente"
             >
@@ -307,11 +307,11 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
       <div className="space-y-6">
-        <section className="soft-grid relative overflow-hidden rounded-[28px] bg-[#081b2c] p-5 text-white shadow-[0_18px_42px_rgba(8,27,44,.15)] sm:p-7">
-          <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#2f7fc1]/20 blur-3xl" />
+        <section className="soft-grid relative overflow-hidden rounded-[28px] bg-[#193d36] p-5 text-white shadow-[0_18px_42px_rgba(25,61,54,.15)] sm:p-7">
+          <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#2f7f74]/20 blur-3xl" />
           <div className="relative grid gap-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <div>
-              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#8dbde4]">
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#dfc49b]">
                 <HeartHandshake className="h-3.5 w-3.5" />
                 Fila inteligente
               </div>
@@ -328,8 +328,8 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
                 <p className="text-[9px] font-bold uppercase tracking-wider text-white/35">Abertas</p>
                 <p className="mt-1 text-2xl font-extrabold tracking-[-0.04em]">{items.length}</p>
               </div>
-              <div className="min-w-[92px] rounded-[18px] bg-[#5b9fd5] p-3.5 text-[#081b2c]">
-                <p className="text-[9px] font-bold uppercase tracking-wider text-[#081b2c]/50">Concluídas</p>
+              <div className="min-w-[92px] rounded-[18px] bg-[#5b9fd5] p-3.5 text-[#193d36]">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-[#193d36]/50">Concluídas</p>
                 <p className="mt-1 text-2xl font-extrabold tracking-[-0.04em]">{completed}</p>
               </div>
             </div>
@@ -341,7 +341,7 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
             <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-[20px] bg-[#eaf3f0] text-[#5b887d]">
               <CheckCircle2 className="h-7 w-7" />
             </span>
-            <h2 className="mt-4 text-base font-extrabold text-[#081b2c]">
+            <h2 className="mt-4 text-base font-extrabold text-[#193d36]">
               {patients.length === 0 ? 'A fila está pronta para começar' : 'Tudo em dia por aqui'}
             </h2>
             <p className="mx-auto mt-2 max-w-md text-xs leading-relaxed text-slate-400">
@@ -364,19 +364,19 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
         <section className="surface-card rounded-[24px] p-5">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#1f4f78]">Jornada do paciente</p>
-              <h2 className="mt-1.5 text-sm font-extrabold text-[#081b2c]">Três pontos de cuidado</h2>
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#1f5f55]">Jornada do paciente</p>
+              <h2 className="mt-1.5 text-sm font-extrabold text-[#193d36]">Três pontos de cuidado</h2>
             </div>
-            <Stethoscope className="h-5 w-5 text-[#2f7fc1]" />
+            <Stethoscope className="h-5 w-5 text-[#2f7f74]" />
           </div>
 
           <div className="relative mt-6 space-y-5">
-            <div className="absolute bottom-5 left-[17px] top-5 w-px bg-gradient-to-b from-[#2f7fc1] via-[#6f9d91] to-[#081b2c]/20" />
+            <div className="absolute bottom-5 left-[17px] top-5 w-px bg-gradient-to-b from-[#2f7f74] via-[#6f9d91] to-[#193d36]/20" />
             {[
-              { icon: Stethoscope, label: 'Consulta', detail: 'Cadastro clínico inicial', color: '#2f7fc1' },
-              { icon: MessageCircle, label: '15 dias', detail: 'Adaptação às orientações', color: '#2f7fc1' },
+              { icon: Stethoscope, label: 'Consulta', detail: 'Cadastro clínico inicial', color: '#2f7f74' },
+              { icon: MessageCircle, label: '15 dias', detail: 'Adaptação às orientações', color: '#2f7f74' },
               { icon: Send, label: '30 dias', detail: 'Primeiro contato de evolução', color: '#6f9d91' },
-              { icon: HeartHandshake, label: '90 dias', detail: 'Continuidade e suporte', color: '#081b2c' },
+              { icon: HeartHandshake, label: '90 dias', detail: 'Continuidade e suporte', color: '#193d36' },
             ].map((step) => {
               const Icon = step.icon
               return (
@@ -388,7 +388,7 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
                     <Icon className="h-3.5 w-3.5" />
                   </span>
                   <div>
-                    <p className="text-xs font-extrabold text-[#081b2c]">{step.label}</p>
+                    <p className="text-xs font-extrabold text-[#193d36]">{step.label}</p>
                     <p className="mt-0.5 text-[10px] text-slate-400">{step.detail}</p>
                   </div>
                 </div>
@@ -408,11 +408,11 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
         </section>
 
         {sent > 0 && (
-          <section className="rounded-[24px] border border-[#081b2c]/[0.07] bg-white/60 p-5">
+          <section className="rounded-[24px] border border-[#193d36]/[0.07] bg-white/60 p-5">
             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Em andamento</p>
             <div className="mt-3 flex items-end justify-between">
               <div>
-                <p className="text-2xl font-extrabold tracking-[-0.05em] text-[#081b2c]">{sent}</p>
+                <p className="text-2xl font-extrabold tracking-[-0.05em] text-[#193d36]">{sent}</p>
                 <p className="mt-1 text-[10px] text-slate-400">mensagens abertas</p>
               </div>
               <MessageCircle className="h-6 w-6 text-[#6f9d91]" />

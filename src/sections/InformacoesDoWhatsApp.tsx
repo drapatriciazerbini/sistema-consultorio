@@ -13,7 +13,7 @@ import {
 } from '@/lib/repository'
 
 const campo =
-  'mt-1.5 w-full resize-y rounded-[13px] border border-[#081b2c]/10 bg-[#fafaf8] px-3.5 py-2.5 text-xs font-medium leading-relaxed text-[#081b2c] outline-none transition placeholder:font-normal placeholder:text-slate-300 focus:border-[#2f7fc1] focus:bg-white focus:ring-4 focus:ring-[#2f7fc1]/10'
+  'mt-1.5 w-full resize-y rounded-[13px] border border-[#193d36]/10 bg-[#faf9f4] px-3.5 py-2.5 text-xs font-medium leading-relaxed text-[#193d36] outline-none transition placeholder:font-normal placeholder:text-slate-300 focus:border-[#2f7f74] focus:bg-white focus:ring-4 focus:ring-[#2f7f74]/10'
 
 /**
  * O que o robô responde quando a família pede informações.
@@ -79,14 +79,14 @@ export default function InformacoesDoWhatsApp() {
 
   return (
     <section className="surface-card overflow-hidden rounded-[26px]">
-      <div className="border-b border-[#081b2c]/[0.06] bg-gradient-to-r from-white to-[#f0f6fc] p-5 sm:p-6">
+      <div className="border-b border-[#193d36]/[0.06] bg-gradient-to-r from-white to-[#f0f6fc] p-5 sm:p-6">
         <div className="flex items-start gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] bg-[#dceaf7] text-[#1f4f78]">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] bg-[#eae3d4] text-[#1f5f55]">
             <MapPinned className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#1f4f78]">Atendimento automático</p>
-            <h2 className="mt-1 text-base font-extrabold tracking-[-0.03em] text-[#081b2c]">Informações por unidade</h2>
+            <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#1f5f55]">Atendimento automático</p>
+            <h2 className="mt-1 text-base font-extrabold tracking-[-0.03em] text-[#193d36]">Informações por unidade</h2>
             <p className="mt-1.5 max-w-2xl text-[11px] leading-relaxed text-slate-400">
               Quando a família escolhe "Dúvidas sobre a consulta", o robô pergunta para qual atendimento e
               responde o texto daquele lugar: valor, pagamento, endereço, o que levar. No fim ele cola o
@@ -99,11 +99,11 @@ export default function InformacoesDoWhatsApp() {
 
       <div className="space-y-4 p-5 sm:p-6">
         {carregando ? (
-          <p className="rounded-[16px] bg-[#f8f7f4] px-4 py-6 text-center text-[11px] text-slate-400">Carregando...</p>
+          <p className="rounded-[16px] bg-[#f8f6f0] px-4 py-6 text-center text-[11px] text-slate-400">Carregando...</p>
         ) : (
           <>
             {unidades.map((unidade) => (
-              <label key={unidade.id} className="block rounded-[22px] border border-[#081b2c]/[0.07] bg-white p-4 sm:p-5">
+              <label key={unidade.id} className="block rounded-[22px] border border-[#193d36]/[0.07] bg-white p-4 sm:p-5">
                 <span className="flex items-center gap-1 text-[9px] font-extrabold uppercase tracking-wide text-slate-400">
                   {unidade.nome}
                   <Ajuda texto="Enviado exatamente como está escrito quando a família escolhe esta unidade. Vazio, o robô usa o texto geral do menu automático." />
@@ -119,14 +119,14 @@ export default function InformacoesDoWhatsApp() {
               </label>
             ))}
 
-            <div className="rounded-[22px] border border-[#081b2c]/[0.07] bg-white p-4 sm:p-5">
+            <div className="rounded-[22px] border border-[#193d36]/[0.07] bg-white p-4 sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="flex items-center gap-1.5 text-[9px] font-extrabold uppercase tracking-wide text-slate-400">
-                  <Video className="h-3.5 w-3.5 text-[#2f7fc1]" />
+                  <Video className="h-3.5 w-3.5 text-[#2f7f74]" />
                   Telemedicina
                   <Ajuda texto="Ligada, aparece como opção nas informações e no agendamento. A consulta usa os horários das unidades físicas: é o mesmo médico no mesmo dia. Quem escolhe telemedicina também pode pedir urgência, e aí a conversa vai para a equipe com destaque." />
                 </span>
-                <label className="flex cursor-pointer items-center gap-2 rounded-[13px] border border-[#081b2c]/10 bg-[#fafaf8] px-3.5 py-2.5">
+                <label className="flex cursor-pointer items-center gap-2 rounded-[13px] border border-[#193d36]/10 bg-[#faf9f4] px-3.5 py-2.5">
                   <input
                     type="checkbox"
                     checked={tele.ativa}
@@ -134,7 +134,7 @@ export default function InformacoesDoWhatsApp() {
                       setTele({ ...tele, ativa: e.target.checked })
                       setSalvo(false)
                     }}
-                    className="h-3.5 w-3.5 accent-[#2f7fc1]"
+                    className="h-3.5 w-3.5 accent-[#2f7f74]"
                   />
                   <span className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
                     {tele.ativa ? 'Oferecida pelo robô' : 'Desligada'}
@@ -159,11 +159,11 @@ export default function InformacoesDoWhatsApp() {
                 type="button"
                 onClick={() => void salvar()}
                 disabled={salvando || !clinicId}
-                className={`inline-flex items-center justify-center gap-2 rounded-[14px] px-5 py-3 text-xs font-extrabold text-white shadow-[0_10px_22px_rgba(8,27,44,.15)] transition disabled:opacity-60 ${
-                  salvo ? 'bg-[#6f9d91]' : 'bg-[#081b2c] hover:bg-[#102d47]'
+                className={`inline-flex items-center justify-center gap-2 rounded-[14px] px-5 py-3 text-xs font-extrabold text-white shadow-[0_10px_22px_rgba(25,61,54,.15)] transition disabled:opacity-60 ${
+                  salvo ? 'bg-[#6f9d91]' : 'bg-[#193d36] hover:bg-[#13453c]'
                 }`}
               >
-                {salvo ? <Check className="h-4 w-4" strokeWidth={3} /> : <Save className="h-4 w-4 text-[#6aa8d9]" />}
+                {salvo ? <Check className="h-4 w-4" strokeWidth={3} /> : <Save className="h-4 w-4 text-[#dfc49b]" />}
                 {salvando ? 'Salvando...' : salvo ? 'Informações salvas' : 'Salvar informações'}
               </button>
             </div>

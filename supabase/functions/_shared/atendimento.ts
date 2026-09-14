@@ -295,7 +295,7 @@ function agruparPorDia(horarios: Horario[], timezone: string) {
 /**
  * O menu como o pai le no celular.
  *
- * O emoji nao e enfeite: quem abre esta conversa costuma estar com uma crianca
+ * O emoji nao e enfeite: quem abre esta conversa costuma estar com alguem
  * no colo e pressa, e o icone diz do que se trata antes da leitura. Um por
  * linha, sempre o mesmo - variar so atrapalharia o reconhecimento.
  *
@@ -540,7 +540,7 @@ export async function mostrarMenu(
   // Com aviso, o aviso ja e a instrucao. Repetir "Como podemos ajudar?" logo
   // depois de "Nao entendi, responda com o numero" dava duas ordens seguidas.
   const cabecalho = aviso ||
-    `${saudacao}\n\nEstamos aqui para cuidar do seu filho. Como podemos ajudar hoje?`
+    `${saudacao}\n\nEstamos aqui para cuidar de você e de quem você cuida. Como podemos ajudar hoje?`
   // A instrucao vai DEPOIS das opcoes de proposito: quem ja sabe o que quer
   // responde na hora, e quem hesitou tem a saida logo abaixo do que leu.
   const instrucao = aviso ? '' : '\n\nResponda com o número ou toque em "Ver opções".'
@@ -904,7 +904,7 @@ async function cancelarConsulta(admin: Admin, appointmentId: string) {
 /**
  * Primeira etapa quando o telefone atende a mais de um paciente.
  *
- * Numa gastropediatria e o caso comum: a mae cadastra os dois filhos com o
+ * Em geriatria acontece: a filha cadastra o pai e a mae com o
  * proprio celular. Sem esta pergunta o sistema escolhia sozinho e marcava a
  * consulta no nome do irmao errado.
  */
@@ -924,7 +924,7 @@ async function perguntarPaciente(
 
   return {
     resposta:
-      `👶 *Vamos agendar!* Para quem é a consulta?\n\n${linhas}\n\n` +
+      `📅 *Vamos agendar!* Para quem é a consulta?\n\n${linhas}\n\n` +
       `Responda com o número. ${SAIDAS}`,
     // Era a unica etapa sem lista tocavel: quem chegava aqui tinha de digitar,
     // enquanto nas telas seguintes bastava tocar. A troca de gesto no meio do
@@ -1153,7 +1153,7 @@ async function perguntarDia(
  * Urgencia na telemedicina: o robo para de marcar e chama gente.
  *
  * Nao e a mesma coisa que "falar com a equipe". Quem pediu urgencia esta com
- * uma crianca passando mal e precisa ouvir que alguem vai ligar agora - e a
+ * uma pessoa idosa passando mal e precisa ouvir que alguem vai ligar agora - e a
  * conversa precisa saltar na lista da recepcao com uma bandeira propria.
  */
 async function transferirUrgencia(admin: Admin, conversationId: string): Promise<Resultado> {
@@ -1167,7 +1167,7 @@ async function transferirUrgencia(admin: Admin, conversationId: string): Promise
     resposta:
       '🚨 Entendi que é urgência. Estou transferindo você para um atendente do ' +
       'consultório, e a nossa equipe vai entrar em contato com urgência por aqui.\n\n' +
-      'Se puder, já escreva o que está acontecendo com a criança: a pessoa que ' +
+      'Se puder, já escreva o que está acontecendo com o paciente: a pessoa que ' +
       'assumir o atendimento lê tudo antes de responder.\n\n' +
       'Se for uma emergência com risco de vida, procure o pronto-socorro mais próximo ou ligue 192.',
     atencao: 'urgencia',
@@ -1455,7 +1455,7 @@ const PERGUNTAS: {
     chave: 'nome',
     obrigatoria: true,
     coluna: 'intake_patient_name',
-    texto: '👶 Qual é o *nome completo do paciente* (a criança)?',
+    texto: '📝 Qual é o *nome completo do paciente*?',
     ler: (t) => (t.trim().length >= 2 ? t.trim().slice(0, 160) : null),
     erro: 'Não consegui ler o nome. Pode escrever de novo?',
   },
@@ -1474,10 +1474,9 @@ const PERGUNTAS: {
   {
     estado: 'dados_responsavel',
     chave: 'responsavel',
-    obrigatoria: true,
     coluna: 'intake_guardian',
     colunaDoCadastro: 'guardian_name',
-    texto: '👤 Qual é o *nome do responsável* (mãe, pai ou tutor)?',
+    texto: '👤 Qual é o *nome do acompanhante ou cuidador*, se houver?',
     ler: (t) => (t.trim().length >= 2 ? t.trim().slice(0, 160) : null),
     erro: 'Não consegui ler o nome. Pode escrever de novo?',
   },
@@ -1491,7 +1490,7 @@ const PERGUNTAS: {
     // dizendo a mesma coisa e o tipo de ruido que faz a pessoa parar de ler.
     texto:
       '🪪 Qual é o *CPF do paciente*?\n\n' +
-      '_Ele é exigido por lei na receita digital. Se a criança não tiver CPF, ' +
+      '_Ele é exigido por lei na receita digital. Se o paciente não tiver CPF, ' +
       'ou você não souber agora, responda PULAR._',
     jaExplicaOPular: true,
     ler: (t) => (cpfValido(t) ? soDigitos(t) : null),
@@ -1761,7 +1760,7 @@ export async function tratarConversa(opcoes: {
   telefone: string
   /**
    * Todos os pacientes cadastrados com este telefone, em ordem de nome. Vazio
-   * quando ninguem foi reconhecido. Mais de um e o caso da mae com dois filhos.
+   * quando ninguem foi reconhecido. Mais de um e o caso de quem cuida do pai e da mae.
    */
   pacientes: Paciente[]
   /** Paciente ja escolhido nesta conversa, quando a pergunta ja foi feita. */
@@ -1793,7 +1792,7 @@ export async function tratarConversa(opcoes: {
     unico && opcoes.textos.saudacaoConhecida.trim()
       ? opcoes.textos.saudacaoConhecida.replace(/\{nome\}/g, primeiroNome)
       : opcoes.textos.saudacao
-  ).trim() || 'Olá! 👋 Aqui é o consultório do Dr. Marcello Ruiz, Gastroenterologista Pediátrico.'
+  ).trim() || 'Olá! 👋 Aqui é o consultório da Dra. Patrícia Zerbini.'
 
   /** Quem vai no prontuario da consulta: o escolhido, ou o unico que existe. */
   const pacienteDaConsulta =
@@ -1811,7 +1810,7 @@ export async function tratarConversa(opcoes: {
   // A excecao e urgencia. Quem ja esta na fila da equipe e escreve "e urgente"
   // precisa de duas coisas: a conversa subindo na lista da recepcao, e a
   // confirmacao de que o recado chegou. Ficar mudo aqui era o pior cenario
-  // possivel - a mae avisando que a crianca esta mal, e a tela sem sinal
+  // possivel - a filha avisando que o pai esta mal, e a tela sem sinal
   // nenhum de que aquilo era diferente das outras conversas em espera.
   if (estadoAtual === 'atendente') {
     if (pediuUrgencia(texto)) {
@@ -1874,7 +1873,7 @@ export async function tratarConversa(opcoes: {
   }
 
   // Urgencia tambem vale de qualquer etapa. Nasceu na telemedicina, mas uma
-  // mae com a crianca passando mal nao vai procurar a etapa certa para dizer
+  // filha com o pai passando mal nao vai procurar a etapa certa para dizer
   // isso - e o custo de tratar como urgente o que nao era e uma ligacao a mais.
   if (pediuUrgencia(texto)) {
     return await transferirUrgencia(admin, conversationId)
@@ -1922,7 +1921,7 @@ export async function tratarConversa(opcoes: {
         admin,
         conversationId,
         saudacao,
-        'Sobre sintomas, remédios e o que fazer, quem responde é o Dr. Marcello ou alguém da equipe - ' +
+        'Sobre sintomas, remédios e o que fazer, quem responde é a Dra. Patrícia ou alguém da equipe - ' +
           'por aqui eu não posso orientar. Digite *3* para falar com a equipe, ou escolha:',
       )
     }
@@ -1954,7 +1953,7 @@ export async function tratarConversa(opcoes: {
         })
         return {
           resposta:
-            'Esse dado o Dr. Marcello precisa ter no cadastro. Pode responder aqui, ' +
+            'Esse dado a Dra. Patrícia precisa ter no cadastro. Pode responder aqui, ' +
             'mesmo que não seja exato?\n\n' +
             perguntaAtual.texto,
           botoes: [{ id: 'MENU', titulo: 'Voltar ao menu' }],
@@ -1973,7 +1972,7 @@ export async function tratarConversa(opcoes: {
         return restantes.length
           ? await perguntarDados(
               admin, conversationId, consulta, restantes,
-              'Tudo bem, deixamos esse campo em branco: o Dr. Marcello completa na consulta.',
+              'Tudo bem, deixamos esse campo em branco: a Dra. Patrícia completa na consulta.',
             )
           : await terminarDados(admin, conversationId, clinicId, consulta)
       }

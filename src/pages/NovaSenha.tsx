@@ -4,7 +4,7 @@ import { useAuth } from '@/auth/AuthProvider'
 import logo from '@/assets/logo.webp'
 
 const inputClass =
-  'w-full rounded-2xl border border-[#081b2c]/10 bg-[#fafaf8] py-3.5 pl-11 pr-12 text-sm font-semibold text-[#081b2c] outline-none transition placeholder:font-normal placeholder:text-slate-300 focus:border-[#2f7fc1] focus:bg-white focus:ring-4 focus:ring-[#2f7fc1]/10 disabled:cursor-not-allowed disabled:opacity-60'
+  'w-full rounded-2xl border border-[#193d36]/10 bg-[#faf9f4] py-3.5 pl-11 pr-12 text-sm font-semibold text-[#193d36] outline-none transition placeholder:font-normal placeholder:text-slate-300 focus:border-[#2f7f74] focus:bg-white focus:ring-4 focus:ring-[#2f7f74]/10 disabled:cursor-not-allowed disabled:opacity-60'
 
 /**
  * Criar a senha nova, depois do link de "esqueci a senha".
@@ -37,15 +37,15 @@ export default function NovaSenha() {
   }
 
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-[#f7f5f1] px-4 text-[#081b2c]">
-      <div className="w-full max-w-md rounded-[28px] bg-white p-8 shadow-[0_24px_60px_rgba(8,27,44,.08)]">
-        <img src={logo} alt="Dr. Marcello Ruiz" className="h-10 w-auto" />
+    <main className="flex min-h-dvh items-center justify-center bg-[#f7f5ef] px-4 text-[#193d36]">
+      <div className="w-full max-w-md rounded-[28px] bg-white p-8 shadow-[0_24px_60px_rgba(25,61,54,.08)]">
+        <img src={logo} alt="Dra. Patrícia Zerbini" className="h-10 w-auto" />
         <div className="mt-6 flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eaf3fd] text-[#1f4f78]">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eaf3fd] text-[#1f5f55]">
             <KeyRound className="h-5 w-5" />
           </span>
           <div>
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#1f4f78]">Redefinir senha</p>
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-[#1f5f55]">Redefinir senha</p>
             <h1 className="text-xl font-extrabold tracking-[-0.02em]">Crie sua nova senha</h1>
           </div>
         </div>
@@ -56,9 +56,9 @@ export default function NovaSenha() {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#081b2c] px-4 py-3 text-xs font-extrabold text-white"
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-[#193d36] px-4 py-3 text-xs font-extrabold text-white"
             >
-              Ir para a Central de Cuidado <ArrowRight className="h-4 w-4 text-[#6fadde]" />
+              Ir para a Central de Cuidado <ArrowRight className="h-4 w-4 text-[#dfc49b]" />
             </button>
           </div>
         ) : (
@@ -79,7 +79,7 @@ export default function NovaSenha() {
                 <button
                   type="button"
                   onClick={() => setMostrar((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 hover:text-[#081b2c]"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 hover:text-[#193d36]"
                   aria-label={mostrar ? 'Ocultar senha' : 'Mostrar senha'}
                 >
                   {mostrar ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -107,9 +107,9 @@ export default function NovaSenha() {
             <button
               type="submit"
               disabled={salvando}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#081b2c] px-4 py-3.5 text-sm font-extrabold text-white transition hover:bg-[#102d47] disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#193d36] px-4 py-3.5 text-sm font-extrabold text-white transition hover:bg-[#13453c] disabled:opacity-60"
             >
-              {salvando ? 'Salvando...' : 'Salvar nova senha'} <ArrowRight className="h-4 w-4 text-[#6fadde]" />
+              {salvando ? 'Salvando...' : 'Salvar nova senha'} <ArrowRight className="h-4 w-4 text-[#dfc49b]" />
             </button>
             <button
               type="button"

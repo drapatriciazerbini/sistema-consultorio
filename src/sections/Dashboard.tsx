@@ -16,10 +16,10 @@ import type { PendingRequest } from '@/lib/repository'
 import { dueCount, idadeAnos, pendingFollowups } from '@/lib/followup'
 import { nomeDoCid } from '@/lib/cid'
 
-const NAVY = '#081b2c'
+const NAVY = '#193d36'
 // Azul de destaque do sistema (proposta 3, aprovada em 08/09/2026). O nome
 // antigo era PEACH: a cor mudou, o papel na tela e o mesmo.
-const AZUL = '#2f7fc1'
+const AZUL = '#2f7f74'
 const SAGE = '#6f9d91'
 
 const cardClass = 'surface-card rounded-[24px]'
@@ -46,7 +46,7 @@ function Kpi({
       <div className="relative flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-400">{label}</p>
-          <p className="mt-2 text-3xl font-extrabold tracking-[-0.05em] text-[#081b2c]">{value}</p>
+          <p className="mt-2 text-3xl font-extrabold tracking-[-0.05em] text-[#193d36]">{value}</p>
           <p className="mt-1 text-[11px] font-medium text-slate-400">{detail}</p>
         </div>
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px]" style={{ background: `${color}16`, color }}>
@@ -74,11 +74,11 @@ function Panel({
     <section className={`${cardClass} p-5 sm:p-6 ${className}`}>
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-sm font-extrabold tracking-[-0.02em] text-[#081b2c]">{title}</h2>
+          <h2 className="text-sm font-extrabold tracking-[-0.02em] text-[#193d36]">{title}</h2>
           {subtitle && <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{subtitle}</p>}
         </div>
         {Icon && (
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e9f1f9] text-[#1f4f78]">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e9f1f9] text-[#1f5f55]">
             <Icon className="h-4 w-4" />
           </span>
         )}
@@ -107,7 +107,7 @@ function DataBar({
     <div>
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-[11px] font-semibold leading-snug text-slate-500">{label}</span>
-        <span className="shrink-0 text-[11px] font-extrabold text-[#081b2c]">{value}</span>
+        <span className="shrink-0 text-[11px] font-extrabold text-[#193d36]">{value}</span>
       </div>
       <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#eef1f2]">
         <div
@@ -150,8 +150,8 @@ function Donut({ female, male, other }: { female: number; male: number; other: n
   return (
     <div className="flex flex-col items-center gap-6 py-1 sm:flex-row sm:justify-center lg:justify-start">
       <div className="relative h-36 w-36 shrink-0 rounded-full p-[13px]" style={{ background }}>
-        <div className="flex h-full w-full flex-col items-center justify-center rounded-full bg-white shadow-[inset_0_0_0_1px_rgba(8,27,44,.04)]">
-          <span className="text-3xl font-extrabold tracking-[-0.05em] text-[#081b2c]">{total}</span>
+        <div className="flex h-full w-full flex-col items-center justify-center rounded-full bg-white shadow-[inset_0_0_0_1px_rgba(25,61,54,.04)]">
+          <span className="text-3xl font-extrabold tracking-[-0.05em] text-[#193d36]">{total}</span>
           <span className="mt-0.5 text-[9px] font-extrabold uppercase tracking-[0.16em] text-slate-400">pacientes</span>
         </div>
       </div>
@@ -160,7 +160,7 @@ function Donut({ female, male, other }: { female: number; male: number; other: n
           <div key={item.label} className="flex items-center gap-2.5">
             <span className="h-2.5 w-2.5 rounded-full" style={{ background: item.color }} />
             <span className="flex-1 text-[11px] font-semibold text-slate-500">{item.label}</span>
-            <span className="text-xs font-extrabold text-[#081b2c]">{item.value}</span>
+            <span className="text-xs font-extrabold text-[#193d36]">{item.value}</span>
           </div>
         ))}
       </div>
@@ -188,7 +188,7 @@ function Ranking({
           ))}
         </div>
       ) : (
-        <p className="rounded-xl bg-[#f8f7f4] px-3 py-4 text-center text-[11px] text-slate-400">Sem dados suficientes</p>
+        <p className="rounded-xl bg-[#f8f6f0] px-3 py-4 text-center text-[11px] text-slate-400">Sem dados suficientes</p>
       )}
     </div>
   )
@@ -234,7 +234,7 @@ function AvisoSolicitacoes({
   }).format(new Date(proxima.startsAt))
 
   return (
-    <section className="rounded-[24px] border-2 border-[#16456b] bg-[#16456b] p-5 text-white sm:p-6">
+    <section className="rounded-[24px] border-2 border-[#17564d] bg-[#17564d] p-5 text-white sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-white/15">
@@ -263,7 +263,7 @@ function AvisoSolicitacoes({
           <button
             type="button"
             onClick={onAbrirAgenda}
-            className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-[11px] font-extrabold text-[#16456b] transition hover:bg-white/90"
+            className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2.5 text-[11px] font-extrabold text-[#17564d] transition hover:bg-white/90"
           >
             Ver na agenda
             <ArrowUpRight className="h-3.5 w-3.5" />
@@ -334,12 +334,12 @@ export default function Dashboard({
     <div className="space-y-5">
       <AvisoSolicitacoes solicitacoes={solicitacoes} onAbrirAgenda={onAbrirAgenda} />
 
-      <section className="soft-grid relative overflow-hidden rounded-[28px] bg-[#081b2c] p-5 text-white shadow-[0_20px_45px_rgba(8,27,44,.16)] sm:p-7">
-        <div className="absolute -right-16 -top-24 h-72 w-72 rounded-full bg-[#2f7fc1]/20 blur-3xl" />
+      <section className="soft-grid relative overflow-hidden rounded-[28px] bg-[#193d36] p-5 text-white shadow-[0_20px_45px_rgba(25,61,54,.16)] sm:p-7">
+        <div className="absolute -right-16 -top-24 h-72 w-72 rounded-full bg-[#2f7f74]/20 blur-3xl" />
         <div className="absolute bottom-0 right-[28%] h-28 w-28 rounded-full bg-[#6f9d91]/15 blur-2xl" />
         <div className="relative grid gap-7 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
           <div className="max-w-2xl">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#8dbde4]">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#dfc49b]">
               <HeartPulse className="h-3.5 w-3.5" />
               Radar de acompanhamento
             </div>
@@ -357,7 +357,7 @@ export default function Dashboard({
               <p className="mt-2 text-3xl font-extrabold tracking-[-0.05em]">{nextWeek}</p>
               <p className="mt-1 text-[10px] text-white/45">contatos no radar</p>
             </div>
-            <div className="rounded-[20px] bg-[#2f7fc1] p-4 text-white">
+            <div className="rounded-[20px] bg-[#2f7f74] p-4 text-white">
               <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-white/60">Jornadas concluídas</p>
               <p className="mt-2 text-3xl font-extrabold tracking-[-0.05em]">{completion}%</p>
               <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/25">
@@ -377,8 +377,8 @@ export default function Dashboard({
 
       {patients.length === 0 ? (
         <Panel title="Sua visão clínica começa aqui" subtitle="Cadastre o primeiro atendimento para alimentar os indicadores." icon={Stethoscope}>
-          <div className="rounded-[20px] border border-dashed border-[#081b2c]/15 bg-[#faf9f6] p-8 text-center">
-            <Activity className="mx-auto h-8 w-8 text-[#2f7fc1]" />
+          <div className="rounded-[20px] border border-dashed border-[#193d36]/15 bg-[#faf9f6] p-8 text-center">
+            <Activity className="mx-auto h-8 w-8 text-[#2f7f74]" />
             <p className="mx-auto mt-3 max-w-md text-xs leading-relaxed text-slate-500">
               Os gráficos de perfil, localização, CID e volume de consultas serão atualizados automaticamente.
             </p>
@@ -406,10 +406,10 @@ export default function Dashboard({
                 const height = Math.max((month.value / maxMonth) * 100, 4)
                 return (
                   <div key={month.label} className="group flex h-full flex-1 flex-col items-center justify-end gap-2.5">
-                    <span className="text-[10px] font-extrabold text-[#081b2c]">{month.value || '-'}</span>
+                    <span className="text-[10px] font-extrabold text-[#193d36]">{month.value || '-'}</span>
                     <div className="relative flex h-[calc(100%-42px)] w-full max-w-16 items-end overflow-hidden rounded-[12px] bg-[#f1f2f1]">
                       <div
-                        className="w-full rounded-[12px] bg-gradient-to-t from-[#22557f] to-[#86bce4] transition-all duration-700 group-hover:brightness-105"
+                        className="w-full rounded-[12px] bg-gradient-to-t from-[#22557f] to-[#c9ae86] transition-all duration-700 group-hover:brightness-105"
                         style={{ height: `${height}%` }}
                       />
                     </div>
@@ -428,7 +428,7 @@ export default function Dashboard({
             subtitle="Para decidir horário, unidade e alcance da divulgação"
             icon={MapPinned}
           >
-            <div className="grid gap-7 lg:grid-cols-3 lg:divide-x lg:divide-[#081b2c]/[0.07]">
+            <div className="grid gap-7 lg:grid-cols-3 lg:divide-x lg:divide-[#193d36]/[0.07]">
               {/* "do paciente" no rotulo de proposito: sem isso, cidade e
                   bairro se confundem com o endereco da unidade. */}
               <Ranking title="Cidade do paciente" items={cities} color={SAGE} />
@@ -439,21 +439,21 @@ export default function Dashboard({
                 <Ranking title="Unidade de atendimento" items={units} color={NAVY} />
               </div>
             </div>
-            <div className="mt-6 flex items-center gap-2 border-t border-[#081b2c]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
+            <div className="mt-6 flex items-center gap-2 border-t border-[#193d36]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
               <Building2 className="h-3.5 w-3.5 text-[#6f9d91]" />
               A unidade é a do último atendimento de cada paciente.
             </div>
           </Panel>
 
           <Panel title="Leitura da base clínica" subtitle="Principais recortes para apoiar decisões da rotina" icon={Stethoscope}>
-            <div className="grid gap-7 lg:grid-cols-2 lg:divide-x lg:divide-[#081b2c]/[0.07]">
+            <div className="grid gap-7 lg:grid-cols-2 lg:divide-x lg:divide-[#193d36]/[0.07]">
               <Ranking title="CID-10 mais frequentes" items={cids} color={AZUL} />
               <div className="lg:pl-7">
                 <Ranking title="Convênios" items={healthPlans} color={NAVY} />
               </div>
             </div>
-            <div className="mt-6 flex items-center gap-2 border-t border-[#081b2c]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
-              <ArrowUpRight className="h-3.5 w-3.5 text-[#2f7fc1]" />
+            <div className="mt-6 flex items-center gap-2 border-t border-[#193d36]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
+              <ArrowUpRight className="h-3.5 w-3.5 text-[#2f7f74]" />
               Os indicadores refletem os campos preenchidos no cadastro de cada atendimento.
             </div>
           </Panel>

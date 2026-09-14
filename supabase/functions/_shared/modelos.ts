@@ -46,6 +46,21 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
       '{{4}}. Podemos confirmar a presença?',
     botoes: ['Confirmar presença', 'Preciso remarcar'],
   },
+  // Cancelamento fora da janela de 24 horas. O cancelamento costuma acontecer
+  // com dias de antecedencia, quando o paciente ja nao escreve ha tempo: sem
+  // este modelo, ele so descobre ao chegar no consultorio.
+  consulta_cancelada: {
+    corpo:
+      'Olá, {{1}}. Precisamos cancelar a consulta com a Dra. Patrícia Zerbini marcada ' +
+      'para {{2}}. Motivo: {{3}}. Responda esta mensagem para escolher uma nova data.',
+  },
+  // Reabre a porta depois de 24 horas em silencio. Nao trata do assunto: quando
+  // o paciente responde, a janela volta a contar e a equipe escreve normalmente.
+  retomar_atendimento: {
+    corpo:
+      'Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini. Podemos continuar ' +
+      'nossa conversa por aqui? É só responder esta mensagem.',
+  },
   // A resposta da equipe fora da janela de 24 horas. O {{2}} é o texto que a
   // pessoa digitou na tela - por isso o registro precisa deste modelo aqui:
   // sem ele, a conversa guardaria "modelo enviado" e ninguém saberia o que o

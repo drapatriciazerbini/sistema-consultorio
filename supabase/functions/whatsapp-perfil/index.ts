@@ -35,7 +35,7 @@ const SITUACOES: Record<string, string> = {
   NONE: 'Nenhum pedido em andamento',
 }
 
-const PADRAO = 'https://drmarcelloruiz.com.br/assets/perfil-whatsapp.png'
+const PADRAO = 'https://drapatriciazerbini.github.io/sistema-consultorio/logo-email.png'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })

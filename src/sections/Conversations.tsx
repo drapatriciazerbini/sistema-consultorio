@@ -87,8 +87,8 @@ const MOTIVO_ATENCAO: Record<
   },
   remarcacao: {
     rotulo: 'Pediu para remarcar',
-    classe: 'bg-[#eef5fd] text-[#16456b]',
-    borda: 'border-[#2f7fc1]',
+    classe: 'bg-[#f2ece0] text-[#17564d]',
+    borda: 'border-[#2f7f74]',
   },
   cancelamento: {
     rotulo: 'Cancelou a consulta',
@@ -97,13 +97,13 @@ const MOTIVO_ATENCAO: Record<
   },
   ajuda: {
     rotulo: 'Pediu ajuda',
-    classe: 'bg-[#eef5fd] text-[#16456b]',
-    borda: 'border-[#2f7fc1]',
+    classe: 'bg-[#f2ece0] text-[#17564d]',
+    borda: 'border-[#2f7f74]',
   },
   cancelou_sozinho: {
     rotulo: 'Cancelou pelo WhatsApp',
-    classe: 'bg-[#eef5fd] text-[#16456b]',
-    borda: 'border-[#2f7fc1]',
+    classe: 'bg-[#f2ece0] text-[#17564d]',
+    borda: 'border-[#2f7f74]',
   },
   falha: {
     rotulo: 'Falha no atendimento automático',
@@ -590,7 +590,7 @@ export default function Conversations({
         <button
           type="button"
           onClick={() => void openConversation(querAtendente[0])}
-          className="flex w-full items-center gap-2 rounded-[16px] border-2 border-[#16456b] bg-[#16456b] p-3 text-left text-[11px] font-bold text-white transition hover:bg-[#123852]"
+          className="flex w-full items-center gap-2 rounded-[16px] border-2 border-[#17564d] bg-[#17564d] p-3 text-left text-[11px] font-bold text-white transition hover:bg-[#123852]"
         >
           <MessageSquareText className="h-4 w-4 shrink-0" />
           {querAtendente.length === 1
@@ -600,7 +600,7 @@ export default function Conversations({
       )}
 
       {outrasAtencoes.length > 0 && (
-        <div className="flex items-center gap-2 rounded-[16px] border border-[#2f7fc1]/40 bg-[#eef5fd] p-3 text-[11px] font-bold text-[#16456b]">
+        <div className="flex items-center gap-2 rounded-[16px] border border-[#2f7f74]/40 bg-[#f2ece0] p-3 text-[11px] font-bold text-[#17564d]">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           {outrasAtencoes.length === 1
             ? '1 paciente respondeu e está aguardando retorno da equipe.'
@@ -617,8 +617,8 @@ export default function Conversations({
           onClick={() => setAutoReplyAberto((v) => !v)}
           className="flex w-full items-center justify-between gap-2 text-left"
         >
-          <span className="flex items-center gap-2 text-[11px] font-extrabold text-[#081b2c]">
-            <Sparkles className="h-3.5 w-3.5 text-[#2f7fc1]" />
+          <span className="flex items-center gap-2 text-[11px] font-extrabold text-[#193d36]">
+            <Sparkles className="h-3.5 w-3.5 text-[#2f7f74]" />
             Menu automático do WhatsApp
           </span>
           <span
@@ -633,15 +633,15 @@ export default function Conversations({
         </button>
 
         {autoReplyAberto && (
-          <div className="mt-3 border-t border-[#081b2c]/[0.07] pt-3">
+          <div className="mt-3 border-t border-[#193d36]/[0.07] pt-3">
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
                 checked={autoReply.enabled}
                 onChange={(e) => setAutoReply({ ...autoReply, enabled: e.target.checked })}
-                className="h-3.5 w-3.5 accent-[#2f7fc1]"
+                className="h-3.5 w-3.5 accent-[#2f7f74]"
               />
-              <span className="text-[11px] font-bold text-[#081b2c]">
+              <span className="text-[11px] font-bold text-[#193d36]">
                 Responder automaticamente quem escreve para a clínica
               </span>
             </label>
@@ -652,7 +652,7 @@ export default function Conversations({
             <p className="mt-3 text-[10px] font-extrabold uppercase tracking-wide text-slate-400">
               Como a mensagem chega
             </p>
-            <div className="mt-1 rounded-[14px] border border-[#081b2c]/10 bg-[#fbfaf8] p-3 text-[11px] leading-relaxed text-[#081b2c]">
+            <div className="mt-1 rounded-[14px] border border-[#193d36]/10 bg-[#fbfaf5] p-3 text-[11px] leading-relaxed text-[#193d36]">
               <span className="text-slate-500">{autoReply.text || 'Saudação'}</span>
               <br />
               <br />
@@ -673,7 +673,7 @@ export default function Conversations({
               value={autoReply.text}
               onChange={(e) => setAutoReply({ ...autoReply, text: e.target.value })}
               rows={2}
-              className="mt-1 w-full resize-y rounded-[14px] border border-[#081b2c]/10 bg-white p-3 text-[11px] leading-relaxed outline-none focus:border-[#2f7fc1]"
+              className="mt-1 w-full resize-y rounded-[14px] border border-[#193d36]/10 bg-white p-3 text-[11px] leading-relaxed outline-none focus:border-[#2f7f74]"
             />
 
             <p className="mt-3 text-[10px] font-extrabold uppercase tracking-wide text-slate-400">
@@ -683,7 +683,7 @@ export default function Conversations({
               value={autoReply.knownText}
               onChange={(e) => setAutoReply({ ...autoReply, knownText: e.target.value })}
               rows={2}
-              className="mt-1 w-full resize-y rounded-[14px] border border-[#081b2c]/10 bg-white p-3 text-[11px] leading-relaxed outline-none focus:border-[#2f7fc1]"
+              className="mt-1 w-full resize-y rounded-[14px] border border-[#193d36]/10 bg-white p-3 text-[11px] leading-relaxed outline-none focus:border-[#2f7f74]"
             />
             <p className="mt-2 text-[10px] text-slate-500">
               O sistema identifica o paciente pelo telefone. Escreva <strong>{'{nome}'}</strong> onde
@@ -697,7 +697,7 @@ export default function Conversations({
               value={autoReply.infoText}
               onChange={(e) => setAutoReply({ ...autoReply, infoText: e.target.value })}
               rows={12}
-              className="mt-1 w-full resize-y rounded-[14px] border border-[#081b2c]/10 bg-white p-3 text-[11px] leading-relaxed outline-none focus:border-[#2f7fc1]"
+              className="mt-1 w-full resize-y rounded-[14px] border border-[#193d36]/10 bg-white p-3 text-[11px] leading-relaxed outline-none focus:border-[#2f7f74]"
             />
             <p className="mt-2 text-[10px] text-slate-500">
               Vai no fim do texto de qualquer unidade e da telemedicina: como agendar, como falar com a
@@ -714,7 +714,7 @@ export default function Conversations({
                 type="button"
                 onClick={() => void salvarAutoReply()}
                 disabled={salvandoAuto}
-                className="rounded-xl bg-[#081b2c] px-4 py-2 text-[10px] font-extrabold text-white transition hover:bg-[#102d47] disabled:opacity-40"
+                className="rounded-xl bg-[#193d36] px-4 py-2 text-[10px] font-extrabold text-white transition hover:bg-[#13453c] disabled:opacity-40"
               >
                 {salvandoAuto ? 'Salvando...' : 'Salvar menu automático'}
               </button>
@@ -734,7 +734,7 @@ export default function Conversations({
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar por nome, telefone ou algo que foi dito"
-              className="w-full rounded-[12px] border border-[#081b2c]/10 bg-white py-2 pl-9 pr-3 text-[11px] outline-none focus:border-[#2f7fc1]"
+              className="w-full rounded-[12px] border border-[#193d36]/10 bg-white py-2 pl-9 pr-3 text-[11px] outline-none focus:border-[#2f7f74]"
             />
           </div>
           <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
@@ -743,7 +743,7 @@ export default function Conversations({
               type="date"
               value={de}
               onChange={(e) => setDe(e.target.value)}
-              className="rounded-[12px] border border-[#081b2c]/10 bg-white px-2 py-2 text-[11px] outline-none focus:border-[#2f7fc1]"
+              className="rounded-[12px] border border-[#193d36]/10 bg-white px-2 py-2 text-[11px] outline-none focus:border-[#2f7f74]"
             />
           </label>
           <label className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500">
@@ -752,7 +752,7 @@ export default function Conversations({
               type="date"
               value={ate}
               onChange={(e) => setAte(e.target.value)}
-              className="rounded-[12px] border border-[#081b2c]/10 bg-white px-2 py-2 text-[11px] outline-none focus:border-[#2f7fc1]"
+              className="rounded-[12px] border border-[#193d36]/10 bg-white px-2 py-2 text-[11px] outline-none focus:border-[#2f7f74]"
             />
           </label>
           {filtrando && (
@@ -799,7 +799,7 @@ export default function Conversations({
       {conversations.length === 0 ? (
         <div className="surface-card rounded-[22px] p-10 text-center">
           <MessageSquareText className="mx-auto h-8 w-8 text-slate-300" />
-          <p className="mt-3 text-sm font-bold text-[#081b2c]">Nenhuma resposta recebida ainda</p>
+          <p className="mt-3 text-sm font-bold text-[#193d36]">Nenhuma resposta recebida ainda</p>
           <p className="mx-auto mt-1 max-w-sm text-xs text-slate-500">
             Quando um paciente responder a mensagem de acompanhamento, a conversa aparece aqui.
           </p>
@@ -831,8 +831,8 @@ export default function Conversations({
               const contorno = motivo
                 ? `${motivo.borda} bg-white`
                 : active
-                  ? 'border-[#2f7fc1] bg-white shadow-[0_10px_28px_rgba(8,27,44,.10)]'
-                  : 'border-[#081b2c]/10 bg-white/70 hover:border-[#081b2c]/20 hover:bg-white'
+                  ? 'border-[#2f7f74] bg-white shadow-[0_10px_28px_rgba(25,61,54,.10)]'
+                  : 'border-[#193d36]/10 bg-white/70 hover:border-[#193d36]/20 hover:bg-white'
               const semCadastro = !conversation.patientId
               // Sem cadastro, o nome do WhatsApp e melhor do que "Contato sem
               // cadastro" - mas vem com etiqueta, porque e o apelido que a
@@ -851,7 +851,7 @@ export default function Conversations({
                     className="w-full text-left"
                   >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="truncate text-xs font-extrabold text-[#081b2c]">
+                    <span className="truncate text-xs font-extrabold text-[#193d36]">
                       {titulo}
                     </span>
                     <span className="shrink-0 text-[9px] font-bold text-slate-400">
@@ -877,12 +877,12 @@ export default function Conversations({
                         {motivo.rotulo}
                       </span>
                     ) : conversation.needsAttention ? (
-                      <span className="rounded-full bg-[#eef5fd] px-2 py-0.5 text-[9px] font-extrabold text-[#16456b]">
+                      <span className="rounded-full bg-[#f2ece0] px-2 py-0.5 text-[9px] font-extrabold text-[#17564d]">
                         Aguardando retorno
                       </span>
                     ) : null}
                     {conversation.unreadCount > 0 && (
-                      <span className="rounded-full bg-[#081b2c] px-2 py-0.5 text-[9px] font-extrabold text-white">
+                      <span className="rounded-full bg-[#193d36] px-2 py-0.5 text-[9px] font-extrabold text-white">
                         {conversation.unreadCount} nova{conversation.unreadCount > 1 ? 's' : ''}
                       </span>
                     )}
@@ -912,7 +912,7 @@ export default function Conversations({
                         onClick={() => void destravar(conversation.id)}
                         disabled={destravando === conversation.id}
                         title="Zera a etapa do robô. Não apaga mensagens nem consultas."
-                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white px-2 py-1 text-[9px] font-extrabold text-[#081b2c] transition hover:bg-[#081b2c] hover:text-white disabled:opacity-40"
+                        className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white px-2 py-1 text-[9px] font-extrabold text-[#193d36] transition hover:bg-[#193d36] hover:text-white disabled:opacity-40"
                       >
                         <RotateCcw className="h-3 w-3" />
                         {destravando === conversation.id ? 'Soltando...' : 'Destravar'}
@@ -931,7 +931,7 @@ export default function Conversations({
                           telefone: conversation.phone,
                         })
                       }
-                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-[12px] border border-[#081b2c]/15 bg-white px-3 py-2 text-[10px] font-extrabold text-[#081b2c] transition hover:border-[#2f7fc1] hover:text-[#16456b]"
+                      className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-[12px] border border-[#193d36]/15 bg-white px-3 py-2 text-[10px] font-extrabold text-[#193d36] transition hover:border-[#2f7f74] hover:text-[#17564d]"
                     >
                       <UserPlus className="h-3.5 w-3.5" />
                       Cadastrar como paciente
@@ -958,14 +958,14 @@ export default function Conversations({
                 <button
                   type="button"
                   onClick={() => setSelectedId(null)}
-                  className="mb-3 inline-flex items-center gap-1.5 rounded-xl border border-[#081b2c]/10 px-3 py-2 text-[10px] font-extrabold text-slate-500 transition hover:text-[#1f4f78] lg:hidden"
+                  className="mb-3 inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 px-3 py-2 text-[10px] font-extrabold text-slate-500 transition hover:text-[#1f5f55] lg:hidden"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />
                   Todas as conversas
                 </button>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#081b2c]/[0.07] pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#193d36]/[0.07] pb-3">
                   <div>
-                    <p className="text-sm font-extrabold text-[#081b2c]">{selected.patientName}</p>
+                    <p className="text-sm font-extrabold text-[#193d36]">{selected.patientName}</p>
                     <p className="text-[10px] font-bold text-slate-400">
                       {selected.phone} · {STATUS_LABEL[selected.status]}
                     </p>
@@ -983,7 +983,7 @@ export default function Conversations({
                           {resumo.realizadas === 1 ? 'consulta feita' : 'consultas feitas'}
                         </span>
                         {resumo.agendadas > 0 && (
-                          <span className="text-[#1d4ed8]">
+                          <span className="text-[#1f5f55]">
                             {resumo.agendadas}{' '}
                             {resumo.agendadas === 1 ? 'agendada' : 'agendadas'}
                           </span>
@@ -1002,7 +1002,7 @@ export default function Conversations({
                       type="button"
                       onClick={() => void reabrir(selected.id)}
                       title="Volta a conversa para a lista de abertas"
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#081b2c]/10 px-3 py-1.5 text-[10px] font-extrabold text-[#1f4f78] transition hover:bg-[#eff6fd]"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 px-3 py-1.5 text-[10px] font-extrabold text-[#1f5f55] transition hover:bg-[#eff6fd]"
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
                       Reabrir conversa
@@ -1025,15 +1025,15 @@ export default function Conversations({
                     vai poder, em vez de rolar a conversa inteira ate esbarrar
                     no aviso. */}
                 {!janelaAberta && (
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-[#2f7fc1]/30 bg-[#f0f6fd] px-3.5 py-2.5">
-                    <p className="text-[10px] font-extrabold text-[#16456b]">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-[#2f7f74]/30 bg-[#f0f6fd] px-3.5 py-2.5">
+                    <p className="text-[10px] font-extrabold text-[#17564d]">
                       Janela de resposta fechada. Só dá para enviar um convite.
                     </p>
                     <button
                       type="button"
                       disabled={reabrindo}
                       onClick={() => void reabrirConversa()}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#16456b] px-3 py-1.5 text-[10px] font-extrabold text-white transition hover:bg-[#10344f] disabled:cursor-wait disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#17564d] px-3 py-1.5 text-[10px] font-extrabold text-white transition hover:bg-[#10344f] disabled:cursor-wait disabled:opacity-50"
                     >
                       <MessageSquareText className="h-3.5 w-3.5" />
                       {reabrindo ? 'Enviando...' : 'Enviar convite'}
@@ -1065,7 +1065,7 @@ export default function Conversations({
                             block: 'end',
                           })
                         }
-                        className="sticky top-1 z-10 ml-auto flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[10px] font-extrabold text-[#557f75] shadow-[0_2px_6px_rgba(11,20,26,.18)] backdrop-blur transition hover:bg-white"
+                        className="sticky top-1 z-10 ml-auto flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[10px] font-extrabold text-[#557f75] shadow-[0_2px_6px_rgba(12,26,23,.18)] backdrop-blur transition hover:bg-white"
                       >
                         <ArrowDown className="h-3 w-3" />
                         Ir para o fim
@@ -1080,7 +1080,7 @@ export default function Conversations({
                             className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}
                           >
                             <div
-                              className={`relative max-w-[78%] rounded-[8px] px-2.5 py-1.5 shadow-[0_1px_0.5px_rgba(11,20,26,.13)] ${
+                              className={`relative max-w-[78%] rounded-[8px] px-2.5 py-1.5 shadow-[0_1px_0.5px_rgba(12,26,23,.13)] ${
                                 outbound ? 'bg-[#d9fdd3]' : 'bg-white'
                               }`}
                             >
@@ -1112,7 +1112,7 @@ export default function Conversations({
                     depois da ultima mensagem do paciente, entao o prazo fica a
                     vista e a caixa se desliga sozinha quando fecha - senao a
                     equipe digita, envia e a mensagem falha sem explicacao. */}
-                <div className="mt-4 border-t border-[#081b2c]/[0.07] pt-3">
+                <div className="mt-4 border-t border-[#193d36]/[0.07] pt-3">
                   {janelaAberta ? (
                     <>
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1136,7 +1136,7 @@ export default function Conversations({
                         rows={3}
                         maxLength={4096}
                         placeholder="Escreva sua resposta..."
-                        className="mt-2 w-full resize-y rounded-[14px] border border-[#081b2c]/10 bg-white p-3 text-[12px] leading-relaxed outline-none focus:border-[#2f7fc1]"
+                        className="mt-2 w-full resize-y rounded-[14px] border border-[#193d36]/10 bg-white p-3 text-[12px] leading-relaxed outline-none focus:border-[#2f7f74]"
                       />
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <p className="text-[9px] font-semibold text-slate-400">
@@ -1150,7 +1150,7 @@ export default function Conversations({
                           type="button"
                           disabled={enviando}
                           onClick={() => void enviarMenu()}
-                          className="mr-auto inline-flex items-center gap-1.5 rounded-xl border border-[#081b2c]/10 bg-white px-3 py-2 text-[10px] font-extrabold text-slate-600 transition hover:border-[#081b2c]/25 hover:text-[#081b2c] disabled:opacity-40"
+                          className="mr-auto inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-[10px] font-extrabold text-slate-600 transition hover:border-[#193d36]/25 hover:text-[#193d36] disabled:opacity-40"
                           title="Envia o menu de opções do robô e volta a conversa ao atendimento automático"
                         >
                           <ListIcon className="h-3.5 w-3.5" />
@@ -1160,7 +1160,7 @@ export default function Conversations({
                           type="button"
                           disabled={enviando || !resposta.trim()}
                           onClick={() => void enviarResposta()}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-[#081b2c] px-4 py-2 text-[10px] font-extrabold text-white transition hover:bg-[#102d47] disabled:cursor-not-allowed disabled:opacity-40"
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-[#193d36] px-4 py-2 text-[10px] font-extrabold text-white transition hover:bg-[#13453c] disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Send className="h-3.5 w-3.5" />
                           {enviando ? 'Enviando...' : 'Enviar'}
@@ -1173,13 +1173,13 @@ export default function Conversations({
                        aprovado" e nao tinha por onde enviar um. O botao manda o
                        modelo de utilidade que reabre a conversa - ele nao
                        resolve o assunto, abre a porta para resolver. */
-                    <div className="rounded-[14px] border border-[#2f7fc1]/30 bg-[#f0f6fd] px-4 py-3">
-                      <p className="text-[11px] font-extrabold text-[#16456b]">
+                    <div className="rounded-[14px] border border-[#2f7f74]/30 bg-[#f0f6fd] px-4 py-3">
+                      <p className="text-[11px] font-extrabold text-[#17564d]">
                         {janelaAte
                           ? `A janela de resposta fechou em ${formatWhen(janelaAte)}`
                           : 'Este contato ainda não escreveu para a clínica'}
                       </p>
-                      <p className="mt-1 text-[10px] font-semibold text-[#16456b]/80">
+                      <p className="mt-1 text-[10px] font-semibold text-[#17564d]/80">
                         A Meta só permite texto livre nas 24 horas seguintes à mensagem do paciente.
                         Fora delas você tem dois caminhos: responder agora dentro de um modelo
                         aprovado, ou convidar a família a escrever para a conversa reabrir.
@@ -1191,10 +1191,10 @@ export default function Conversations({
                         onChange={(evento) => setResposta(evento.target.value)}
                         rows={3}
                         maxLength={700}
-                        placeholder="Escreva a resposta. Ela chega precedida de 'Olá, [nome]. Aqui é o consultório do Dr. Marcello Ruiz.'"
-                        className="mt-3 w-full resize-y rounded-xl border border-[#2f7fc1]/25 bg-white px-3 py-2.5 text-[11px] font-semibold leading-relaxed text-[#081b2c] outline-none transition placeholder:font-medium placeholder:text-slate-300 focus:border-[#2f7fc1] focus:ring-4 focus:ring-[#2f7fc1]/10"
+                        placeholder="Escreva a resposta. Ela chega precedida de 'Olá, [nome]. Aqui é o consultório da Dra. Patrícia Zerbini.'"
+                        className="mt-3 w-full resize-y rounded-xl border border-[#2f7f74]/25 bg-white px-3 py-2.5 text-[11px] font-semibold leading-relaxed text-[#193d36] outline-none transition placeholder:font-medium placeholder:text-slate-300 focus:border-[#2f7f74] focus:ring-4 focus:ring-[#2f7f74]/10"
                       />
-                      <p className="mt-1 text-[9px] font-bold text-[#16456b]/60">
+                      <p className="mt-1 text-[9px] font-bold text-[#17564d]/60">
                         Sem quebras de linha: a Meta recusa modelo com parágrafos. {resposta.length}/700
                       </p>
 
@@ -1203,7 +1203,7 @@ export default function Conversations({
                           type="button"
                           disabled={enviandoModelo || reabrindo || !resposta.trim()}
                           onClick={() => void responderPorModelo()}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-[#081b2c] px-4 py-2 text-[10px] font-extrabold text-white transition hover:bg-[#102d47] disabled:cursor-not-allowed disabled:opacity-40"
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-[#193d36] px-4 py-2 text-[10px] font-extrabold text-white transition hover:bg-[#13453c] disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           <Send className="h-3.5 w-3.5" />
                           {enviandoModelo ? 'Enviando...' : 'Enviar mensagem agora'}
@@ -1214,7 +1214,7 @@ export default function Conversations({
                           type="button"
                           disabled={reabrindo || enviandoModelo}
                           onClick={() => void reabrirConversa()}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#16456b]/30 bg-white px-4 py-2 text-[10px] font-extrabold text-[#16456b] transition hover:bg-[#e7f0fa] disabled:cursor-wait disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#17564d]/30 bg-white px-4 py-2 text-[10px] font-extrabold text-[#17564d] transition hover:bg-[#e7f0fa] disabled:cursor-wait disabled:opacity-50"
                         >
                           <MessageSquareText className="h-3.5 w-3.5" />
                           {reabrindo ? 'Enviando...' : 'Só convidar a responder'}
