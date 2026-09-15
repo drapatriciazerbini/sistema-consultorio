@@ -195,7 +195,7 @@ function CaixaDeCancelamento({
                 O paciente foi avisado pelo WhatsApp.
               </p>
             ) : (
-              <p className="mt-3 flex items-start gap-2 rounded-xl bg-[#ebf4fd] px-3.5 py-3 text-[11px] font-bold leading-relaxed text-[#1a5079]">
+              <p className="mt-3 flex items-start gap-2 rounded-xl bg-[#f8f6f0] px-3.5 py-3 text-[11px] font-bold leading-relaxed text-[#1a7963]">
                 <MessageCircleOff className="mt-px h-4 w-4 shrink-0" />
                 <span>
                   O paciente NÃO foi avisado. {resultado.motivoDoSilencio}
@@ -226,7 +226,7 @@ function CaixaDeCancelamento({
                   key={opcao}
                   className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-[11px] font-bold transition ${
                     motivo === opcao
-                      ? 'border-[#2f7f74] bg-[#eff6fd] text-[#193d36]'
+                      ? 'border-[#2f7f74] bg-[#f9f8f3] text-[#193d36]'
                       : 'border-[#193d36]/10 bg-white text-slate-600 hover:bg-slate-50'
                   }`}
                 >
@@ -724,7 +724,7 @@ export default function Agenda({
                               'Dia bloqueado. Ele não é mais oferecido no WhatsApp.',
                             )
                           }}
-                          className="rounded-lg bg-[#1f5f55] px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-[#183f61]"
+                          className="rounded-lg bg-[#1f5f55] px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-[#186150]"
                         >
                           Bloquear
                         </button>
@@ -741,14 +741,14 @@ export default function Agenda({
                         type="button"
                         title="Ninguém consegue marcar neste dia; as consultas já marcadas continuam"
                         onClick={() => setBloqueandoDia({ dia, motivo: '' })}
-                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-400 transition hover:bg-[#f3f4f6] hover:text-[#193d36]"
+                        className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold text-slate-400 transition hover:bg-[#f6f5f3] hover:text-[#193d36]"
                       >
                         <CalendarOff className="h-3 w-3" /> Bloquear dia
                       </button>
                     )}
                   </div>
                   {bloqueio && (
-                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#e9edf1] px-3 py-1.5 text-[10px] font-bold text-[#193d36]">
+                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#f1efe9] px-3 py-1.5 text-[10px] font-bold text-[#193d36]">
                       <CalendarOff className="h-3 w-3" /> Dia bloqueado{bloqueio.reason ? ` · ${bloqueio.reason}` : ''}
                       {bloqueio.unitId === null ? ' · todas as unidades' : ''}
                     </p>
@@ -759,7 +759,7 @@ export default function Agenda({
                       {marcados.map((item) => ehReserva(item) ? (
                         <div
                           key={item.id}
-                          className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-[#193d36]/20 bg-[#e9edf1] px-3 py-2"
+                          className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-[#193d36]/20 bg-[#f1efe9] px-3 py-2"
                         >
                           <p className="min-w-0 flex-1 truncate text-[11px] font-bold text-[#193d36]">
                             {hora(item.startsAt)} · Reservado{item.staffNote ? ` · ${item.staffNote}` : ''}
@@ -845,7 +845,7 @@ export default function Agenda({
                                 pessoa nao vem. Sem a etiqueta a recepcao
                                 esperaria alguem na porta. */}
                             {item.ficha.telemedicina && (
-                              <span className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full bg-[#7ab8ea] px-2 py-0.5 text-[9px] font-extrabold text-[#193d36]">
+                              <span className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full bg-[#7aead0] px-2 py-0.5 text-[9px] font-extrabold text-[#193d36]">
                                 <Video className="h-2.5 w-2.5" strokeWidth={3} />
                                 Telemedicina
                               </span>
@@ -1287,7 +1287,7 @@ export default function Agenda({
                 nao pode ser oferecida no WhatsApp. Fica aqui em cima, curto,
                 porque e o caso mais comum de clique num horario vazio depois
                 de marcar consulta. */}
-            <div className="mt-4 rounded-[14px] border border-dashed border-[#193d36]/15 bg-[#f6f7f9] p-3">
+            <div className="mt-4 rounded-[14px] border border-dashed border-[#193d36]/15 bg-[#f9f8f6] p-3">
               <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
                 Reservar sem paciente
               </p>
@@ -1310,7 +1310,7 @@ export default function Agenda({
                       await createAppointment(clinicId, unitId, null, inicio, prefs.slotMinutes, motivo)
                     }, 'Horário reservado. Ele não é mais oferecido no WhatsApp.')
                   }}
-                  className="shrink-0 rounded-xl bg-[#1f5f55] px-3 py-2 text-[11px] font-bold text-white transition hover:bg-[#183f61]"
+                  className="shrink-0 rounded-xl bg-[#1f5f55] px-3 py-2 text-[11px] font-bold text-white transition hover:bg-[#186150]"
                 >
                   Reservar
                 </button>
@@ -1564,7 +1564,7 @@ export default function Agenda({
                   emEdicao.ficha.responsavel ||
                   emEdicao.ficha.cpf ||
                   emEdicao.ficha.email) && (
-                  <div className="rounded-[16px] border border-[#2f7f74]/25 bg-[#f1f7fd] p-3.5">
+                  <div className="rounded-[16px] border border-[#2f7f74]/25 bg-[#faf8f4] p-3.5">
                     <p className="text-[10px] font-extrabold uppercase tracking-wide text-[#1f5f55]">
                       Informado pela família no WhatsApp
                     </p>

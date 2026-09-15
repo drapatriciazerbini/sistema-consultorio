@@ -108,7 +108,7 @@ export default function AccessAdmin() {
           type="button"
           onClick={() => void load()}
           disabled={loading}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#193d36]/10 bg-white px-4 py-3 text-xs font-extrabold text-[#385a70] transition hover:border-[#1f5f55]/40 hover:text-[#1f5f55] disabled:opacity-60"
+          className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[#193d36]/10 bg-white px-4 py-3 text-xs font-extrabold text-[#387063] transition hover:border-[#1f5f55]/40 hover:text-[#1f5f55] disabled:opacity-60"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Atualizar
@@ -157,7 +157,7 @@ export default function AccessAdmin() {
                       value={role}
                       disabled={working}
                       onChange={(event) => setRoles((current) => ({ ...current, [request.id]: event.target.value as AssignableRole }))}
-                      className="min-w-[210px] rounded-2xl border border-[#193d36]/10 bg-[#faf9f4] px-4 py-3 text-xs font-bold text-[#385a70] outline-none focus:border-[#2f7f74]"
+                      className="min-w-[210px] rounded-2xl border border-[#193d36]/10 bg-[#faf9f4] px-4 py-3 text-xs font-bold text-[#387063] outline-none focus:border-[#2f7f74]"
                     >
                       {(Object.keys(ROLE_LABEL) as AssignableRole[]).map((value) => (
                         <option key={value} value={value}>{ROLE_LABEL[value]}</option>

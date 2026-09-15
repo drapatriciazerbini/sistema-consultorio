@@ -134,7 +134,7 @@ export default function RespostasProntas() {
 
   return (
     <section className="surface-card overflow-hidden rounded-[26px]">
-      <div className="border-b border-[#193d36]/[0.06] bg-gradient-to-r from-white to-[#f0f6fc] p-5 sm:p-6">
+      <div className="border-b border-[#193d36]/[0.06] bg-gradient-to-r from-white to-[#f9f8f3] p-5 sm:p-6">
         <div className="flex items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] bg-[#eae3d4] text-[#1f5f55]">
             <MessageSquareText className="h-5 w-5" />
@@ -259,7 +259,7 @@ export default function RespostasProntas() {
           <button
             type="button"
             onClick={adicionar}
-            className="inline-flex items-center justify-center gap-2 rounded-[14px] border border-[#193d36]/10 px-4 py-3 text-xs font-extrabold text-[#1f5f55] transition hover:bg-[#f0f6fc]"
+            className="inline-flex items-center justify-center gap-2 rounded-[14px] border border-[#193d36]/10 px-4 py-3 text-xs font-extrabold text-[#1f5f55] transition hover:bg-[#f9f8f3]"
           >
             <Plus className="h-4 w-4" />
             Novo assunto

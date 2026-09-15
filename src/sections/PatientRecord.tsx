@@ -174,7 +174,7 @@ const editorColors = [
   { label: 'Vermelho', value: '#c02626' },
   { label: 'Azul', value: '#2563eb' },
   { label: 'Verde', value: '#557f75' },
-  { label: 'Cinza', value: '#5b6b7a' },
+  { label: 'Cinza', value: '#5b7a73' },
 ]
 
 const editorTags = new Set(['B', 'BR', 'DIV', 'EM', 'FONT', 'I', 'LI', 'OL', 'P', 'SPAN', 'STRONG', 'U', 'UL'])
@@ -370,7 +370,7 @@ function BarraDeFormatacao() {
 
       {/* Em qual campo a barra esta agindo. E o que impede o negrito de cair no
           lugar errado quando o cursor esta num campo e o olho noutro. */}
-      <p className={`mt-1 text-[10px] font-bold ${parado ? 'text-slate-400' : 'text-[#2a6ea8]'}`}>
+      <p className={`mt-1 text-[10px] font-bold ${parado ? 'text-slate-400' : 'text-[#2aa88b]'}`}>
         {parado ? 'Clique num campo para escrever e formatar' : `Formatando: ${ativo.rotulo}`}
       </p>
 
@@ -704,8 +704,8 @@ async function imprimirProntuario(
     <title>Prontuário - ${escapeHtml(patient.nome)}</title>
     <style>
       * { box-sizing: border-box; }
-      body { font-family: Georgia, 'Times New Roman', serif; color: #14202c; margin: 0; padding: 28px 32px; font-size: 12pt; line-height: 1.55; }
-      header { border-bottom: 2px solid #14202c; padding-bottom: 12px; margin-bottom: 18px; }
+      body { font-family: Georgia, 'Times New Roman', serif; color: #142c26; margin: 0; padding: 28px 32px; font-size: 12pt; line-height: 1.55; }
+      header { border-bottom: 2px solid #142c26; padding-bottom: 12px; margin-bottom: 18px; }
       header h1 { margin: 0; font-size: 17pt; }
       header p { margin: 2px 0 0; font-size: 10pt; color: #55606b; }
       .paciente { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; margin-bottom: 22px; font-size: 11pt; }
@@ -717,27 +717,27 @@ async function imprimirProntuario(
          inteiro pulava para a folha seguinte e a primeira saia quase em branco.
          Quem nao pode quebrar e o pedaco pequeno - cada campo - e o titulo, que
          nao pode ficar sozinho no rodape. */
-      .consulta { border-top: 1px solid #d4d9de; padding-top: 14px; margin-top: 18px; }
+      .consulta { border-top: 1px solid #d4dedc; padding-top: 14px; margin-top: 18px; }
       .consulta h2 { font-size: 13pt; margin: 0 0 2px; break-after: avoid; page-break-after: avoid; }
       .meta { margin: 0 0 12px; font-size: 10pt; color: #55606b; break-after: avoid; page-break-after: avoid; }
       .bloco { margin-bottom: 11px; page-break-inside: avoid; break-inside: avoid; }
       .bloco h3 { break-after: avoid; page-break-after: avoid; }
       .bloco h3 { font-size: 10pt; text-transform: uppercase; letter-spacing: .04em; color: #55606b; margin: 0 0 3px; font-weight: bold; }
       .txt ul, .txt ol { margin: 4px 0; padding-left: 20px; }
-      footer { margin-top: 32px; border-top: 1px solid #d4d9de; padding-top: 10px; font-size: 9pt; color: #7b858e; }
+      footer { margin-top: 32px; border-top: 1px solid #d4dedc; padding-top: 10px; font-size: 9pt; color: #7b858e; }
       footer p { margin: 0 0 8px; }
-      .selo { border: 1px solid #d4d9de; border-radius: 4px; padding: 8px 10px; font-size: 8pt; break-inside: avoid; page-break-inside: avoid; }
+      .selo { border: 1px solid #d4dedc; border-radius: 4px; padding: 8px 10px; font-size: 8pt; break-inside: avoid; page-break-inside: avoid; }
       .selo .aviso { margin: 6px 0 0; font-size: 7.5pt; font-style: italic; }
       .h { font-size: 7pt; color: #7b858e; margin: 0 0 2px; }
       .h code { font-family: 'Courier New', monospace; color: #55606b; letter-spacing: .02em; word-break: break-all; }
       .h .alerta { color: #b42318; }
-      .carimbo { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; border: 1.5px solid #1c6b3a; border-radius: 8px; padding: 12px 14px; font-size: 8pt; break-inside: avoid; page-break-inside: avoid; color: #14202c; }
+      .carimbo { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; border: 1.5px solid #1c6b3a; border-radius: 8px; padding: 12px 14px; font-size: 8pt; break-inside: avoid; page-break-inside: avoid; color: #142c26; }
       .carimbo .marca { width: 46px; height: 46px; border-radius: 50%; border: 1.5px solid #1c6b3a; display: flex; align-items: center; justify-content: center; color: #1c6b3a; font-size: 22px; }
       .carimbo .t { font-family: Arial, Helvetica, sans-serif; font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; color: #1c6b3a; font-weight: bold; margin: 0 0 2px; }
       .carimbo .quem { font-size: 12pt; margin: 0; }
       .carimbo .quando { font-size: 9pt; color: #55606b; margin: 2px 0 6px; }
       .carimbo .aviso { margin: 6px 0 0; font-size: 7.5pt; font-style: italic; color: #7b858e; }
-      .qualificada { width: 128px; border-radius: 8px; overflow: hidden; background: #0b1f3a; color: #fff; text-align: center; font-family: Arial, Helvetica, sans-serif; padding: 8px 6px 0; align-self: center; }
+      .qualificada { width: 128px; border-radius: 8px; overflow: hidden; background: #0b3a2f; color: #fff; text-align: center; font-family: Arial, Helvetica, sans-serif; padding: 8px 6px 0; align-self: center; }
       .qualificada .q1 { font-size: 6.5pt; letter-spacing: .06em; text-transform: uppercase; }
       .qualificada .q2 { font-size: 8pt; font-weight: bold; letter-spacing: .08em; text-transform: uppercase; color: #5cc8ff; margin: 1px 0 5px; }
       .qualificada .q3 { font-size: 5.5pt; line-height: 1.35; color: rgba(255,255,255,.85); padding-bottom: 6px; }
@@ -1478,7 +1478,7 @@ function Detail({ label, value, alerta = false }: { label: string; value: string
       <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-slate-400">{label}</p>
       <div
         className={`mt-1 whitespace-pre-wrap font-serif text-[16.5px] leading-[1.72] [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 ${
-          alerta ? 'font-semibold text-[#b42318]' : 'text-[#2b4257]'
+          alerta ? 'font-semibold text-[#b42318]' : 'text-[#2b574d]'
         }`}
         dangerouslySetInnerHTML={{ __html: editorValue(value) }}
       />
@@ -1539,11 +1539,11 @@ function estadoDaConsulta(consultation: Consultation): EstadoDaConsulta {
 const SELO_DO_ESTADO: Record<EstadoDaConsulta, { texto: string; classe: string } | null> = {
   agendada: {
     texto: 'Agendada',
-    classe: 'bg-[#eef2f7] text-[#5b6b7d]',
+    classe: 'bg-[#f7f5ee] text-[#5b7d75]',
   },
   'sem-registro': {
     texto: 'Sem registro',
-    classe: 'bg-[#ebf4fd] text-[#1a5079]',
+    classe: 'bg-[#f8f6f0] text-[#1a7963]',
   },
   // Realizada nao ganha selo: e o caso normal, e etiquetar o normal so gera
   // ruido. O que precisa de destaque e o que foge dele.
@@ -1745,7 +1745,7 @@ function ConsultationCard({
               <button
                 type="button"
                 onClick={() => onEdit(consultation)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1f5f55]/20 bg-[#eff6fd] px-3 py-2 text-[10px] font-extrabold text-[#2a6ea8] transition hover:bg-[#dceaf8]"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1f5f55]/20 bg-[#f9f8f3] px-3 py-2 text-[10px] font-extrabold text-[#2aa88b] transition hover:bg-[#f1eee3]"
               >
                 <Edit3 className="h-3.5 w-3.5" />
                 {estado === 'realizada' ? 'Editar consulta' : 'Escrever atendimento'}
@@ -1754,7 +1754,7 @@ function ConsultationCard({
                 type="button"
                 onClick={() => onPrescrever(consultation)}
                 disabled={prescrevendo}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#2563eb]/20 bg-[#eef3fd] px-3 py-2 text-[10px] font-extrabold text-[#1f5f55] transition hover:bg-[#e2eafb] disabled:cursor-wait disabled:opacity-70"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#2563eb]/20 bg-[#f9f7f2] px-3 py-2 text-[10px] font-extrabold text-[#1f5f55] transition hover:bg-[#f4f1e9] disabled:cursor-wait disabled:opacity-70"
               >
                 {prescrevendo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pill className="h-3.5 w-3.5" />}
                 Prescrever
@@ -1774,7 +1774,7 @@ function ConsultationCard({
           )}
         </div>
         {mudancas.length > 0 && (
-          <div className="mt-3 rounded-[14px] border border-[#2f7f74]/30 bg-[#f0f6fd] px-4 py-3">
+          <div className="mt-3 rounded-[14px] border border-[#2f7f74]/30 bg-[#f9f8f4] px-4 py-3">
             <p className="text-[11px] font-extrabold text-[#17564d]">
               Mudou desde a consulta de {fmtBR(anterior!.data)}
             </p>
@@ -1809,7 +1809,7 @@ function ConsultationCard({
                     className={`rounded-[14px] border px-4 py-3 ${
                       receita.excluidaEm
                         ? 'border-[#193d36]/10 bg-[#faf9f4]'
-                        : 'border-[#2563eb]/20 bg-[#f7f9fe]'
+                        : 'border-[#2563eb]/20 bg-[#fcfbf9]'
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2739,7 +2739,7 @@ export default function PatientRecord({
                 <button
                   type="button"
                   onClick={startNewConsultation}
-                  className="flex items-center justify-center gap-2 rounded-[14px] bg-[#1f5f55] px-4 py-2.5 text-[11px] font-extrabold text-white shadow-[0_8px_18px_rgba(31,95,85,.22)] transition hover:-translate-y-0.5 hover:bg-[#183f61]"
+                  className="flex items-center justify-center gap-2 rounded-[14px] bg-[#1f5f55] px-4 py-2.5 text-[11px] font-extrabold text-white shadow-[0_8px_18px_rgba(31,95,85,.22)] transition hover:-translate-y-0.5 hover:bg-[#186150]"
                 >
                   <Plus className="h-3.5 w-3.5" /> Nova consulta
                 </button>
@@ -3002,7 +3002,7 @@ export default function PatientRecord({
                     observacao clinica apagava este aviso. Mostrar em vez de
                     esconder tambem tira o motivo de alguem usar o campo errado. */}
                 {patient.observacoes.trim() && (
-                  <div className="sm:col-span-2 rounded-[14px] border border-[#2f7f74]/25 bg-[#f1f7fd] px-4 py-3">
+                  <div className="sm:col-span-2 rounded-[14px] border border-[#2f7f74]/25 bg-[#faf8f4] px-4 py-3">
                     <p className="text-[9px] font-extrabold uppercase tracking-[0.13em] text-[#1f5f55]">
                       Recado da recepção
                     </p>
@@ -3183,7 +3183,7 @@ export default function PatientRecord({
                     type="button"
                     onClick={() => void prescreverDoFormulario()}
                     disabled={prescrevendo}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#2563eb]/20 bg-[#eef3fd] px-3.5 py-2.5 text-[11px] font-extrabold text-[#1f5f55] transition hover:bg-[#e2eafb] disabled:cursor-wait disabled:opacity-70"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#2563eb]/20 bg-[#f9f7f2] px-3.5 py-2.5 text-[11px] font-extrabold text-[#1f5f55] transition hover:bg-[#f4f1e9] disabled:cursor-wait disabled:opacity-70"
                   >
                     {prescrevendo ? (
                       <Loader2 className="h-4 w-4 animate-spin" />

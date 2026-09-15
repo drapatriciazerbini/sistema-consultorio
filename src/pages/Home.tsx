@@ -308,7 +308,7 @@ export default function Home() {
                 >
                   <span
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors [@media(max-height:820px)]:h-8 [@media(max-height:820px)]:w-8 ${
-                      active ? 'bg-[#d9e8f7] text-[#1f5f55]' : 'bg-white/[0.055] text-white/60 group-hover:text-white'
+                      active ? 'bg-[#f0ece0] text-[#1f5f55]' : 'bg-white/[0.055] text-white/60 group-hover:text-white'
                     }`}
                   >
                     <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
@@ -324,7 +324,7 @@ export default function Home() {
                     </span>
                   ) : item.key === 'followups' && pendentes > 0 ? (
                     <span className={`min-w-6 rounded-full px-1.5 py-1 text-center text-[10px] font-extrabold ${
-                      active ? 'bg-[#193d36] text-white' : 'bg-[#3585c6] text-white'
+                      active ? 'bg-[#193d36] text-white' : 'bg-[#35c6a4] text-white'
                     }`}>
                       {pendentes}
                     </span>
@@ -381,7 +381,7 @@ export default function Home() {
           >
             <Bell className="h-[18px] w-[18px] text-white/75" />
             {pendentes > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#4a94cf] px-1 text-[9px] font-extrabold text-white ring-2 ring-[#193d36]">
+              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#4acfb0] px-1 text-[9px] font-extrabold text-white ring-2 ring-[#193d36]">
                 {pendentes}
               </span>
             )}

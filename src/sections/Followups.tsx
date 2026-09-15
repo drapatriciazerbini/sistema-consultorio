@@ -328,8 +328,8 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
                 <p className="text-[9px] font-bold uppercase tracking-wider text-white/35">Abertas</p>
                 <p className="mt-1 text-2xl font-extrabold tracking-[-0.04em]">{items.length}</p>
               </div>
-              <div className="min-w-[92px] rounded-[18px] bg-[#5b9fd5] p-3.5 text-[#193d36]">
-                <p className="text-[9px] font-bold uppercase tracking-wider text-[#193d36]/50">Concluídas</p>
+              <div className="min-w-[92px] rounded-[18px] bg-[#dfc49b] p-3.5 text-[#193d36]">
+                <p className="text-[9px] font-bold uppercase tracking-wider text-[#193d36]/55">Concluídas</p>
                 <p className="mt-1 text-2xl font-extrabold tracking-[-0.04em]">{completed}</p>
               </div>
             </div>

@@ -78,7 +78,7 @@ function Panel({
           {subtitle && <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{subtitle}</p>}
         </div>
         {Icon && (
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#e9f1f9] text-[#1f5f55]">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f6f3ec] text-[#1f5f55]">
             <Icon className="h-4 w-4" />
           </span>
         )}
@@ -109,7 +109,7 @@ function DataBar({
         <span className="text-[11px] font-semibold leading-snug text-slate-500">{label}</span>
         <span className="shrink-0 text-[11px] font-extrabold text-[#193d36]">{value}</span>
       </div>
-      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#eef1f2]">
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#f2f1ee]">
         <div
           className="h-full rounded-full transition-[width] duration-700"
           style={{ width: `${width}%`, background: `linear-gradient(90deg, ${color}, ${color}b8)` }}
@@ -138,13 +138,13 @@ function Donut({ female, male, other }: { female: number; male: number; other: n
   const femaleEnd = total ? (female / total) * 100 : 0
   const maleEnd = total ? femaleEnd + (male / total) * 100 : 0
   const background = total
-    ? `conic-gradient(${AZUL} 0 ${femaleEnd}%, ${NAVY} ${femaleEnd}% ${maleEnd}%, #a5b1bb ${maleEnd}% 100%)`
-    : '#edf0f2'
+    ? `conic-gradient(${AZUL} 0 ${femaleEnd}%, ${NAVY} ${femaleEnd}% ${maleEnd}%, #a5bbb6 ${maleEnd}% 100%)`
+    : '#f2f1ed'
 
   const items = [
     { label: 'Feminino', value: female, color: AZUL },
     { label: 'Masculino', value: male, color: NAVY },
-    { label: 'Outro / NI', value: other, color: '#a5b1bb' },
+    { label: 'Outro / NI', value: other, color: '#a5bbb6' },
   ]
 
   return (
@@ -409,7 +409,7 @@ export default function Dashboard({
                     <span className="text-[10px] font-extrabold text-[#193d36]">{month.value || '-'}</span>
                     <div className="relative flex h-[calc(100%-42px)] w-full max-w-16 items-end overflow-hidden rounded-[12px] bg-[#f1f2f1]">
                       <div
-                        className="w-full rounded-[12px] bg-gradient-to-t from-[#22557f] to-[#c9ae86] transition-all duration-700 group-hover:brightness-105"
+                        className="w-full rounded-[12px] bg-gradient-to-t from-[#227f69] to-[#c9ae86] transition-all duration-700 group-hover:brightness-105"
                         style={{ height: `${height}%` }}
                       />
                     </div>

@@ -117,7 +117,7 @@ function AConferir() {
   return (
     <span
       title="Cadastro criado pelo sistema a partir do agendamento no WhatsApp. Abra, confira com a família e salve."
-      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#e1eef8] px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[#1f5f55]"
+      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#f3f0e6] px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-[#1f5f55]"
     >
       A conferir
     </span>
@@ -170,8 +170,8 @@ function Field({
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, { text: string; className: string }> = {
-    pendente: { text: 'Pendente', className: 'bg-[#e4f0fb] text-[#1f5c88]' },
-    enviado: { text: 'Aberto', className: 'bg-[#e8f0f8] text-[#4d6f91]' },
+    pendente: { text: 'Pendente', className: 'bg-[#f5f2ea] text-[#1f8870]' },
+    enviado: { text: 'Aberto', className: 'bg-[#f5f3eb] text-[#4d9181]' },
     concluido: { text: 'Concluído', className: 'bg-[#e7f3ef] text-[#4d7c70]' },
   }
   const style = styles[status] ?? styles.pendente
@@ -517,7 +517,7 @@ export default function Patients({
             <button
               type="button"
               onClick={createNew}
-              className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1f5f55] px-5 py-3 text-xs font-extrabold text-white shadow-[0_10px_24px_rgba(31,95,85,.24)] transition hover:-translate-y-0.5 hover:bg-[#183f61]"
+              className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1f5f55] px-5 py-3 text-xs font-extrabold text-white shadow-[0_10px_24px_rgba(31,95,85,.24)] transition hover:-translate-y-0.5 hover:bg-[#186150]"
             >
               <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
               Cadastrar paciente

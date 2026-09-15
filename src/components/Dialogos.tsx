@@ -31,7 +31,7 @@ type Pergunta = {
 const CORES: Record<Tom, { fundo: string; borda: string; texto: string; Icone: typeof Check }> = {
   ok: { fundo: '#eef7f3', borda: '#6f9d91', texto: '#2f6357', Icone: Check },
   erro: { fundo: '#fdf2f2', borda: '#d98b87', texto: '#a3312a', Icone: AlertTriangle },
-  aviso: { fundo: '#eff6fd', borda: '#dfc49b', texto: '#1f5f55', Icone: Info },
+  aviso: { fundo: '#f9f8f3', borda: '#dfc49b', texto: '#1f5f55', Icone: Info },
 }
 
 export function ProvedorDeDialogos({ children }: { children: ReactNode }) {

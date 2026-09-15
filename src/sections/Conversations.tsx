@@ -590,7 +590,7 @@ export default function Conversations({
         <button
           type="button"
           onClick={() => void openConversation(querAtendente[0])}
-          className="flex w-full items-center gap-2 rounded-[16px] border-2 border-[#17564d] bg-[#17564d] p-3 text-left text-[11px] font-bold text-white transition hover:bg-[#123852]"
+          className="flex w-full items-center gap-2 rounded-[16px] border-2 border-[#17564d] bg-[#17564d] p-3 text-left text-[11px] font-bold text-white transition hover:bg-[#125243]"
         >
           <MessageSquareText className="h-4 w-4 shrink-0" />
           {querAtendente.length === 1
@@ -1002,7 +1002,7 @@ export default function Conversations({
                       type="button"
                       onClick={() => void reabrir(selected.id)}
                       title="Volta a conversa para a lista de abertas"
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 px-3 py-1.5 text-[10px] font-extrabold text-[#1f5f55] transition hover:bg-[#eff6fd]"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 px-3 py-1.5 text-[10px] font-extrabold text-[#1f5f55] transition hover:bg-[#f9f8f3]"
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
                       Reabrir conversa
@@ -1025,7 +1025,7 @@ export default function Conversations({
                     vai poder, em vez de rolar a conversa inteira ate esbarrar
                     no aviso. */}
                 {!janelaAberta && (
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-[#2f7f74]/30 bg-[#f0f6fd] px-3.5 py-2.5">
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-[#2f7f74]/30 bg-[#f9f8f4] px-3.5 py-2.5">
                     <p className="text-[10px] font-extrabold text-[#17564d]">
                       Janela de resposta fechada. Só dá para enviar um convite.
                     </p>
@@ -1033,7 +1033,7 @@ export default function Conversations({
                       type="button"
                       disabled={reabrindo}
                       onClick={() => void reabrirConversa()}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#17564d] px-3 py-1.5 text-[10px] font-extrabold text-white transition hover:bg-[#10344f] disabled:cursor-wait disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#17564d] px-3 py-1.5 text-[10px] font-extrabold text-white transition hover:bg-[#104f40] disabled:cursor-wait disabled:opacity-50"
                     >
                       <MessageSquareText className="h-3.5 w-3.5" />
                       {reabrindo ? 'Enviando...' : 'Enviar convite'}
@@ -1084,7 +1084,7 @@ export default function Conversations({
                                 outbound ? 'bg-[#d9fdd3]' : 'bg-white'
                               }`}
                             >
-                              <p className="whitespace-pre-wrap break-words text-[13.5px] leading-[19px] text-[#111b21]">
+                              <p className="whitespace-pre-wrap break-words text-[13.5px] leading-[19px] text-[#11211d]">
                                 {message.body ||
                                   (message.templateName
                                     ? `[modelo: ${message.templateName}]`
@@ -1173,7 +1173,7 @@ export default function Conversations({
                        aprovado" e nao tinha por onde enviar um. O botao manda o
                        modelo de utilidade que reabre a conversa - ele nao
                        resolve o assunto, abre a porta para resolver. */
-                    <div className="rounded-[14px] border border-[#2f7f74]/30 bg-[#f0f6fd] px-4 py-3">
+                    <div className="rounded-[14px] border border-[#2f7f74]/30 bg-[#f9f8f4] px-4 py-3">
                       <p className="text-[11px] font-extrabold text-[#17564d]">
                         {janelaAte
                           ? `A janela de resposta fechou em ${formatWhen(janelaAte)}`
@@ -1214,7 +1214,7 @@ export default function Conversations({
                           type="button"
                           disabled={reabrindo || enviandoModelo}
                           onClick={() => void reabrirConversa()}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#17564d]/30 bg-white px-4 py-2 text-[10px] font-extrabold text-[#17564d] transition hover:bg-[#e7f0fa] disabled:cursor-wait disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#17564d]/30 bg-white px-4 py-2 text-[10px] font-extrabold text-[#17564d] transition hover:bg-[#f6f3eb] disabled:cursor-wait disabled:opacity-50"
                         >
                           <MessageSquareText className="h-3.5 w-3.5" />
                           {reabrindo ? 'Enviando...' : 'Só convidar a responder'}

@@ -41,7 +41,7 @@ export default function NovaSenha() {
       <div className="w-full max-w-md rounded-[28px] bg-white p-8 shadow-[0_24px_60px_rgba(25,61,54,.08)]">
         <img src={logo} alt="Dra. Patrícia Zerbini" className="h-10 w-auto" />
         <div className="mt-6 flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#eaf3fd] text-[#1f5f55]">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f8f6ef] text-[#1f5f55]">
             <KeyRound className="h-5 w-5" />
           </span>
           <div>

@@ -22,7 +22,7 @@ import RespostasProntas from '@/sections/RespostasProntas'
 import InformacoesDoWhatsApp from '@/sections/InformacoesDoWhatsApp'
 
 const inputClass =
-  'mt-3 min-h-[138px] w-full resize-y rounded-[18px] border border-[#193d36]/10 bg-[#faf9f4] p-4 text-xs font-medium leading-relaxed text-[#203546] outline-none transition placeholder:text-slate-300 focus:border-[#2f7f74] focus:bg-white focus:ring-4 focus:ring-[#2f7f74]/10'
+  'mt-3 min-h-[138px] w-full resize-y rounded-[18px] border border-[#193d36]/10 bg-[#faf9f4] p-4 text-xs font-medium leading-relaxed text-[#20463d] outline-none transition placeholder:text-slate-300 focus:border-[#2f7f74] focus:bg-white focus:ring-4 focus:ring-[#2f7f74]/10'
 
 interface Props {
   db: Db
@@ -136,7 +136,7 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
       <InformacoesDoWhatsApp />
       <RespostasProntas />
       <section className="surface-card overflow-hidden rounded-[26px]">
-        <div className="border-b border-[#193d36]/[0.06] bg-gradient-to-r from-white to-[#f0f6fc] p-5 sm:p-6">
+        <div className="border-b border-[#193d36]/[0.06] bg-gradient-to-r from-white to-[#f9f8f3] p-5 sm:p-6">
           <div className="flex items-start gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[15px] bg-[#eae3d4] text-[#1f5f55]">
               <MessageCircleHeart className="h-5 w-5" />
@@ -163,7 +163,7 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
 
           <label className="block rounded-[22px] border border-[#193d36]/[0.07] bg-white p-4 sm:p-5">
             <div className="flex items-center gap-3">
-              <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#e1eef8] text-[10px] font-extrabold text-[#2f7f74]">15</span>
+              <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#f3f0e6] text-[10px] font-extrabold text-[#2f7f74]">15</span>
               <div>
                 <p className="text-xs font-extrabold text-[#193d36]">Mensagem de 15 dias</p>
                 <p className="mt-0.5 text-[9px] text-slate-400">Adaptação às orientações da consulta</p>
@@ -187,7 +187,7 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
 
           <label className="block rounded-[22px] border border-[#193d36]/[0.07] bg-white p-4 sm:p-5">
             <div className="flex items-center gap-3">
-              <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#e5eef7] text-[10px] font-extrabold text-[#1f5f55]">90</span>
+              <span className="flex h-8 min-w-8 items-center justify-center rounded-xl bg-[#f4f1e8] text-[10px] font-extrabold text-[#1f5f55]">90</span>
               <div>
                 <p className="text-xs font-extrabold text-[#193d36]">Mensagem de 3 meses</p>
                 <p className="mt-0.5 text-[9px] text-slate-400">Continuidade do cuidado e disponibilidade</p>
@@ -242,7 +242,7 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
             <button
               type="button"
               onClick={exportData}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-[14px] bg-[#5b9fd5] px-4 py-3 text-xs font-extrabold text-[#193d36] transition hover:bg-[#7ab6e6]"
+              className="mt-5 flex w-full items-center justify-center gap-2 rounded-[14px] bg-[#5bd5b9] px-4 py-3 text-xs font-extrabold text-[#193d36] transition hover:bg-[#7ae6cd]"
             >
               <Download className="h-4 w-4" />
               Exportar cadastros
@@ -300,7 +300,7 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
             este botao. */}
         <section className="surface-card rounded-[24px] p-5">
           <div className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#eaf0f8] text-[#4d6f91]">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#f6f3ec] text-[#4d9181]">
               <ImageUp className="h-4 w-4" />
             </span>
             <div>
