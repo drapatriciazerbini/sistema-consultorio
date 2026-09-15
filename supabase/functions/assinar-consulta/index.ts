@@ -294,7 +294,7 @@ Deno.serve(async (req) => {
 
       const destino = corpo.voltarPara ||
         Deno.env.get('BRY_REDIRECT_URI')?.trim() ||
-        'https://drapatriciazerbini.github.io/sistema-consultorio/'
+        'https://drapatriciazerbini.com.br/sistema-consultorio/'
 
       const resposta = await fetch(`${env.integra}/psc/link`, {
         method: 'POST',

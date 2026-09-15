@@ -306,7 +306,7 @@ export default function Settings({ db, setTemplates, importDb, clearAll }: Props
             <div>
               <h2 className="text-xs font-extrabold text-[#193d36]">Perfil no WhatsApp</h2>
               <p className="mt-1.5 text-[10px] leading-relaxed text-slate-400">
-                Usa a imagem publicada em drapatriciazerbini.github.io/sistema-consultorio/logo-email.png. É ela
+                Usa a imagem publicada em drapatriciazerbini.com.br/sistema-consultorio/logo-email.png. É ela
                 que os pacientes veem ao receber as mensagens da clínica.
               </p>
             </div>
