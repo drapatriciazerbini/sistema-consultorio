@@ -2,7 +2,7 @@
 
 Cinco modelos para submeter no WhatsApp Manager, em Ferramentas de conta,
 Modelos de mensagem, Criar modelo. Idioma **Português (BR)**, categoria
-**Utilidade** nos três.
+**Utilidade** nos cinco.
 
 O texto aqui é o mesmo que está em
 `supabase/functions/_shared/modelos.ts`. Se a Meta pedir alteração, ou você
@@ -141,10 +141,15 @@ Idioma: Português (BR)
 **Corpo**
 
 ```
-Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini. Podemos continuar nossa conversa por aqui? É só responder esta mensagem.
+Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini, sobre o seu atendimento em andamento. Para darmos continuidade, é só responder esta mensagem.
 ```
 
 Sem rodapé e sem botões.
+
+A primeira versão ("Podemos continuar nossa conversa por aqui?") foi barrada
+na hora do envio: a Meta disse que, como Utilidade, seria recusada, porque o
+texto não citava um atendimento existente. Citar o atendimento em andamento
+resolveu.
 
 **Exemplo que a Meta pede**
 

@@ -59,8 +59,11 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
   // o paciente responde, a janela volta a contar e a equipe escreve normalmente.
   retomar_atendimento: {
     corpo:
-      'Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini. Podemos continuar ' +
-      'nossa conversa por aqui? É só responder esta mensagem.',
+      // Texto ajustado em 23/09/2026: a primeira versao ("Podemos continuar nossa
+      // conversa por aqui?") foi lida pela Meta como Marketing, porque nao citava
+      // um atendimento existente. Citar o atendimento em andamento mantem Utilidade.
+      'Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini, sobre o seu ' +
+      'atendimento em andamento. Para darmos continuidade, é só responder esta mensagem.',
   },
   // A resposta da equipe fora da janela de 24 horas. O {{2}} é o texto que a
   // pessoa digitou na tela - por isso o registro precisa deste modelo aqui:
