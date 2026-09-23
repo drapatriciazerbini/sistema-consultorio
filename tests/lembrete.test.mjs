@@ -12,6 +12,9 @@ import {
   interpretarResposta,
   mudancaDaConsulta,
   respondendoEnvioNosso,
+  janelaDeLembrete,
+  fimDoDiaLocal,
+  oQueFoiEscolhido,
 } from './lembrete.build.mjs'
 
 let passou = 0
@@ -151,11 +154,50 @@ for (const rotulo of ['Cancelar consulta', 'preciso cancelar', 'quero desmarcar'
   conferir(`"${rotulo}" cancela`, interpretarResposta(rotulo, true).cancela === true)
 }
 
-// A negacao inverte a frase inteira: melhor cair no atendimento humano do que
-// confirmar a presenca de quem acabou de dizer que nao vai.
-for (const frase of ['não posso confirmar', 'não vou poder confirmar', 'não quero cancelar']) {
+// A negacao que manda na palavra inverte o sentido: melhor cair no atendimento
+// humano do que confirmar a presenca de quem acabou de dizer que nao vai.
+for (const frase of [
+  'não posso confirmar',
+  'não vou poder confirmar',
+  'não quero cancelar',
+  'não vou conseguir confirmar',
+  'não quero mais cancelar',
+]) {
   const r = interpretarResposta(frase, true)
   conferir(`"${frase}" não é tratada como resposta ao lembrete`, r.respondeuLembrete === false)
+}
+
+// ...mas so a negacao que MANDA na palavra. Ate 22/09/2026 qualquer "nao" em
+// qualquer lugar anulava o pedido inteiro, e uma mae ficou sem resposta: o
+// "nao" dela era da explicacao, nao do pedido. (Nomes inventados: este
+// repositorio e publico.)
+//
+// PARA PROVAR: volte `semNegacao` para a regra antiga (um "nao" em qualquer
+// lugar) e estes casos caem.
+{
+  const real =
+    'Bom dia! Aqui é a Marta, mãe da Helena, vou precisar reagendar a consulta, ' +
+    'pois fiquei doente e não consegui levar ela para fazer os exames que o doutor pediu.'
+  conferir(
+    'Caso de 22/09: "reagendar ... pois não consegui" pede remarcação',
+    interpretarResposta(real, true).remarca === true,
+  )
+}
+for (const [frase, campo] of [
+  ['Não vou conseguir ir. Preciso remarcar', 'remarca'],
+  ['não posso ir amanhã, pode cancelar', 'cancela'],
+  ['Não, quero confirmar sim', 'confirma'],
+  ['eu não tenho como ir amanhã então quero remarcar', 'remarca'],
+]) {
+  conferir(`"${frase}" é entendida (${campo})`, interpretarResposta(frase, true)[campo] === true)
+}
+
+// Duvida declarada nunca confirma nem cancela sozinha: cancelar apaga a vaga.
+{
+  const r = interpretarResposta('não sei se vou conseguir confirmar', true)
+  conferir('"não sei se vou conseguir confirmar" não confirma', r.confirma === false)
+  const c = interpretarResposta('não sei se preciso cancelar', true)
+  conferir('"não sei se preciso cancelar" não cancela', c.cancela === false)
 }
 
 conferir(
@@ -247,6 +289,126 @@ console.log('\n===== RESPOSTA AO LEMBRETE =====')
   conferir('preciso de ajuda avisa a equipe', /equipe/.test(respostaAoAcompanhamento({ ...base, pediuAjuda: true, motivoAtencao: 'ajuda' }) ?? ''))
   conferir('nao quero receber confirma', /não enviaremos/.test(respostaAoAcompanhamento({ ...base, optedOut: true }) ?? ''))
   conferir('sem botao, sem resposta', respostaAoAcompanhamento(base) === null)
+}
+
+
+// ---------------------------------------------------------------------------
+// A janela de envio: quem recebe lembrete em cada passada
+// ---------------------------------------------------------------------------
+//
+// Regra desde 21/09/2026: a passada da manha avisa o dia INTEIRO de amanha.
+// Antes a janela era "24 horas a frente", e a consulta das 17:20 de amanha so
+// era avisada as 17:20 de hoje - tarde demais para a familia se programar.
+//
+// PARA PROVAR QUE ESTES TESTES PEGAM O DEFEITO: em janelaDeLembrete, troque
+// `fim: fimDoDiaLocal(...)` por `fim: new Date(agora.getTime() + dias*24*3600*1000)`
+// (a regra antiga). Os casos "manha" abaixo caem.
+
+const SP = 'America/Sao_Paulo'
+const emSP = (texto) => new Date(`${texto}-03:00`) // Sao Paulo nao tem horario de verao desde 2019
+const dentro = (janela, instante) => instante >= janela.inicio && instante < janela.fim
+
+{
+  // Passada da manha de segunda 21/09, 09:20. Amanha e terca 22/09.
+  const janela = janelaDeLembrete(emSP('2026-09-21T09:20:00'), 1, SP)
+
+  conferir(
+    'Manha: o fim da janela e a meia-noite que encerra amanha',
+    janela.fim.toISOString() === emSP('2026-09-23T00:00:00').toISOString(),
+    `veio ${janela.fim.toISOString()}`,
+  )
+  conferir(
+    'Manha: consulta das 14:00 de amanha entra',
+    dentro(janela, emSP('2026-09-22T14:00:00')),
+  )
+  conferir(
+    'Manha: consulta das 17:20 de amanha TAMBEM entra (era o que faltava)',
+    dentro(janela, emSP('2026-09-22T17:20:00')),
+  )
+  conferir(
+    'Manha: consulta das 09:00 de depois de amanha ainda nao entra',
+    !dentro(janela, emSP('2026-09-23T09:00:00')),
+  )
+  conferir(
+    'Manha: consulta de hoje daqui a 3 horas entra (marcou de manha para a tarde)',
+    dentro(janela, emSP('2026-09-21T12:30:00')),
+  )
+  conferir(
+    'Manha: consulta de hoje daqui a 1 hora NAO entra - perto demais, vira susto',
+    !dentro(janela, emSP('2026-09-21T10:20:00')),
+  )
+}
+
+{
+  // A protecao de 31/08: quem marca DEPOIS da passada da manha para amanha e
+  // pego na passada seguinte, e nao fica sem aviso.
+  const janela = janelaDeLembrete(emSP('2026-09-21T15:20:00'), 1, SP)
+  conferir(
+    'Tarde: consulta marcada as 15h para amanha 09:00 entra na passada das 15:20',
+    dentro(janela, emSP('2026-09-22T09:00:00')),
+  )
+}
+
+{
+  // O fuso: as 23:50 de Sao Paulo ainda e 21/09, mesmo que em UTC ja seja
+  // 22/09 02:50. "Amanha" precisa continuar sendo 22/09.
+  const janela = janelaDeLembrete(emSP('2026-09-21T23:50:00'), 1, SP)
+  conferir(
+    'Fuso: as 23:50 de SP, amanha ainda e 22/09 (em UTC ja virou o dia)',
+    janela.fim.toISOString() === emSP('2026-09-23T00:00:00').toISOString(),
+    `veio ${janela.fim.toISOString()}`,
+  )
+  // ...e as 00:10 de SP ja e 22/09, entao amanha e 23/09.
+  const depois = janelaDeLembrete(emSP('2026-09-22T00:10:00'), 1, SP)
+  conferir(
+    'Fuso: as 00:10 de SP, amanha e 23/09',
+    depois.fim.toISOString() === emSP('2026-09-24T00:00:00').toISOString(),
+    `veio ${depois.fim.toISOString()}`,
+  )
+}
+
+conferir(
+  'Dois dias de antecedencia: fim da janela e o fim de depois de amanha',
+  fimDoDiaLocal(emSP('2026-09-21T09:20:00'), 2, SP).toISOString() ===
+    emSP('2026-09-24T00:00:00').toISOString(),
+)
+
+conferir(
+  'Zero dias: fim da janela e o fim de hoje',
+  fimDoDiaLocal(emSP('2026-09-21T09:20:00'), 0, SP).toISOString() ===
+    emSP('2026-09-22T00:00:00').toISOString(),
+)
+
+
+// ---------------------------------------------------------------------------
+// Toque em lista antiga (caso real de 22/09/2026)
+// ---------------------------------------------------------------------------
+//
+// PARA PROVAR: em oQueFoiEscolhido, devolva sempre `toque.id`. O caso da lista
+// antiga cai - e era ele que marcava o horario que ninguem escolheu.
+{
+  const real = { id: '4', titulo: 'sexta, 02/10', respondeA: 'wamid.LISTA_DE_DATAS', ultimoEnvio: 'wamid.LISTA_DE_HORARIOS' }
+  conferir(
+    'Toque numa lista antiga usa o texto do item, não o número',
+    oQueFoiEscolhido(real) === 'sexta, 02/10',
+    `veio ${oQueFoiEscolhido(real)}`,
+  )
+  conferir(
+    'Toque na lista mais recente usa o número, como sempre',
+    oQueFoiEscolhido({ ...real, respondeA: 'wamid.LISTA_DE_HORARIOS' }) === '4',
+  )
+  conferir(
+    'Sem saber qual foi a última mensagem, fica como sempre foi',
+    oQueFoiEscolhido({ ...real, ultimoEnvio: null }) === '4',
+  )
+  conferir(
+    'Evento sem contexto fica como sempre foi',
+    oQueFoiEscolhido({ ...real, respondeA: null }) === '4',
+  )
+  conferir(
+    'Texto digitado passa direto',
+    oQueFoiEscolhido({ id: '', titulo: 'quero marcar' }) === 'quero marcar',
+  )
 }
 
 console.log(`VERIFICAÇÕES QUE PASSARAM: ${passou}`)

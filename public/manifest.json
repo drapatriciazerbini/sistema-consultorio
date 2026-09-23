@@ -1,0 +1,32 @@
+{
+  "name": "Central de Cuidado | Dra. Patrícia Zerbini",
+  "short_name": "Central",
+  "description": "Acompanhamento clínico, agenda e atendimento do consultório da Dra. Patrícia Zerbini.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#193d36",
+  "theme_color": "#193d36",
+  "icons": [
+    {
+      "src": "icone-192.png?v=3",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icone-512.png?v=3",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icone-maskable-512.png?v=3",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

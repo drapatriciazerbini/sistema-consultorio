@@ -6,7 +6,7 @@ import { ContextoDeDialogos, type ApiDeDialogos } from '@/components/dialogos-co
  * Avisos e confirmações da Central de Cuidado.
  *
  * Até 08/09/2026 tudo isto era `alert()` e `confirm()` do navegador: uma caixa
- * cinza escrita "drmarcelloruiz.com.br diz", com a mensagem técnica crua. Num
+ * cinza escrita "drapatriciazerbini.com.br diz", com a mensagem técnica crua. Num
  * sistema que a equipe usa na frente da família, isso parecia erro do site.
  *
  * Aqui a mesma informação sai na linguagem do sistema: aviso discreto no canto

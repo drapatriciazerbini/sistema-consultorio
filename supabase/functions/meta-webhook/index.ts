@@ -1,6 +1,6 @@
 import '../_shared/whatsapp.ts'
 import { adminClient, digits, sha256HmacHex, safeEqual } from '../_shared/whatsapp.ts'
-import { type Estado, type Toque, tratarConversa } from '../_shared/atendimento.ts'
+import { colherEventos, type Estado, type Toque, tratarConversa } from '../_shared/atendimento.ts'
 import { montarConteudo } from '../_shared/conteudo.ts'
 import {
   avisoDaResposta,
@@ -8,6 +8,7 @@ import {
   equipeFalouRecentemente as equipeFalouHaPouco,
   interpretarResposta,
   mudancaDaConsulta,
+  oQueFoiEscolhido,
   respondendoEnvioNosso as dentroDaJanelaDeResposta,
 } from '../_shared/lembrete.ts'
 
@@ -15,14 +16,24 @@ function text(body: string, status = 200) {
   return new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
 }
 
+type Midia = { id?: string; mime_type?: string; caption?: string; filename?: string }
+
 type WebhookMessage = {
   type?: string
   text?: { body?: string }
+  image?: Midia
+  document?: Midia
+  audio?: Midia
+  video?: Midia
+  sticker?: Midia
+  voice?: Midia
   button?: { text?: string; payload?: string }
   interactive?: {
     button_reply?: { id?: string; title?: string }
     list_reply?: { id?: string; title?: string }
   }
+  /** Em qual mensagem nossa estava o botao tocado. */
+  context?: { id?: string; from?: string }
 }
 
 type DeliveryError = { title?: string; message?: string }
@@ -47,12 +58,99 @@ function idDoToque(message: WebhookMessage): string {
   return ''
 }
 
+/**
+ * A mensagem e um arquivo, e nao texto.
+ *
+ * Foto, documento, audio, video, figurinha: o robo nao le nenhum deles. Servem
+ * para decidir entregar para a equipe em vez de responder o menu. Localizacao e
+ * contato ficam de fora porque tambem nao sao pergunta - mas sao raros o
+ * bastante para nao valer regra propria hoje.
+ */
+function ehAnexo(message: WebhookMessage) {
+  return ['image', 'document', 'audio', 'video', 'sticker', 'voice'].includes(String(message.type))
+}
+
+/** O bloco de midia da mensagem, qualquer que seja o tipo dela. */
+function midiaDaMensagem(message: WebhookMessage): Midia | null {
+  return (
+    message.image ?? message.document ?? message.audio ??
+    message.video ?? message.sticker ?? message.voice ?? null
+  )
+}
+
+/**
+ * Traz o arquivo da Meta para o nosso acervo.
+ *
+ * Precisa acontecer AGORA, no recebimento. A Meta nao entrega o arquivo no
+ * webhook: entrega um id, e a URL que esse id resgata vive poucos minutos.
+ * Guardar so o id para baixar depois nao funciona - quando alguem da equipe
+ * abrisse a conversa, o link ja teria morrido.
+ *
+ * Sao duas chamadas: o id devolve uma URL, e a URL devolve os bytes. As duas
+ * exigem o token, inclusive a segunda, que e o detalhe que costuma passar
+ * despercebido.
+ *
+ * Nunca interrompe o recebimento. Se o download falhar, a mensagem entra do
+ * jeito antigo, marcada como anexo e sem arquivo - melhor a equipe saber que
+ * chegou algo do que perder a mensagem inteira por causa do anexo.
+ */
+async function guardarAnexo(
+  admin: ReturnType<typeof adminClient>,
+  clinicId: string,
+  messageId: string,
+  midia: Midia,
+): Promise<{ path: string; mime: string } | null> {
+  const token = Deno.env.get('WHATSAPP_ACCESS_TOKEN')?.trim()
+  if (!token || !midia.id) return null
+  const graphVersion = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
+
+  try {
+    const aviso = await fetch(`https://graph.facebook.com/${graphVersion}/${midia.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!aviso.ok) {
+      console.error('Meta recusou o endereco da midia', aviso.status, await aviso.text())
+      return null
+    }
+    const { url, mime_type } = await aviso.json() as { url?: string; mime_type?: string }
+    if (!url) return null
+
+    // O download tambem vai autenticado: sem o token a Meta devolve 401.
+    const arquivo = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    if (!arquivo.ok) {
+      console.error('Nao consegui baixar a midia', arquivo.status)
+      return null
+    }
+    const bytes = new Uint8Array(await arquivo.arrayBuffer())
+    const mime = midia.mime_type ?? mime_type ?? 'application/octet-stream'
+    const path = `${clinicId}/${messageId}`
+
+    const { error } = await admin.storage
+      .from('whatsapp-anexos')
+      .upload(path, bytes, { contentType: mime, upsert: true })
+    if (error) {
+      console.error('Nao consegui guardar a midia no acervo', error)
+      return null
+    }
+    return { path, mime }
+  } catch (causa) {
+    console.error('Falha ao trazer a midia', causa)
+    return null
+  }
+}
+
 function messageBody(message: WebhookMessage) {
   if (message.type === 'text') return message.text?.body ?? ''
   if (message.type === 'button') return message.button?.text ?? message.button?.payload ?? ''
   if (message.type === 'interactive') {
     return message.interactive?.button_reply?.title ?? message.interactive?.list_reply?.title ?? ''
   }
+  // A legenda da foto e a mensagem de verdade: "olha o exame dele" diz mais
+  // do que "[image]", e antes ela era jogada fora.
+  const midia = midiaDaMensagem(message)
+  const legenda = (midia?.caption ?? '').trim()
+  if (legenda) return legenda
+  if (midia?.filename) return midia.filename
   return `[${message.type || 'mensagem'}]`
 }
 
@@ -122,6 +220,20 @@ Deno.serve(async (req) => {
         for (const message of value.messages ?? []) {
           const externalId = String(message.id ?? '')
           if (!externalId) continue
+
+          // Reacao (o emoji apertado em cima de uma mensagem) nao e conversa.
+          //
+          // A Meta manda a reacao pelo mesmo caminho de uma mensagem de texto.
+          // Como ela nao tem corpo, virava "[reaction]" e o robo respondia o
+          // menu inteiro. Aconteceu com o Gabriel em 15/09/2026: ele respondeu
+          // "Estou bem" ao acompanhamento, recebeu o "que bom saber", reagiu com
+          // um emoji e levou de volta "Como podemos ajudar hoje?", como se
+          // tivesse perguntado alguma coisa.
+          //
+          // Ignorada por inteiro, e nao so na resposta: guardar "[reaction]" no
+          // historico suja a leitura de quem abre a conversa depois para
+          // entender o caso.
+          if (message.type === 'reaction') continue
 
           const { error: eventError } = await admin.from('whatsapp_webhook_events').insert({
             event_key: `message:${externalId}`,
@@ -196,16 +308,43 @@ Deno.serve(async (req) => {
 
           // Estado da conversa ANTES de gravar esta mensagem. E o que diz se a
           // pessoa e nova: depois do upsert a linha ja existe sempre.
+          //
+          // A coluna nova vem num segundo pedido, e nao junto das outras. O
+          // Postgres nao ignora coluna que nao existe: recusa a consulta
+          // INTEIRA. Em 19/09/2026 esta linha pediu booking_insurance antes de
+          // a migration rodar, linhaAnterior voltou nula, e o webhook passou a
+          // tratar TODA mensagem como a primeira da conversa - com a regra de
+          // "primeira mensagem sempre mostra o menu", o paciente digitava 1 e
+          // recebia o menu, tres vezes seguidas, sem nenhum erro aparente.
+          //
+          // Perder o convenio e um arranhao. Perder o estado da conversa
+          // desliga o atendimento inteiro. Por isso os dois pedidos.
+          const COLUNAS_ESTAVEIS =
+            'id,booking_state,booking_options,booking_unit_id,booking_patient_id,' +
+            'booking_replaces_id,booking_intake_id,booking_modality,needs_attention,' +
+            'attention_reason,profile_name,booking_updated_at,auto_replies_while_waiting,' +
+            'menu_sent_at'
+
           const { data: linhaAnterior } = await admin
             .from('whatsapp_conversations')
-            .select(
-              'id,booking_state,booking_options,booking_unit_id,booking_patient_id,' +
-                'booking_replaces_id,booking_intake_id,booking_modality,needs_attention,' +
-                'profile_name,booking_updated_at,auto_replies_while_waiting',
-            )
+            .select(COLUNAS_ESTAVEIS)
             .eq('clinic_id', clinicId)
             .eq('wa_id', waId)
             .maybeSingle()
+
+          // O convenio vem num pedido proprio, e nao junto: se a coluna ainda
+          // nao existe, so ele se perde.
+          let convenioEmAndamento: string | null = null
+          if (linhaAnterior) {
+            const { data: extra } = await admin
+              .from('whatsapp_conversations')
+              .select('booking_insurance')
+              .eq('clinic_id', clinicId)
+              .eq('wa_id', waId)
+              .maybeSingle()
+            convenioEmAndamento =
+              (extra as { booking_insurance?: string | null } | null)?.booking_insurance ?? null
+          }
 
           // Etapa vencida: depois de 24h parada, a conversa recomeca do zero.
           //
@@ -218,9 +357,25 @@ Deno.serve(async (req) => {
           // 24h e a janela da Meta: passou dela, a sessao anterior acabou de
           // verdade e esta mensagem inaugura outra.
           const carimbo = linhaAnterior?.booking_updated_at as string | null | undefined
+          // 48h quando a clinica e que ficou devendo resposta: o anexo que
+          // alguem precisa abrir, o "Preciso de ajuda" respondido ao
+          // acompanhamento, e o pedido de 2a via ou de exame - da familia ou da
+          // farmacia. Nesses a equipe costuma precisar de mais de um dia util, e
+          // o robo voltando a falar no meio seria atropelo. Nos outros, 24h.
+          //
+          // A MESMA LISTA vive em liberar_conversas_travadas(), no banco. As
+          // duas precisam concordar: esta decide se a proxima mensagem da
+          // familia reabre o menu, aquela limpa conversa parada. Em 20/09/2026
+          // os motivos novos entraram so na do banco, e o efeito era este -
+          // pedido feito sexta as 18h, familia escreve domingo, 40h > 24h, e o
+          // robo respondia com a saudacao inteira como se nada estivesse
+          // pendente. Exatamente o que a migration dizia estar evitando.
+          const motivoDaEspera = String(linhaAnterior?.attention_reason ?? '')
+          const ESPERA_LONGA = ['anexo', 'ajuda', 'documento', 'farmacia']
+          const horasDeEspera = ESPERA_LONGA.includes(motivoDaEspera) ? 48 : 24
           const etapaVenceu = Boolean(
             linhaAnterior?.booking_state &&
-              (!carimbo || Date.now() - new Date(carimbo).getTime() > 24 * 60 * 60 * 1000),
+              (!carimbo || Date.now() - new Date(carimbo).getTime() > horasDeEspera * 60 * 60 * 1000),
           )
           const conversaAnterior =
             linhaAnterior && etapaVenceu
@@ -235,6 +390,7 @@ Deno.serve(async (req) => {
                   booking_modality: null,
                 }
               : linhaAnterior
+          if (etapaVenceu) convenioEmAndamento = null
 
           // A ultima coisa que NOS mandamos foi um lembrete de consulta ou um
           // acompanhamento? So nesse caso "1", "2" e "3" significam confirmar,
@@ -252,11 +408,14 @@ Deno.serve(async (req) => {
           // voz: respondeu 11:36, a pessoa escreveu "Oi" as 14:28 e nao recebeu
           // nada.
           let equipeFalouRecentemente = false
+          // Id da nossa mensagem mais recente, para saber se um toque veio de
+          // uma lista antiga. Ver oQueFoiEscolhido em _shared/lembrete.ts.
+          let ultimoEnvioId: string | null = null
           if (conversaAnterior?.id) {
             const [ultimoNossoResult, ultimoHumanoResult] = await Promise.all([
               admin
                 .from('whatsapp_messages')
-                .select('followup_id,appointment_id,created_at')
+                .select('followup_id,appointment_id,created_at,external_message_id')
                 .eq('conversation_id', conversaAnterior.id)
                 .eq('direction', 'outbound')
                 .order('created_at', { ascending: false })
@@ -274,13 +433,27 @@ Deno.serve(async (req) => {
             ])
 
             respondendoEnvioNosso = dentroDaJanelaDeResposta(ultimoNossoResult.data)
+            ultimoEnvioId = (ultimoNossoResult.data as { external_message_id?: string | null } | null)?.external_message_id ?? null
             equipeFalouRecentemente = equipeFalouHaPouco(ultimoHumanoResult.data)
           }
 
           const body = messageBody(message)
           // O que a pessoa quis dizer. Vindo de toque, e o id do botao; digitado,
           // e o proprio texto. O `body` segue sendo o que aparece no historico.
-          const escolhido = idDoToque(message) || body
+          //
+          // Toque em lista do robo passa por oQueFoiEscolhido: se a lista era de
+          // uma mensagem antiga, o numero da opcao responderia a pergunta errada.
+          // Botao de modelo aprovado (lembrete) fica fora - o payload dele,
+          // "CONFIRMAR", significa a mesma coisa em qualquer mensagem.
+          const escolhido =
+            message.type === 'interactive'
+              ? oQueFoiEscolhido({
+                  id: idDoToque(message),
+                  titulo: body,
+                  respondeA: message.context?.id ?? null,
+                  ultimoEnvio: ultimoEnvioId,
+                })
+              : idDoToque(message) || body
           // Uma chamada so, e a regra mora em _shared/lembrete.ts, coberta por
           // testes. Aqui ficou apenas o desempacotar.
           const resposta = interpretarResposta(escolhido, respondendoEnvioNosso)
@@ -330,6 +503,13 @@ Deno.serve(async (req) => {
             .update(atualizacaoConversa)
             .eq('id', conversation.id)
 
+          // O arquivo e buscado ANTES de gravar a mensagem: a URL da Meta dura
+          // poucos minutos, e se a gravacao demorasse ela ja teria expirado.
+          const midia = midiaDaMensagem(message)
+          const anexo = midia && externalId
+            ? await guardarAnexo(admin, clinicId, externalId, midia)
+            : null
+
           const { error: messageError } = await admin.from('whatsapp_messages').insert({
             clinic_id: clinicId,
             conversation_id: conversation.id,
@@ -340,6 +520,7 @@ Deno.serve(async (req) => {
             body,
             status: 'delivered',
             delivered_at: receivedAt,
+            ...(anexo ? { media_path: anexo.path, media_mime: anexo.mime } : {}),
           })
           if (messageError?.code !== '23505' && messageError) throw messageError
 
@@ -422,12 +603,17 @@ Deno.serve(async (req) => {
               consultas,
               consultaASubstituir: conversaAnterior?.booking_replaces_id ?? null,
               consultaEmCadastro: conversaAnterior?.booking_intake_id ?? null,
+              convenioEmAndamento,
               modalidadeEmAndamento: (conversaAnterior?.booking_modality ?? null) as 'presencial' | 'telemedicina' | null,
               // Quantas respostas prontas o robo ja deu nesta espera pela
               // equipe. Etapa vencida recomeca do zero junto com o resto.
               respostasNaEspera: etapaVenceu
                 ? 0
                 : Number(conversaAnterior?.auto_replies_while_waiting ?? 0),
+              anexo: ehAnexo(message),
+              // Etapa vencida zera o menu junto: depois de um dia parada, a
+              // conversa recomeca do zero e a pessoa ve a apresentacao de novo.
+              jaViuOMenu: !etapaVenceu && Boolean(linhaAnterior?.menu_sent_at),
               nomeDoPerfil: nomeDoPerfil || conversaAnterior?.profile_name || '',
               textos: {
                 saudacao: settings.whatsapp_autoreply_text ?? '',
@@ -441,12 +627,122 @@ Deno.serve(async (req) => {
                 botoes: resultado.botoes,
                 lista: resultado.lista,
               })
-              if (resultado.atencao) {
+              // Atendimento fechado pelo robô, sem nada pendente para a
+              // equipe. A conversa passa a "Resolvida", como se alguém
+              // tivesse clicado em Concluir.
+              //
+              // Não é definitivo, e é por isso que dá para fazer sozinho: a
+              // próxima mensagem da família devolve status 'open' algumas
+              // linhas acima, no mesmo bloco que trata a mensagem recebida. O
+              // que se ganha é a lista mostrando só o que ainda espera gente.
+              //
+              // A bandeira de atenção vence: se o mesmo resultado pedir a
+              // equipe, quem manda é o pedido, e o `else` abaixo garante isso.
+              if (resultado.concluida && !resultado.atencao) {
                 await admin
+                  .from('whatsapp_conversations')
+                  .update({
+                    status: 'resolved',
+                    needs_attention: false,
+                    attention_reason: null,
+                  })
+                  .eq('id', conversation.id)
+              }
+              if (resultado.atencao) {
+                const { error: erroDaBandeira } = await admin
                   .from('whatsapp_conversations')
                   .update({ needs_attention: true, attention_reason: resultado.atencao })
                   .eq('id', conversation.id)
+                // Motivo novo, banco antigo.
+                //
+                // A coluna tem CHECK com a lista de motivos aceitos, e a lista
+                // cresce por migration. A funcao costuma subir antes: entre um
+                // deploy e outro, gravar 'documento' faz o Postgres recusar o
+                // UPDATE inteiro - e a conversa fica sem bandeira nenhuma, que
+                // e o mesmo que o pedido nao ter chegado.
+                //
+                // 'atendente' e o motivo mais antigo que existe e sempre passa.
+                // Perder a etiqueta exata e um arranhao; perder o pedido de
+                // vista e o defeito que tudo isto veio corrigir.
+                if (erroDaBandeira) {
+                  console.warn('Motivo de atencao recusado pelo banco; marcando como atendente', erroDaBandeira)
+                  await admin
+                    .from('whatsapp_conversations')
+                    .update({ needs_attention: true, attention_reason: 'atendente' })
+                    .eq('id', conversation.id)
+                }
               }
+            } else {
+              /**
+               * O robo decidiu ficar calado: quem responde e uma pessoa.
+               *
+               * Calar e certo em tres situacoes - a conversa ja esta na fila da
+               * equipe, alguem da equipe falou ha pouco, ou a pessoa respondeu a
+               * um lembrete ou acompanhamento com algo que o robo nao sabe ler.
+               * O erro era calar SEM AVISAR NINGUEM.
+               *
+               * Em 22/09/2026 duas familias ficaram assim o dia inteiro. Uma mae
+               * pediu para remarcar respondendo ao lembrete; uma
+               * outra familia, que ja estava na fila desde a vespera, mandou
+               * "Boa tarde". O robo se calou nas duas - corretamente - e as duas
+               * conversas ficaram apagadas na tela, so com o contador de nao
+               * lidas. Ninguem da equipe olhou.
+               *
+               * Silencio deliberado agora acende a conversa. O motivo que ja
+               * existia fica; sem motivo, entra "atendente", que o banco aceita
+               * desde sempre (um motivo novo exigiria migration, e a funcao
+               * costuma subir antes dela).
+               */
+              try {
+                const { error: erroDoSilencio } = await admin
+                  .from('whatsapp_conversations')
+                  .update({
+                    needs_attention: true,
+                    attention_reason: conversaAnterior?.attention_reason || 'atendente',
+                  })
+                  .eq('id', conversation.id)
+                if (erroDoSilencio) {
+                  console.warn('Robo calou mas nao consegui acender a conversa', erroDoSilencio)
+                }
+              } catch (erro) {
+                console.warn('Robo calou mas nao consegui acender a conversa', erro)
+              }
+            }
+
+            /**
+             * Registro do que o robo fez, para o painel de numeros
+             * (21/09/2026). Ver a migration 20260921120000.
+             *
+             * DEPOIS de responder, e dentro de try/catch, porque contagem nao
+             * pode atrapalhar atendimento. Se a tabela ainda nao existe - a
+             * funcao sobe antes das migrations - isto falha, escreve um aviso
+             * e a conversa segue inteira.
+             */
+            try {
+              const eventos = colherEventos(conversation.id)
+              // O pedido de gente vem do resultado, e nao de um registrar()
+              // espalhado: os quatro pontos que levantam a bandeira ficam em
+              // funcoes diferentes, e aqui existe um so.
+              if (resultado?.atencao) {
+                eventos.push({ evento: 'chamou_equipe', detalhe: resultado.atencao })
+              }
+              if (resultado?.concluida) eventos.push({ evento: 'concluiu_sozinho' })
+
+              if (eventos.length > 0) {
+                const { error: erroDoRegistro } = await admin
+                  .from('whatsapp_bot_events')
+                  .insert(eventos.map((e) => ({
+                    clinic_id: clinicId,
+                    conversation_id: conversation.id,
+                    evento: e.evento,
+                    detalhe: (e.detalhe ?? '').slice(0, 120),
+                  })))
+                if (erroDoRegistro) {
+                  console.warn('Nao consegui registrar os eventos do robo', erroDoRegistro)
+                }
+              }
+            } catch (erro) {
+              console.warn('Nao consegui registrar os eventos do robo', erro)
             }
           }
 
@@ -481,7 +777,43 @@ Deno.serve(async (req) => {
                 .eq('status', 'scheduled')
             }
 
-            await responder(avisoDaResposta(resposta))
+            // Cancelou: deixa o menu ativo, para o "2" do botao abrir a agenda
+            // direto em vez de mostrar o menu de novo.
+            if (resposta.cancela) {
+              const agora = new Date().toISOString()
+              await admin
+                .from('whatsapp_conversations')
+                .update({
+                  booking_state: 'menu',
+                  booking_options: null,
+                  menu_sent_at: agora,
+                  booking_updated_at: agora,
+                })
+                .eq('id', conversation.id)
+            }
+            await responder(avisoDaResposta(resposta), null, {
+              botoes: resposta.cancela ? [{ id: '2', titulo: 'Escolher nova data' }] : undefined,
+            })
+
+            // Resposta ao lembrete tambem entra nos numeros (22/09/2026). Ate
+            // aqui so o menu registrava eventos, e o painel nao sabia quantas
+            // familias confirmaram ou cancelaram pelo lembrete - que e justamente
+            // o que o lembrete existe para produzir.
+            try {
+              const evento = resposta.confirma
+                ? 'lembrete_confirmou'
+                : resposta.cancela
+                  ? 'lembrete_cancelou'
+                  : 'lembrete_remarcar'
+              const { error: erroDoEvento } = await admin.from('whatsapp_bot_events').insert({
+                clinic_id: clinicId,
+                conversation_id: conversation.id,
+                evento,
+              })
+              if (erroDoEvento) console.warn('Nao consegui registrar a resposta ao lembrete', erroDoEvento)
+            } catch (erro) {
+              console.warn('Nao consegui registrar a resposta ao lembrete', erro)
+            }
           }
 
           // "Preciso de ajuda" explicito, e nao qualquer coisa que acendeu a

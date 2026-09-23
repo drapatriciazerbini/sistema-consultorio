@@ -18,31 +18,36 @@ import { tratarConversa } from './atendimento.build.mjs'
 // ---------------------------------------------------------------
 
 const FECHO =
-  '⚡ *Agendar por aqui é mais rápido*: digite *2* e escolha unidade, dia e horário na hora.\n\n' +
+  '⚡ *Agendar por aqui é mais rápido*: digite *2* e escolha o atendimento, o dia e o horário.\n\n' +
   '🙋 Quer falar com alguém da equipe? Digite *9*.\n\n' +
   '⏰ Segunda a sexta, 8h às 18h. Fora desse horário, respondemos no próximo dia útil.'
 
+// Os mesmos textos da migration 20260924020000_bot_da_patricia.sql, para a
+// simulacao mostrar o que o paciente vai ler de verdade. Valor provisorio.
+const PAGAMENTO =
+  '💳 Atendimento particular. Emitimos recibo com CRM e CNPJ para você pedir reembolso ao seu plano; as formas de pagamento são confirmadas no agendamento.'
+
 const SANTOS =
-  '💙 *Consulta em Santos: R$ 450,00.* Inclui retorno em até 30 dias.\n\n' +
-  '💳 Pagamento somente em pix ou dinheiro. Não atendemos convênio, mas emitimos recibo com CRM e CNPJ para você pedir reembolso ao seu plano.\n\n' +
-  '📍 Liferty · Santos — Al. Armênio Mendes, 66, sala 2912, Aparecida. Estacionamento particular no local.\n\n' +
-  '📋 Leve um documento com foto do responsável, a carteirinha de vacinação da criança e os exames anteriores, se houver.'
+  '💚 *Consulta no consultório: R$ 400,00.*\n\n' + PAGAMENTO + '\n\n' +
+  '📍 Rua Dr. Tolentino Filgueiras, 119, Gonzaga, Santos.\n\n' +
+  '📋 Traga um documento com foto, os exames recentes, as receitas e a lista dos medicamentos em uso. Um familiar ou cuidador pode acompanhar.'
 
 const SAO_PAULO =
-  '💙 *Consulta em São Paulo: R$ 550,00.* Inclui retorno em até 30 dias.\n\n' +
-  '💳 Pagamento somente em pix ou dinheiro. Não atendemos convênio, mas emitimos recibo com CRM e CNPJ para você pedir reembolso ao seu plano.\n\n' +
-  '📍 Livance · Ibirapuera — R. Agostinho Rodrigues Filho, 550, Vila Clementino. Estacionamento particular no local.\n\n' +
-  '📋 Leve um documento com foto do responsável, a carteirinha de vacinação da criança e os exames anteriores, se houver.'
+  '💚 *Consulta em casa: R$ 400,00.*\n\n' +
+  '🏠 A Dra. Patrícia vai até a casa do paciente. A região de atendimento é confirmada pelo endereço antes de marcar.\n\n' +
+  PAGAMENTO + '\n\n' +
+  '📋 Separe os exames recentes, as receitas e a lista dos medicamentos em uso. Um familiar ou cuidador pode participar.\n\n' +
+  '⚠️ A visita é um atendimento programado, não de emergência. Em emergência, ligue 192 (SAMU).'
 
 const TELE_TEXTO =
-  '💙 *Telemedicina: R$ 450,00.* Inclui um retorno presencial em até 30 dias, em Santos ou São Paulo.\n\n' +
-  '💳 Pagamento por pix. Não atendemos convênio, mas emitimos recibo com CRM e CNPJ para você pedir reembolso ao seu plano.\n\n' +
+  '💚 *Telemedicina: R$ 400,00.*\n\n' +
   '💻 A consulta é por vídeo, no horário marcado. Você recebe o link aqui pelo WhatsApp.\n\n' +
-  '📋 Tenha em mãos a carteirinha de vacinação da criança e os exames anteriores, se houver.'
+  PAGAMENTO + '\n\n' +
+  '📋 Tenha em mãos os exames recentes, as receitas e a lista dos medicamentos em uso. Um familiar ou cuidador pode participar da chamada.'
 
 const UNIDADES = [
-  { id: 'u-santos', name: 'Liferty · Santos', address: 'Al. Armênio Mendes, 66, sala 2912', info_text: SANTOS },
-  { id: 'u-sp', name: 'Livance · Ibirapuera', address: 'R. Agostinho Rodrigues Filho, 550', info_text: SAO_PAULO },
+  { id: 'u-santos', name: 'Consultório (Gonzaga)', address: 'Rua Dr. Tolentino Filgueiras, 119', info_text: SANTOS },
+  { id: 'u-sp', name: 'Visita domiciliar', address: '', info_text: SAO_PAULO },
 ]
 
 const RESPOSTAS_PRONTAS = [
@@ -50,7 +55,7 @@ const RESPOSTAS_PRONTAS = [
     id: 'r1',
     subject: 'Valor e pagamento',
     keywords: ['valor', 'valores', 'preco', 'preço', 'custa', 'custo', 'quanto', 'pagamento', 'pagar', 'pix', 'cartao', 'recibo', 'reembolso', 'particular'],
-    answer: 'Santos R$ 450, São Paulo R$ 550, telemedicina R$ 450.',
+    answer: 'Consultório R$ 400, em casa R$ 400, telemedicina R$ 400.',
     ask_unit: true,
   },
   {
@@ -58,34 +63,33 @@ const RESPOSTAS_PRONTAS = [
     subject: 'Convênios',
     keywords: ['convenio', 'convênio', 'convenios', 'plano', 'planos', 'unimed', 'bradesco', 'amil', 'sulamerica', 'porto', 'notredame', 'carteirinha', 'credenciado'],
     answer:
-      'Não atendemos convênio: o atendimento é particular, com pagamento em pix ou dinheiro.\n\n' +
+      '💳 *Convênios*\n\nO atendimento é particular, sem convênio credenciado.\n\n' +
       'Emitimos recibo com CRM e CNPJ para você pedir reembolso ao seu plano. O valor devolvido depende do seu contrato.',
     ask_unit: false,
   },
   {
     id: 'r3',
-    subject: 'Endereço e estacionamento',
+    subject: 'Endereço do consultório',
     keywords: ['endereco', 'endereço', 'onde', 'local', 'chegar', 'estacionamento', 'estacionar', 'mapa'],
     answer:
-      'Atendemos em duas unidades, as duas com estacionamento particular no local:\n\n' +
-      '📍 *Livance · Ibirapuera* — R. Agostinho Rodrigues Filho, 550, Vila Clementino, São Paulo.\n\n' +
-      '📍 *Liferty · Santos* — Al. Armênio Mendes, 66, sala 2912, Aparecida, Santos.',
+      '📍 *Consultório*\n\nRua Dr. Tolentino Filgueiras, 119, Gonzaga, Santos - SP, CEP 11060-471.\n\n' +
+      'A Dra. Patrícia também atende em casa e por telemedicina. Digite *2* para agendar.',
     ask_unit: false,
   },
   {
     id: 'r4',
     subject: 'O que levar e como é a consulta',
-    keywords: ['levar', 'documento', 'documentos', 'exame', 'exames', 'vacina', 'vacinacao', 'retorno', 'duracao', 'demora'],
+    keywords: ['levar', 'trazer', 'separar', 'documento', 'documentos', 'primeira', 'duracao', 'demora'],
     answer:
-      'Leve um documento com foto do responsável, a carteirinha de vacinação da criança e os exames anteriores, se houver.\n\n' +
-      'O retorno está incluído e pode ser feito em até 30 dias.',
+      '📋 *Para a consulta*\n\nSepare os exames recentes, as receitas e a lista dos medicamentos em uso. ' +
+      'Anote as principais dúvidas e as mudanças que você percebeu na rotina.',
     ask_unit: false,
   },
 ]
 
 const TEXTOS = {
-  saudacao: 'Olá! 👋 Aqui é o consultório da Dra. Patrícia Zerbini.',
-  saudacaoConhecida: 'Olá, {nome}! 👋 Aqui é o consultório da Dra. Patrícia Zerbini.',
+  saudacao: 'Olá! 👋 Aqui é o consultório da Dra. Patrícia Zerbini, clínica médica e cuidado da pessoa idosa.',
+  saudacaoConhecida: 'Olá, {nome}! 👋 Que bom falar com você de novo. Aqui é o consultório da Dra. Patrícia Zerbini.',
   informacoes: FECHO,
 }
 
@@ -256,8 +260,12 @@ async function conversar(titulo, mensagens, opcoes = {}) {
       consultaASubstituir: conversa.booking_replaces_id ?? null,
       consultaEmCadastro: conversa.booking_intake_id ?? null,
       respostasNaEspera: conversa.auto_replies_while_waiting ?? 0,
+      // "[ANEXO]" faz as vezes da foto que a Meta entrega sem corpo nenhum -
+      // e sem corpo e literal: foto sem legenda chega com o texto vazio.
+      anexo: texto === '[ANEXO]',
+      jaViuOMenu: Boolean(conversa.menu_sent_at),
       podeIniciarMenu: true,
-      texto,
+      texto: texto === '[ANEXO]' ? '' : texto,
       telefone: '5513999990000',
       pacientes: opcoes.pacientes ?? [],
       nomeDoPerfil: opcoes.nomeDoPerfil ?? 'Marina',
@@ -306,7 +314,7 @@ const ANA = {
   email: 'marina@exemplo.com',
 }
 
-await conversar('1. Mãe nova pergunta o valor e marca em Santos', [
+await conversar('1. Filha nova pergunta o valor e marca no consultório', [
   'Oi, boa tarde',
   '1',
   '1',
@@ -333,11 +341,11 @@ await conversar('4. Telemedicina: informações e urgência', ['Boa noite', '1',
 await conversar('5. Telemedicina: marcando de verdade', ['Oi', '2', '3', '1', '1'], { pacientes: [ANA] })
 
 await conversar('6. Urgência como primeira mensagem', [
-  'socorro, é urgente, meu filho está muito mal',
+  'socorro, é urgente, meu pai está muito mal',
 ])
 
 await conversar('7. Pergunta clínica não é respondida pelo robô', [
-  'meu filho está com dor de barriga há 3 dias, posso dar dipirona?',
+  'meu pai está com dor de barriga há 3 dias, posso dar dipirona?',
 ])
 
 await conversar('8. Paciente conhecido vê e cancela a consulta', ['Olá', '4', 'cancelar', 'sim'], {
@@ -346,7 +354,7 @@ await conversar('8. Paciente conhecido vê e cancela a consulta', ['Olá', '4', 
     {
       id: 'c-1',
       inicio: '2026-09-16T11:00:00Z',
-      unidade: 'Liferty · Santos',
+      unidade: 'Consultório (Gonzaga)',
       endereco: 'Al. Armênio Mendes, 66',
       paciente: 'Ana Paula Souza',
       confirmada: true,
@@ -376,6 +384,63 @@ await conversar('12. Pergunta no meio da escolha da unidade', [
   'Convenio',
   '1',
 ])
+
+// Foto de exame: o robô não lê, então entrega para a equipe em vez de mandar
+// menu para quem acabou de enviar o ultrassom do pai.
+await conversar('13. Mandou uma foto do exame', ['Oi', '[ANEXO]', '[ANEXO]'])
+
+// Como a pessoa pede para marcar quando ninguém explicou o formato.
+for (const frase of [
+  'quero marcar retorno para Tomás Oliveira Prado',
+  'queria marcar uma consulta',
+  'gostaria de agendar para o meu pai',
+  'quero remarcar',
+  'marcar',
+]) {
+  await conversar(`14. "${frase}"`, [frase], { pacientes: [ANA] })
+}
+
+// 2ª via de receita e pedido de exame: o caminho que nasceu do laboratório
+// devolvendo o pedido por causa do CID.
+await conversar('15. 2ª via de receita, com a farmácia exigindo correção', [
+  'Oi',
+  '5',
+  '1',
+  'Domperidona 1mg/ml',
+  'a farmácia disse que a validade venceu',
+], { pacientes: [ANA] })
+
+await conversar('16. Pedido de exame, sem exigência nenhuma', [
+  'Oi',
+  '5',
+  '2',
+  'Ultrassom de abdome total',
+  'não',
+], { pacientes: [ANA] })
+
+await conversar('17. Controlado: sai do automático antes de prometer prazo', [
+  'Oi',
+  '5',
+  '1',
+  'Rivotril',
+], { pacientes: [ANA] })
+
+await conversar('18. Farmácia escrevendo de um número desconhecido', [
+  'Oi',
+  '5',
+  '2',
+  'paciente Gabriel Souza, o CID não confere com o exame pedido',
+])
+
+await conversar('19. Número desconhecido que diz ser o responsável', ['Oi', '5', '1'])
+
+await conversar('20. Foto do documento recusado no lugar da explicação', [
+  'Oi',
+  '5',
+  '1',
+  'Omeprazol',
+  '[ANEXO]',
+], { pacientes: [ANA] })
 
 console.log('\n' + linha('━'))
 console.log('  fim da simulação')

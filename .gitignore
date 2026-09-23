@@ -40,3 +40,4 @@ tests/prontuario.build.mjs
 
 # Previa local gerada para conferir a aparencia, nao faz parte do projeto
 PREVIA-VISUAL.html
+tests/datas.build.mjs

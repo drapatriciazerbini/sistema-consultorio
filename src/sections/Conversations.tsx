@@ -2,12 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDown,
+  ArrowUp,
   ArrowLeft,
   Check,
   CheckCheck,
+  ChevronDown,
+  ChevronUp,
   CircleSlash,
   Clock3,
   MessageSquareText,
+  Paperclip,
   RefreshCw,
   RotateCcw,
   Search,
@@ -15,6 +19,7 @@ import {
   Sparkles,
   UserPlus,
   X,
+  ClipboardList,
   List as ListIcon,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -34,6 +39,7 @@ import {
   saveAutoReply,
   sendConversationReply,
   sendConversationMenu,
+  sendConversationQuestionnaire,
   type AutoReplySettings,
   type Conversation,
   type ConversationMessage,
@@ -42,7 +48,7 @@ import {
 
 const STATUS_LABEL: Record<Conversation['status'], string> = {
   open: 'Em aberto',
-  resolved: 'Resolvida',
+  resolved: 'Concluída',
   opted_out: 'Pediu para não receber',
 }
 
@@ -69,6 +75,61 @@ const ETAPA_DO_ROBO: Record<string, string> = {
  * menu esta esperando uma pessoa agora; uma falha do sistema e assunto nosso,
  * nao do paciente. Cada motivo tem sua cor para a equipe priorizar de longe.
  */
+/**
+ * A equipe ja respondeu, e nada ficou pendente.
+ *
+ * Duas condicoes, e a segunda importa tanto quanto a primeira: alguem da equipe
+ * escreveu depois do paciente E nao ha pedido aberto. Uma conversa pode ter
+ * resposta e continuar pendente - quem pediu remarcacao recebeu "ja vejo aqui"
+ * e segue esperando a data. Marcar essa como pronta seria perde-la.
+ *
+ * E uma das duas portas de estaConcluida(), logo abaixo, que e quem a lista
+ * consulta de fato.
+ */
+function jaRespondida(conversa: Conversation): boolean {
+  if (conversa.needsAttention && conversa.attentionReason) return false
+  return conversa.respondidaPelaEquipe
+}
+
+/**
+ * A conversa esta concluida: nada nela espera a clinica.
+ *
+ * Junta os dois jeitos de terminar - alguem clicou em Concluir (ou o robo
+ * fechou sozinho), ou a equipe respondeu e nao ha pedido aberto. Ate
+ * 20/09/2026 esses dois tinham etiquetas diferentes, "Resolvida" cinza e
+ * "Respondida" verde, e quem olhava a lista lia duas coisas onde so havia uma:
+ * "ja tratei". A partir daqui os dois recebem o mesmo tratamento, e ele nao e
+ * uma etiqueta: e o cartao ENCOLHER para uma linha.
+ *
+ * Robo no meio de uma etapa nao conta como concluida, mesmo com o status
+ * dizendo que sim. Uma conversa presa em "escolhendo o horario" precisa do
+ * botao de destravar a vista, e ele so cabe no cartao inteiro. "No menu" nao e
+ * estar preso: e onde toda conversa descansa depois do robo terminar.
+ *
+ * Quem nao quer receber mensagem fica de fora de proposito: essa etiqueta
+ * vermelha e um aviso para a equipe, e encolher a esconderia.
+ */
+function estaConcluida(conversa: Conversation): boolean {
+  if (conversa.status === 'opted_out') return false
+  if (conversa.bookingState && conversa.bookingState !== 'menu' && conversa.bookingState !== 'atendente') {
+    return false
+  }
+  if (conversa.status === 'resolved') return true
+  return jaRespondida(conversa)
+}
+
+/**
+ * O menu como a familia recebe. Copia do OPCOES de atendimento.ts, so para a
+ * previa desta tela - quem envia de verdade e a Edge Function.
+ */
+const MENU_DO_ROBO = [
+  '*1* 💬 Dúvidas sobre a consulta',
+  '*2* 🗓️ Marcar uma consulta ou retorno',
+  '*3* 🗣️ Falar com alguém da equipe',
+  '*4* 🔄 Ver, remarcar ou cancelar',
+  '*5* 📄 2ª via de receita ou pedido de exame',
+]
+
 const MOTIVO_ATENCAO: Record<
   NonNullable<Conversation['attentionReason']>,
   { rotulo: string; classe: string; borda: string }
@@ -110,6 +171,30 @@ const MOTIVO_ATENCAO: Record<
     classe: 'bg-red-600 text-white',
     borda: 'border-red-500 ring-1 ring-red-500/30',
   },
+  // Mandou foto, exame, documento ou audio. O robo nao le nada disso e entrega
+  // para a equipe: tem um arquivo esperando alguem abrir.
+  anexo: {
+    rotulo: '📎 Enviou um arquivo',
+    classe: 'bg-[#f2ece0] text-[#17564d]',
+    borda: 'border-[#2f7f74]',
+  },
+  // Pediu 2a via de receita ou de exame pelo menu. Nao e vermelho: ninguem
+  // esta parado esperando resposta agora, e o robo ja prometeu 1 dia util. Mas
+  // e ambar, e nao azul, porque tem prazo correndo - diferente de um aviso de
+  // cancelamento, que so precisa ser lido.
+  documento: {
+    rotulo: '📄 Pediu 2ª via / exame',
+    classe: 'bg-[#fef3c7] text-[#92400e]',
+    borda: 'border-[#f59e0b]',
+  },
+  // Farmacia ou laboratorio pedindo correcao. Bandeira separada da de cima
+  // porque quem responde precisa saber ANTES de escrever que do outro lado nao
+  // esta a familia: nao se confirma cadastro nem se manda documento por ali.
+  farmacia: {
+    rotulo: '🏥 Farmácia/laboratório',
+    classe: 'bg-[#fef3c7] text-[#92400e]',
+    borda: 'border-[#f59e0b]',
+  },
   // Pediu urgencia na telemedicina: uma crianca passando mal e alguem
   // esperando ligacao. E a unica bandeira que precisa gritar mais que a falha.
   urgencia: {
@@ -139,6 +224,57 @@ const FUNDO_WHATSAPP = {
  * "read") colada na hora. Quem le a tela ja conhece o simbolo de sempre; ler
  * ingles tecnico ali era ruido.
  */
+/**
+ * O arquivo que o paciente mandou, aberto na conversa.
+ *
+ * Antes disto a tela escrevia "[image]" e parava aí: a clínica sabia que algo
+ * tinha chegado e precisava abrir o WhatsApp no celular de alguém para ver o
+ * quê. Quem manda foto de exame quer que olhem - e era justamente essa a
+ * mensagem que o robô encaminhava para a equipe.
+ *
+ * O link é temporário, de cinco minutos, gerado a cada abertura da conversa.
+ * É foto de exame, de lesão, de criança: um endereço permanente seria
+ * prontuário circulando solto.
+ */
+function Anexo({ url, mime }: { url: string; mime: string | null }) {
+  const tipo = mime ?? ''
+
+  if (tipo.startsWith('image/')) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="block">
+        <img
+          src={url}
+          alt="Anexo enviado pelo paciente"
+          className="mb-1 max-h-[320px] w-full rounded-[6px] object-cover"
+          loading="lazy"
+        />
+      </a>
+    )
+  }
+
+  if (tipo.startsWith('audio/')) {
+    // Áudio toca na própria tela: quem descreve sintoma falando não deveria
+    // obrigar a recepção a baixar arquivo para ouvir.
+    return <audio src={url} controls className="mb-1 w-[240px]" />
+  }
+
+  if (tipo.startsWith('video/')) {
+    return <video src={url} controls className="mb-1 max-h-[320px] w-full rounded-[6px]" />
+  }
+
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className="mb-1 flex items-center gap-2 rounded-[6px] bg-black/5 px-2 py-1.5 text-[12px] font-bold text-[#11211d] transition hover:bg-black/10"
+    >
+      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+      Abrir documento
+    </a>
+  )
+}
+
 function Confirmacao({ status }: { status: string }) {
   if (status === 'failed') {
     return <span className="font-bold text-[#b42318]">falhou</span>
@@ -178,15 +314,44 @@ export type PreCadastro = { nome: string; telefone: string }
 export default function Conversations({
   focoPatientId,
   onCadastrarContato,
+  compacto = false,
+  onAlternarCompacto,
 }: {
   focoPatientId?: string | null
   /** Abre a tela de pacientes com nome e telefone do contato ja preenchidos. */
   onCadastrarContato?: (dados: PreCadastro) => void
+  /**
+   * Cabecalho da pagina recolhido, para sobrar altura para a conversa.
+   *
+   * Quem manda e o Home, porque metade do que recolhe (titulo, data, "Novo
+   * paciente") mora la. Aqui dentro recolhem o cartao do menu automatico e a
+   * faixa de filtros - e a busca desce para a barra de contagem, que sempre
+   * fica visivel.
+   */
+  compacto?: boolean
+  onAlternarCompacto?: () => void
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [busca, setBusca] = useState('')
   const [de, setDe] = useState('')
   const [ate, setAte] = useState('')
+  // Comeca desligado: quem abre a tela espera ver a conversa inteira da
+  // clinica. Esconder por conta propria seria decidir pela equipe que o dia
+  // anterior nao interessa mais.
+  const [esconderConcluidas, setEsconderConcluidas] = useState(false)
+  // Cartoes com a previa aberta por inteiro. A previa e uma linha cortada com
+  // reticencias, e mensagens como "Voce ja tem uma consulta marcada: Aline
+  // Lapetina, sexta 25/09 as 10:40 em Liferty Santos" perdiam justamente a
+  // parte que interessava - a data. Abrir a conversa so para ler o fim de uma
+  // frase era caminho longo demais para uma informacao tao curta.
+  const [previasAbertas, setPreviasAbertas] = useState<Set<string>>(() => new Set())
+  const alternarPrevia = (id: string) =>
+    setPreviasAbertas((atual) => {
+      const proximo = new Set(atual)
+      if (proximo.has(id)) proximo.delete(id)
+      else proximo.add(id)
+      return proximo
+    })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ConversationMessage[]>([])
   const [loading, setLoading] = useState(true)
@@ -229,13 +394,22 @@ export default function Conversations({
    * impressão de que a mensagem não tinha sido enviada. O botão "Ir para o fim"
    * existia justamente porque isto faltava.
    *
-   * Na primeira vez o salto é seco; depois, com a conversa já aberta, mensagem
-   * nova desce suave, como no aplicativo.
+   * Depois disso a tela é de quem está lendo. A lista se atualiza sozinha (a
+   * cada mensagem nova, a cada confirmação de entrega que muda o tiquinho), e
+   * antes cada uma dessas atualizações puxava a página para baixo - quem tinha
+   * subido para reler uma conversa antiga perdia o lugar no meio da leitura.
+   *
+   * Agora só há dois motivos para a tela se mover sozinha: abrir a conversa, e
+   * a própria equipe ter acabado de enviar algo (aí a mensagem que ela mandou
+   * precisa aparecer, senão parece que não saiu). Para o resto existe o botão
+   * "Ir para o fim".
    */
   useEffect(() => {
     if (!selectedId || loadingMessages || messages.length === 0) return
     const primeiraVez = conversaRolada.current !== selectedId
     conversaRolada.current = selectedId
+    if (!primeiraVez && !acabamosDeEnviar.current) return
+    acabamosDeEnviar.current = false
     fimDasMensagens.current?.scrollIntoView({
       behavior: primeiraVez ? 'auto' : 'smooth',
       block: 'end',
@@ -250,9 +424,122 @@ export default function Conversations({
   const selectedIdRef = useRef<string | null>(null)
   // Fim da lista de mensagens. O botao de descer rola ate ele.
   const fimDasMensagens = useRef<HTMLDivElement>(null)
+  // Topo da lista. O botao de subir rola ate ele.
+  const inicioDasMensagens = useRef<HTMLDivElement>(null)
+  // O painel da conversa. Ao abrir uma, a tela sobe ate ele, para o cabecalho
+  // (nome, telefone, resumo, janela) encostar no topo e ficar travado ali
+  // enquanto as mensagens rolam por baixo.
+  const painel = useRef<HTMLDivElement>(null)
+  const cabecalho = useRef<HTMLDivElement>(null)
+  // Altura viva do cabecalho travado. Os botoes "Ir para o inicio/fim" tambem
+  // sao grudados, e precisam parar logo ABAIXO dele - nao por tras. Como o
+  // cabecalho muda de altura (aviso de janela fechada aparece e some, o
+  // resumo quebra linha no celular), a medida vem de um ResizeObserver.
+  const [alturaCabecalho, setAlturaCabecalho] = useState(0)
+
+  /**
+   * As duas colunas rolam por dentro, como no WhatsApp Web.
+   *
+   * Antes quem rolava era a pagina inteira: com 29 conversas a lista empurrava
+   * o rodape para longe, e ler uma conversa comprida significava perder a
+   * lista de vista. Rolar de volta ao topo para trocar de conversa era o
+   * caminho de sempre.
+   *
+   * Agora o bloco das duas colunas tem a altura do que sobra da janela, e cada
+   * coluna tem a propria barra. A pagina nao rola mais nesta tela - e por isso
+   * a altura e medida, e nao chutada num calc(100vh - 300px): o cabecalho da
+   * secao cresce quando os filtros abrem, e um numero fixo deixaria a lista
+   * passando do rodape ou sobrando espaco em branco.
+   *
+   * So no computador. No celular e uma coluna de cada vez e a pagina rolando
+   * inteira, que ali e o certo: prender a lista numa janela curta dentro de
+   * uma tela ja curta so faz a pessoa rolar duas vezes.
+   */
+  const colunas = useRef<HTMLDivElement>(null)
+  // Altura do bloco e quanto ele avanca sobre o respiro do rodape da pagina.
+  // Os dois andam juntos: sem o segundo, o bloco parava 84px antes do fim da
+  // janela, no padding que a moldura da pagina reserva para todas as telas.
+  const [medidas, setMedidas] = useState<{ altura: number; avancoNoRodape: number } | null>(null)
+  // O grid das colunas so existe depois que as conversas carregam: antes disso
+  // a tela mostra o aviso de lista vazia. A medicao precisa rodar de novo
+  // quando ele aparece - foi por nao fazer isso que a primeira versao subiu ao
+  // ar medindo um elemento que ainda nao existia e nunca mais voltou a medir.
+  const temColunas = conversations.length > 0
+
+  useEffect(() => {
+    if (!temColunas) {
+      setMedidas(null)
+      return
+    }
+    const desktop = window.matchMedia('(min-width: 1024px)')
+    // O que fica entre o bloco e a borda de baixo da janela. Pequeno de
+    // proposito: a tela de conversa ganha em usar a altura inteira, e o
+    // cartao arredondado ja separa visualmente do fim.
+    const FOLGA = 12
+
+    const medir = () => {
+      const alvo = colunas.current
+      if (!alvo || !desktop.matches) {
+        setMedidas(null)
+        return
+      }
+      const caixa = alvo.getBoundingClientRect()
+      const topo = caixa.top + window.scrollY
+      // O respiro NATURAL do rodape: o que a moldura da pagina reserva abaixo
+      // do bloco (padding do main e do miolo, 84px hoje). Medido descontando
+      // o avanco que ja estiver aplicado, senao a segunda medicao leria o
+      // rodape ja encolhido, devolveria outro numero, e a tela oscilaria.
+      const avancoAtual = Number.parseFloat(getComputedStyle(alvo).marginBottom) || 0
+      const respiro = document.documentElement.scrollHeight - (topo + caixa.height) - avancoAtual
+      // O bloco vai ate FOLGA px da borda da janela, e avanca sobre o resto
+      // do respiro com margem negativa - assim a pagina termina exatamente no
+      // fim da janela e nao rola, em vez de sobrar uma faixa vazia embaixo.
+      const avanco = Math.max(0, respiro - FOLGA)
+      setMedidas({
+        altura: Math.max(360, window.innerHeight - topo - FOLGA),
+        avancoNoRodape: avanco,
+      })
+    }
+
+    // Duas vezes: agora, e um quadro depois. A primeira ja acerta quase
+    // sempre; a segunda apanha o caso em que fonte ou cabecalho da secao
+    // terminam de assentar so no quadro seguinte.
+    medir()
+    const quadro = requestAnimationFrame(medir)
+    window.addEventListener('resize', medir)
+    desktop.addEventListener('change', medir)
+    // O cabecalho da secao muda de altura quando os filtros abrem ou o aviso
+    // de conversas na espera aparece. Sem observar, a lista ficava com a
+    // altura de antes e passava do rodape.
+    const observador = new ResizeObserver(medir)
+    if (colunas.current?.parentElement) observador.observe(colunas.current.parentElement)
+
+    return () => {
+      cancelAnimationFrame(quadro)
+      window.removeEventListener('resize', medir)
+      desktop.removeEventListener('change', medir)
+      observador.disconnect()
+    }
+    // `compacto` entra aqui porque recolher o cabecalho muda onde este bloco
+    // comeca na tela. O ResizeObserver acima nao pega isso sozinho: ele olha o
+    // tamanho do vizinho, e o que mudou foi o topo, la no Home.
+  }, [temColunas, compacto])
+
+  useEffect(() => {
+    const alvo = cabecalho.current
+    if (!alvo) return
+    const medir = () => setAlturaCabecalho(alvo.getBoundingClientRect().height)
+    medir()
+    const observador = new ResizeObserver(medir)
+    observador.observe(alvo)
+    return () => observador.disconnect()
+  }, [selectedId, loadingMessages])
   // Qual conversa ja foi posicionada no fim. Sem isto, cada mensagem nova
   // rolaria a tela de novo enquanto alguem le algo mais acima.
   const conversaRolada = useRef<string | null>(null)
+  // Levantada pelos botoes de envio da equipe, e so por eles. E a unica coisa
+  // que autoriza a tela a descer com a conversa ja aberta.
+  const acabamosDeEnviar = useRef(false)
   const [resumo, setResumo] = useState<ResumoDoPaciente | null>(null)
   selectedIdRef.current = selectedId
 
@@ -343,6 +630,10 @@ export default function Conversations({
     // que ela carrega. Aqui só zeramos a marca, para que a conversa que abre
     // seja tratada como primeira vez e dê o salto seco em vez do suave.
     conversaRolada.current = null
+    // O painel sobe para o topo da tela no clique. Sem isto, em conversa
+    // curta nada rolava e o cabecalho ficava onde estivesse; com isto, ele
+    // encosta no topo e fica travado enquanto as mensagens passam por baixo.
+    painel.current?.scrollIntoView({ behavior: 'auto', block: 'start' })
     try {
       const [historico, janela] = await Promise.all([
         listConversationMessages(conversation.id),
@@ -352,10 +643,19 @@ export default function Conversations({
       setJanelaAte(janela)
       if (conversation.unreadCount > 0 || conversation.needsAttention) {
         await markConversationSeen(conversation.id)
+        // Pedido de 2ª via e de farmácia continuam marcados depois de lidos:
+        // eles só terminam quando o documento sai. O servidor decide isso; a
+        // tela repete a mesma regra para não piscar a etiqueta e trazê-la de
+        // volta no recarregamento seguinte.
+        const pendente =
+          conversation.attentionReason === 'documento' ||
+          conversation.attentionReason === 'farmacia'
         setConversations((current) =>
           current.map((item) =>
             item.id === conversation.id
-              ? { ...item, unreadCount: 0, needsAttention: false, attentionReason: null }
+              ? pendente
+                ? { ...item, unreadCount: 0 }
+                : { ...item, unreadCount: 0, needsAttention: false, attentionReason: null }
               : item,
           ),
         )
@@ -375,6 +675,7 @@ export default function Conversations({
     try {
       await sendConversationReply(selectedId, texto)
       setResposta('')
+      acabamosDeEnviar.current = true
       // O tempo real ja traz a mensagem nova, mas recarregar aqui evita a
       // sensacao de "sumiu" caso a assinatura esteja fora do ar.
       setMessages(await listConversationMessages(selectedId))
@@ -394,10 +695,27 @@ export default function Conversations({
     setError('')
     try {
       await sendConversationMenu(selectedId)
+      acabamosDeEnviar.current = true
       setMessages(await listConversationMessages(selectedId))
       void load(true)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível enviar o menu.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  async function enviarQuestionario() {
+    if (!selectedId || enviando) return
+    setEnviando(true)
+    setError('')
+    try {
+      await sendConversationQuestionnaire(selectedId)
+      acabamosDeEnviar.current = true
+      setMessages(await listConversationMessages(selectedId))
+      void load(true)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível enviar o questionário.')
     } finally {
       setEnviando(false)
     }
@@ -434,6 +752,7 @@ export default function Conversations({
     try {
       await sendTemplateReply(selectedId, resposta)
       setResposta('')
+      acabamosDeEnviar.current = true
       setMessages(await listConversationMessages(selectedId))
       void load(true)
     } catch (causa) {
@@ -495,6 +814,10 @@ export default function Conversations({
     const fim = ate ? new Date(`${ate}T23:59:59.999`).getTime() : null
 
     return conversations.filter((item) => {
+      // A conversa aberta continua na lista mesmo escondida: some-la debaixo do
+      // proprio leitor, no instante em que a resposta sai, seria tirar a
+      // conversa da tela de quem ainda esta nela.
+      if (esconderConcluidas && estaConcluida(item) && item.id !== selectedId) return false
       if (inicio !== null || fim !== null) {
         const quando = item.lastMessageAt ? new Date(item.lastMessageAt).getTime() : null
         if (quando === null) return false
@@ -507,7 +830,9 @@ export default function Conversations({
       if (digitosBusca && item.phoneDigits.includes(digitosBusca)) return true
       return item.textoBusca.includes(termo)
     })
-  }, [conversations, busca, de, ate])
+  }, [conversations, busca, de, ate, esconderConcluidas, selectedId])
+
+  const concluidas = useMemo(() => conversations.filter(estaConcluida).length, [conversations])
 
   const filtrando = Boolean(busca.trim() || de || ate)
   /**
@@ -576,8 +901,13 @@ export default function Conversations({
 
   return (
     <div className="space-y-4">
+      {/* Gruda no topo da tela em vez de ficar parado no começo da página.
+          O aviso nascia aqui em cima, e quem aperta um botão da conversa está
+          lá embaixo, depois de dezenas de mensagens: o servidor recusava o
+          envio com o motivo explicado, e para quem estava olhando o botão não
+          acontecia nada. Foi o que houve com o Questionário. */}
       {error && (
-        <div className="flex items-start gap-2 rounded-[16px] border border-red-200 bg-red-50 p-3 text-[11px] font-semibold text-red-700">
+        <div className="sticky top-2 z-30 flex items-start gap-2 rounded-[16px] border border-red-200 bg-red-50 p-3 text-[11px] font-semibold text-red-700 shadow-[0_4px_14px_rgba(12,26,23,.12)]">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
@@ -610,8 +940,11 @@ export default function Conversations({
 
       {/* Resposta automatica de primeiro contato. Fica aqui, e nao numa tela de
           configuracao escondida, porque quem cuida das conversas e quem sabe se
-          o texto esta certo. */}
-      <div className="surface-card rounded-[18px] p-3">
+          o texto esta certo.
+
+          Some quando o cabecalho esta recolhido: e ajuste que se faz uma vez
+          por mes, e estava custando ~90px de altura todo dia. */}
+      <div className={`surface-card rounded-[18px] p-3 ${compacto ? 'hidden' : ''}`}>
         <button
           type="button"
           onClick={() => setAutoReplyAberto((v) => !v)}
@@ -646,24 +979,24 @@ export default function Conversations({
               </span>
             </label>
 
-            {/* As opcoes 1, 2 e 3 nao sao editaveis: elas correspondem ao que o
-                sistema sabe fazer. Mostrar o menu montado evita a duvida de
-                "onde eu escrevo as opcoes?". */}
+            {/* As opcoes nao sao editaveis: elas correspondem ao que o sistema
+                sabe fazer. Mostrar o menu montado evita a duvida de "onde eu
+                escrevo as opcoes?".
+
+                ESTA LISTA E COPIA. A original vive em OPCOES, no arquivo
+                supabase/functions/_shared/atendimento.ts, que e o que a familia
+                de fato recebe. Mexeu la, mexa aqui: em 20/09/2026 esta previa
+                ainda mostrava tres opcoes enquanto o robo ja mandava cinco, e a
+                tela de configuracao passou semanas ensinando o menu errado a
+                quem ia conferir justamente isso. */}
             <p className="mt-3 text-[10px] font-extrabold uppercase tracking-wide text-slate-400">
               Como a mensagem chega
             </p>
-            <div className="mt-1 rounded-[14px] border border-[#193d36]/10 bg-[#fbfaf5] p-3 text-[11px] leading-relaxed text-[#193d36]">
+            <div className="mt-1 whitespace-pre-line rounded-[14px] border border-[#193d36]/10 bg-[#fbfaf5] p-3 text-[11px] leading-relaxed text-[#193d36]">
               <span className="text-slate-500">{autoReply.text || 'Saudação'}</span>
-              <br />
-              <br />
-              Como podemos ajudar? Responda com o número:
-              <br />
-              <br />
-              1 - Informações sobre a consulta
-              <br />
-              2 - Agendar consulta
-              <br />
-              3 - Falar com a nossa equipe
+              {'\n\nEstamos aqui para cuidar de você e de quem você cuida. Como podemos ajudar hoje?\n\n' +
+                MENU_DO_ROBO.map((linha) => linha).join('\n') +
+                '\n\nResponda com o número ou toque em "Ver opções".'}
             </div>
 
             <p className="mt-3 text-[10px] font-extrabold uppercase tracking-wide text-slate-400">
@@ -705,9 +1038,11 @@ export default function Conversations({
               Preferências, em "Informações por unidade".
             </p>
             <p className="mt-1 text-[10px] text-slate-500">
-              A opção 2 usa a agenda das unidades. A opção 3 marca a conversa aqui em
-              destaque e o robô para de responder, para não falar por cima da equipe.
-              Quem está respondendo acompanhamento ou lembrete de consulta não recebe o menu.
+              A opção 2 usa a agenda das unidades e a 4 mexe na consulta já marcada. A opção 3
+              marca a conversa aqui em destaque e o robô para de responder, para não falar por
+              cima da equipe. A 5 registra o pedido de 2ª via ou de exame e também chama a
+              equipe. Quem está respondendo acompanhamento ou lembrete de consulta não recebe o
+              menu.
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-3">
               <button
@@ -726,7 +1061,7 @@ export default function Conversations({
         )}
       </div>
 
-      {conversations.length > 0 && (
+      {conversations.length > 0 && !compacto && (
         <div className="surface-card flex flex-wrap items-center gap-2 rounded-[18px] p-3">
           <div className="relative min-w-[200px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -772,7 +1107,11 @@ export default function Conversations({
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      {/* Esta barra e a unica que nunca recolhe, e por isso ela carrega a
+          busca quando o cabecalho esta fechado. Buscar e tarefa de todo dia:
+          se sumisse junto, a equipe passaria o dia abrindo e fechando o
+          cabecalho, e o espaco ganho voltaria pela porta dos fundos. */}
+      <div className="flex flex-wrap items-center gap-2">
         <p className="flex items-center gap-2 text-[11px] font-bold text-slate-500">
           {conversations.length === 0
             ? 'Nenhuma conversa ainda'
@@ -786,14 +1125,83 @@ export default function Conversations({
             </span>
           )}
         </p>
-        <button
-          type="button"
-          onClick={() => void load()}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-[#eef3f2] px-3 py-1.5 text-[10px] font-extrabold text-[#557f75] transition hover:bg-[#e2ece9]"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Atualizar
-        </button>
+
+        {compacto && conversations.length > 0 && (
+          <div className="relative min-w-[160px] max-w-[420px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por nome, telefone ou algo que foi dito"
+              className="w-full rounded-[12px] border border-[#193d36]/10 bg-white py-1.5 pl-9 pr-8 text-[11px] outline-none focus:border-[#2f7f74]"
+            />
+            {/* Limpa tambem as datas. Elas ficam no cabecalho recolhido: sem
+                isto um filtro de data ligado antes de recolher continuaria
+                cortando a lista sem nada na tela dizendo por que. */}
+            {filtrando && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBusca('')
+                  setDe('')
+                  setAte('')
+                }}
+                title="Limpar busca e datas"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="ml-auto flex items-center gap-1.5">
+          {onAlternarCompacto && (
+            <button
+              type="button"
+              onClick={onAlternarCompacto}
+              title={
+                compacto
+                  ? 'Mostrar o título, os filtros e o menu automático'
+                  : 'Recolher o topo e dar mais altura para a conversa'
+              }
+              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-1.5 text-[10px] font-extrabold text-slate-600 transition hover:bg-slate-200"
+            >
+              {compacto ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronUp className="h-3.5 w-3.5" />
+              )}
+              {compacto ? 'Mostrar topo' : 'Mais espaço'}
+            </button>
+          )}
+          {/* Encolher ja separa as concluidas, mas em dia cheio elas continuam
+              ocupando a lista. Este botao tira as resolvidas da frente e deixa
+              so o que falta - sem apagar nada: e um filtro de tela, e volta no
+              mesmo clique. */}
+          {concluidas > 0 && (
+            <button
+              type="button"
+              onClick={() => setEsconderConcluidas((atual) => !atual)}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[10px] font-extrabold transition ${
+                esconderConcluidas
+                  ? 'bg-[#557f75] text-white hover:bg-[#4a6f66]'
+                  : 'bg-[#eef3f2] text-[#557f75] hover:bg-[#e2ece9]'
+              }`}
+            >
+              <Check className="h-3.5 w-3.5" />
+              {esconderConcluidas ? `Mostrar concluídas (${concluidas})` : 'Esconder concluídas'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[#eef3f2] px-3 py-1.5 text-[10px] font-extrabold text-[#557f75] transition hover:bg-[#e2ece9]"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {conversations.length === 0 ? (
@@ -809,16 +1217,34 @@ export default function Conversations({
            implicita e "auto", e o texto sem quebra das previas (truncate) faz
            a coluna crescer ate a largura do texto inteiro: a lista saia pela
            direita da tela e o botao de cada conversa ficava fora do alcance. */
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+        <div
+          ref={colunas}
+          style={
+            medidas
+              ? { height: medidas.altura, marginBottom: -medidas.avancoNoRodape }
+              : undefined
+          }
+          className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] lg:overflow-hidden"
+        >
           {/* No computador, lista e conversa convivem lado a lado. No celular
               nao cabem: a conversa ficava embaixo da lista inteira, e tocar num
               nome parecia nao fazer nada - a tela continuava igual e o
               historico estava a muitas rolagens de distancia. Aqui vale uma
               coisa de cada vez, com o botao de voltar no topo da conversa. */}
-          <div className={`min-w-0 space-y-2 ${selected ? 'hidden lg:block' : ''}`}>
+          <div
+            className={`rolagem-fina min-w-0 space-y-2 lg:h-full lg:overflow-y-auto lg:pr-1 ${
+              selected ? 'hidden lg:block' : ''
+            }`}
+          >
             {visiveis.length === 0 && (
               <div className="surface-card rounded-[18px] p-6 text-center text-[11px] font-semibold text-slate-500">
-                Nenhuma conversa encontrada com esses filtros.
+                {/* Sem esta frase, esconder as concluidas num dia em que tudo
+                    foi respondido devolvia "nenhuma conversa com esses filtros"
+                    - e parece que a lista quebrou, quando na verdade e a melhor
+                    noticia possivel. */}
+                {esconderConcluidas && !filtrando
+                  ? 'Tudo concluído. Nada esperando a equipe.'
+                  : 'Nenhuma conversa encontrada com esses filtros.'}
               </div>
             )}
             {visiveis.map((conversation) => {
@@ -840,6 +1266,68 @@ export default function Conversations({
               const titulo = semCadastro
                 ? conversation.profileName || 'Contato sem cadastro'
                 : conversation.patientName
+
+              // Concluida encolhe. A altura do cartao passa a carregar o
+              // significado: pendente e cartao inteiro, concluida e uma linha
+              // fina com um check. A lista respira sozinha, sem etiqueta.
+              //
+              // Nao e definitivo: a proxima mensagem do paciente reabre a
+              // conversa no webhook, o status volta a 'open', e o cartao volta
+              // a crescer - e a subir, porque a ordem e pela ultima mensagem.
+              // Do lado da clinica, responder e concluir encolhe de novo.
+              //
+              // A que esta aberta ao lado volta a ser cartao inteiro: quem
+              // esta lendo a conversa quer ver de quem e, o telefone e a
+              // ultima mensagem sem precisar procurar. Ao trocar para outra,
+              // ela encolhe de novo.
+              if (estaConcluida(conversation) && !active) {
+                return (
+                  <div
+                    key={conversation.id}
+                    className={`flex w-full items-center gap-2 rounded-[12px] border px-3 py-2 transition ${
+                      active
+                        ? 'border-[#2f7f74] bg-white shadow-[0_6px_18px_rgba(25,61,54,.08)]'
+                        : 'border-[#237128]/20 bg-[#f4f9f5] hover:border-[#237128]/40 hover:bg-[#eaf3ec]'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void openConversation(conversation)}
+                      title="Concluída. Toque para abrir a conversa."
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    >
+                      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#237128] text-white">
+                        <Check className="h-2.5 w-2.5" />
+                      </span>
+                      <span className="truncate text-[11px] font-bold text-[#5b6b78]">{titulo}</span>
+                    </button>
+                    {/* Sem cadastro, a acao continua a mao - compacta. Sumir com
+                        ela so porque a conversa terminou deixaria o contato sem
+                        ficha para sempre, que e justamente quando ele mais
+                        precisa de uma. */}
+                    {semCadastro && onCadastrarContato && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onCadastrarContato({
+                            nome: conversation.profileName,
+                            telefone: conversation.phone,
+                          })
+                        }
+                        title="Cadastrar como paciente"
+                        aria-label="Cadastrar como paciente"
+                        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[#193d36]/10 bg-white text-[#2f7f74] transition hover:border-[#2f7f74]"
+                      >
+                        <UserPlus className="h-3 w-3" />
+                      </button>
+                    )}
+                    <span className="shrink-0 text-[9px] font-bold text-slate-400">
+                      {formatWhen(conversation.lastMessageAt)}
+                    </span>
+                  </div>
+                )
+              }
+
               return (
                 <div
                   key={conversation.id}
@@ -861,9 +1349,52 @@ export default function Conversations({
                   <p className="mt-0.5 text-[10px] font-bold tracking-wide text-slate-400">
                     {conversation.phone}
                   </p>
-                  <p className="mt-1 truncate text-[11px] text-slate-500">
-                    {conversation.lastMessage || 'Sem mensagens'}
-                  </p>
+                  {(() => {
+                    const texto = conversation.lastMessage || 'Sem mensagens'
+                    const aberta = previasAbertas.has(conversation.id)
+                    // So oferece a seta quando ha o que esconder. Uma linha
+                    // curta com botao de expandir e ruido: a pessoa toca e nada
+                    // muda.
+                    const longa = texto.length > 56 || texto.includes('\n')
+                    return (
+                      <div className="mt-1 flex items-start gap-1">
+                        <p
+                          className={`min-w-0 flex-1 text-[11px] text-slate-500 ${
+                            aberta ? 'whitespace-pre-line break-words' : 'truncate'
+                          }`}
+                        >
+                          {texto}
+                        </p>
+                        {longa && (
+                          /* span com role de botao, e nao <button>: este trecho
+                             ja esta dentro do botao que abre a conversa, e
+                             botao dentro de botao e HTML invalido - o clique
+                             subiria e abriria a conversa junto. O stopPropagation
+                             segura o clique aqui. */
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            aria-label={aberta ? 'Encolher a mensagem' : 'Ver a mensagem inteira'}
+                            title={aberta ? 'Encolher' : 'Ver tudo'}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              alternarPrevia(conversation.id)
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                alternarPrevia(conversation.id)
+                              }
+                            }}
+                            className="mt-0.5 inline-flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-[#193d36]"
+                          >
+                            {aberta ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          </span>
+                        )}
+                      </div>
+                    )
+                  })()}
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     {semCadastro && (
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-extrabold text-slate-500">
@@ -892,9 +1423,16 @@ export default function Conversations({
                         Não quer receber
                       </span>
                     )}
-                    {conversation.status === 'resolved' && (
-                      <span className="rounded-full bg-[#eef3f2] px-2 py-0.5 text-[9px] font-extrabold text-[#557f75]">
-                        Resolvida
+                    {/* Concluida normalmente encolhe. Chega aqui em cartao
+                        inteiro em dois casos: quando esta aberta ao lado, e
+                        quando o robo ficou preso numa etapa e o botao de
+                        destravar precisa do espaco. Nos dois, a etiqueta e o
+                        mesmo check verde do encolhido - a mesma coisa em dois
+                        tamanhos, e nao dois estados. */}
+                    {(estaConcluida(conversation) || conversation.status === 'resolved') && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#237128] px-2 py-0.5 text-[9px] font-extrabold text-white">
+                        <Check className="h-2.5 w-2.5" />
+                        Concluída
                       </span>
                     )}
                   </div>
@@ -942,17 +1480,34 @@ export default function Conversations({
             })}
           </div>
 
+          {/* SEM padding no proprio painel, de proposito. Ele e a area
+              rolavel, e o navegador ancora um elemento sticky na caixa de
+              conteudo do rolavel - ou seja, DENTRO do padding. Com p-4 aqui, o
+              cabecalho grudava 16px abaixo do topo e as mensagens passavam por
+              essa faixa descoberta, aparecendo em cima dele. O respiro vai para
+              as partes internas, onde nao atrapalha o sticky. */}
           <div
-            className={`surface-card min-h-[320px] min-w-0 rounded-[22px] p-4 ${
+            ref={painel}
+            className={`surface-card rolagem-fina min-h-[320px] min-w-0 rounded-[22px] lg:h-full lg:overflow-y-auto ${
               selected ? '' : 'hidden lg:block'
             }`}
           >
             {!selected ? (
-              <p className="pt-16 text-center text-xs font-semibold text-slate-400">
+              <p className="p-4 pt-20 text-center text-xs font-semibold text-slate-400">
                 Escolha uma conversa para ver o histórico.
               </p>
             ) : (
               <>
+                {/* Cabecalho travado no topo enquanto a conversa rola.
+                    Numa conversa longa, o nome de quem esta falando e o aviso
+                    de janela fechada sumiam na primeira rolada - e a pessoa
+                    respondia sem saber a quem, ou escrevia um texto que nao ia
+                    poder enviar. As margens negativas estendem o fundo branco
+                    ate a borda do cartao, para nada aparecer por tras. */}
+                <div
+                  ref={cabecalho}
+                  className="sticky top-0 z-20 rounded-t-[22px] bg-white/95 px-4 pt-4 backdrop-blur"
+                >
                 {/* Só no celular: no computador a lista está do lado, e um
                     botão de voltar ali seria um passo inventado. */}
                 <button
@@ -1008,13 +1563,20 @@ export default function Conversations({
                       Reabrir conversa
                     </button>
                   ) : (
+                    // "Concluir", e nao "marcar como resolvida": e a mesma
+                    // palavra da lista, onde a conversa vira uma linha com
+                    // check verde. Duas palavras para o mesmo ato faziam a
+                    // pessoa procurar dois estados onde so ha um. E a
+                    // explicacao no title porque o efeito e visivel mas nao
+                    // obvio: encolhe agora, volta sozinha se escreverem.
                     <button
                       type="button"
                       onClick={() => void resolve(selected.id)}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#eef3f2] px-3 py-1.5 text-[10px] font-extrabold text-[#557f75] transition hover:bg-[#e2ece9]"
+                      title="A conversa vira uma linha na lista. Se o paciente escrever de novo, ela volta sozinha."
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-[#eaf3ec] px-3 py-1.5 text-[10px] font-extrabold text-[#237128] transition hover:bg-[#dcebe0]"
                     >
                       <Check className="h-3.5 w-3.5" />
-                      Marcar como resolvida
+                      Concluir conversa
                     </button>
                   )}
                 </div>
@@ -1040,7 +1602,12 @@ export default function Conversations({
                     </button>
                   </div>
                 )}
+                {/* Respiro na base do bloco travado, para a primeira mensagem
+                    nao encostar nele quando a conversa rola por baixo. */}
+                <div className="h-3" />
+                </div>
 
+                <div className="px-4 pb-4">
                 {loadingMessages ? (
                   <p className="pt-12 text-center text-xs font-semibold text-slate-400">
                     Carregando mensagens...
@@ -1052,26 +1619,54 @@ export default function Conversations({
                      tela precisa saber na hora o que o paciente esta vendo do
                      outro lado, e o painel escuro do resto do sistema obrigava
                      a traduzir mentalmente a cada mensagem. */
-                  <div className="relative mt-3 rounded-[14px] bg-[#efeae2] px-3 py-4" style={FUNDO_WHATSAPP}>
+                  <div className="relative rounded-[14px] bg-[#efeae2] px-3 py-4" style={FUNDO_WHATSAPP}>
                     {/* Conversas antigas tem dezenas de mensagens, e o que
                         interessa esta sempre no fim. Sem isto a equipe rolava a
-                        roda ate cansar toda vez que abria uma conversa. */}
+                        roda ate cansar toda vez que abria uma conversa.
+
+                        Os dois sentidos, e nao so um: a conversa abre no fim,
+                        entao subir ate o comeco - para reler como tudo comecou,
+                        ou achar o que o paciente pediu na primeira mensagem -
+                        era o caminho que dava mais trabalho e nao tinha atalho. */}
+                    {/* Grudados logo abaixo do cabecalho travado, e nao no
+                        topo da tela: ali ficariam por tras dele. A medida vem
+                        do ResizeObserver, entao acompanha o aviso de janela
+                        aparecendo e sumindo. */}
                     {messages.length > 6 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          fimDasMensagens.current?.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'end',
-                          })
-                        }
-                        className="sticky top-1 z-10 ml-auto flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[10px] font-extrabold text-[#557f75] shadow-[0_2px_6px_rgba(12,26,23,.18)] backdrop-blur transition hover:bg-white"
+                      <div
+                        className="sticky z-10 mb-1 flex justify-end gap-1.5"
+                        style={{ top: alturaCabecalho + 4 }}
                       >
-                        <ArrowDown className="h-3 w-3" />
-                        Ir para o fim
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            inicioDasMensagens.current?.scrollIntoView({
+                              behavior: 'smooth',
+                              block: 'start',
+                            })
+                          }
+                          className="flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[10px] font-extrabold text-[#557f75] shadow-[0_2px_6px_rgba(12,26,23,.18)] backdrop-blur transition hover:bg-white"
+                        >
+                          <ArrowUp className="h-3 w-3" />
+                          Ir para o início
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            fimDasMensagens.current?.scrollIntoView({
+                              behavior: 'smooth',
+                              block: 'end',
+                            })
+                          }
+                          className="flex items-center gap-1.5 rounded-full bg-white/95 px-3 py-1.5 text-[10px] font-extrabold text-[#557f75] shadow-[0_2px_6px_rgba(12,26,23,.18)] backdrop-blur transition hover:bg-white"
+                        >
+                          <ArrowDown className="h-3 w-3" />
+                          Ir para o fim
+                        </button>
+                      </div>
                     )}
                     <div className="space-y-2">
+                      <div ref={inicioDasMensagens} />
                       {messages.map((message) => {
                         const outbound = message.direction === 'outbound'
                         return (
@@ -1084,12 +1679,17 @@ export default function Conversations({
                                 outbound ? 'bg-[#d9fdd3]' : 'bg-white'
                               }`}
                             >
-                              <p className="whitespace-pre-wrap break-words text-[13.5px] leading-[19px] text-[#11211d]">
-                                {message.body ||
-                                  (message.templateName
-                                    ? `[modelo: ${message.templateName}]`
-                                    : '[sem conteúdo]')}
-                              </p>
+                              {message.anexoUrl && <Anexo url={message.anexoUrl} mime={message.anexoMime} />}
+                              {/* Sem texto e com arquivo, a linha de "[image]"
+                                  vira ruído embaixo da própria foto. */}
+                              {(!message.anexoUrl || !/^\[/.test(message.body)) && (
+                                <p className="whitespace-pre-wrap break-words text-[13.5px] leading-[19px] text-[#11211d]">
+                                  {message.body ||
+                                    (message.templateName
+                                      ? `[modelo: ${message.templateName}]`
+                                      : '[sem conteúdo]')}
+                                </p>
+                              )}
                               <span className="mt-0.5 flex items-center justify-end gap-1 text-[11px] leading-none text-[#667781]">
                                 {formatWhen(message.createdAt)}
                                 {outbound && <Confirmacao status={message.status} />}
@@ -1155,6 +1755,22 @@ export default function Conversations({
                         >
                           <ListIcon className="h-3.5 w-3.5" />
                           Enviar menu de opções
+                        </button>
+                        {/* O cadastro que ficou pela metade.
+                            Quem marca e toca em "Voltar ao menu" no meio das
+                            perguntas fica com consulta e ficha vazia, e a
+                            clínica só descobre na véspera. Este botão manda as
+                            perguntas de novo, na conversa que já existe, em vez
+                            de alguém ligar atrás do CPF. */}
+                        <button
+                          type="button"
+                          disabled={enviando}
+                          onClick={() => void enviarQuestionario()}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-[10px] font-extrabold text-slate-600 transition hover:border-[#193d36]/25 hover:text-[#193d36] disabled:opacity-40"
+                          title="Refaz as perguntas do cadastro (nome, nascimento, responsável, CPF e e-mail) para a próxima consulta desta pessoa"
+                        >
+                          <ClipboardList className="h-3.5 w-3.5" />
+                          Questionário
                         </button>
                         <button
                           type="button"
@@ -1225,6 +1841,7 @@ export default function Conversations({
                       )}
                     </div>
                   )}
+                </div>
                 </div>
               </>
             )}

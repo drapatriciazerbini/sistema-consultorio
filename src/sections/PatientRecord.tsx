@@ -68,6 +68,7 @@ import {
   getDadosDaClinica,
 } from '@/lib/repository'
 import { apagarParametrosDoEndereco, parametrosDoEndereco } from '@/lib/endereco'
+import { telefoneValidavel } from '@/lib/telefone'
 import type {
   Consultation,
   ConsultationDraft,
@@ -75,7 +76,7 @@ import type {
   Patient,
 } from '@/types/patient'
 import { opcoesDeUnidade, useUnidades } from '@/lib/unidades'
-import { abrirPrescricao, faltaParaPrescrever, guardarReceita, marcarReceitaExcluida, ultimoCadastro, type LocalDeAtendimento } from '@/lib/memed'
+import { abrirPrescricao, faltaParaPrescrever, guardarReceita, marcarReceitaExcluida, prepararPrescricao, ultimoCadastro, type LocalDeAtendimento } from '@/lib/memed'
 
 interface PatientRecordProps {
   patient: Patient | null
@@ -2018,6 +2019,18 @@ export default function PatientRecord({
   >(null)
   const unidadesDaClinica = useUnidades()
 
+  // Aquece a Memed assim que o prontuário abre.
+  //
+  // Buscar o token e carregar o script deles leva alguns segundos, e antes isso
+  // tudo acontecia depois do clique em Prescrever, com o médico esperando.
+  // Nada disso depende do paciente, então acontece agora, enquanto ele lê a
+  // ficha. Roda uma vez por sessão e não trava nada se falhar: o erro, se
+  // houver, aparece no clique, como antes.
+  useEffect(() => {
+    if (!open) return
+    void prepararPrescricao().catch(() => {})
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     let vivo = true
@@ -2223,11 +2236,10 @@ export default function PatientRecord({
       const local: LocalDeAtendimento = {
         nome: unidade.name,
         endereco: unidade.address,
-        // Os dois numeros no rodape da receita, quando a clinica tem dois.
-        telefone: [dadosDaClinica.telefone, dadosDaClinica.telefone2]
-          .map((numero) => numero.trim())
-          .filter(Boolean)
-          .join(' / '),
+        cnes: unidade.cnes || undefined,
+        // Um numero so, e o celular quando existe: o campo da Memed e validado
+        // e recusava tanto os dois juntos quanto o fixo de 10 digitos.
+        telefone: telefoneValidavel(dadosDaClinica.telefone, dadosDaClinica.telefone2),
       }
       await abrirPrescricao(patient, consultation, {
         onReceita: (dados) => {

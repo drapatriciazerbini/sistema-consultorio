@@ -18,9 +18,11 @@ import {
 } from 'lucide-react'
 import { useDb } from '@/lib/store'
 import {
+  conversasEsperandoEquipe,
   getCurrentMembership,
   listPendingRequests,
   PENDING_ACCESS_MESSAGE,
+  type EsperaDaEquipe,
   type PendingRequest,
 } from '@/lib/repository'
 import { dueCount } from '@/lib/followup'
@@ -28,6 +30,7 @@ import Dashboard from '@/sections/Dashboard'
 import Patients from '@/sections/Patients'
 import Followups from '@/sections/Followups'
 import Conversations from '@/sections/Conversations'
+import { prepararPrescricao } from '@/lib/memed'
 import Agenda from '@/sections/Agenda'
 import Settings from '@/sections/Settings'
 import AccessAdmin from '@/sections/AccessAdmin'
@@ -95,6 +98,50 @@ function formatToday() {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
+/**
+ * Cabecalho da pagina recolhido na tela de Respostas.
+ *
+ * Pedido em 21/09/2026: num notebook de 768px de altura, o titulo, a data, o
+ * botao "Novo paciente", o cartao do menu automatico e a faixa de filtros
+ * comiam quase um terco da janela, e a conversa - que e o trabalho - ficava
+ * espremida numa tira. Nada disso e de uso continuo; a conversa e.
+ *
+ * A regra: abaixo de 900px de altura ja abre recolhido. Se a pessoa abrir ou
+ * fechar na mao, a escolha dela passa a valer em qualquer tamanho de tela, e
+ * fica guardada neste navegador. Automatico so decide enquanto ninguem
+ * decidiu.
+ *
+ * So no computador. No celular a pagina rola inteira e o cabecalho nao
+ * disputa altura com nada.
+ */
+const CHAVE_TOPO_RESPOSTAS = 'central:respostas:topo'
+
+function preferenciaDeTopo(): boolean | null {
+  try {
+    const guardado = localStorage.getItem(CHAVE_TOPO_RESPOSTAS)
+    if (guardado === 'recolhido') return true
+    if (guardado === 'aberto') return false
+  } catch {
+    // Navegador com armazenamento bloqueado (aba anonima, politica da rede).
+    // Sem preferencia guardada o automatico decide, que e o suficiente.
+  }
+  return null
+}
+
+/** Titulo original da aba, do index.html. */
+const TITULO_DA_ABA = 'Central de Cuidado | Dra. Patrícia Zerbini'
+
+/** Meia hora: a partir disso a espera deixa de ser "chegou agora". */
+const ESPERA_LONGA_MS = 30 * 60 * 1000
+
+function haQuantoTempo(iso: string | null): string {
+  if (!iso) return ''
+  const minutos = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
+  if (minutos < 60) return `há ${minutos} min`
+  const horas = Math.floor(minutos / 60)
+  return horas < 24 ? `há ${horas}h` : `há ${Math.floor(horas / 24)} dia(s)`
+}
+
 export default function Home() {
   const { user, signOut } = useAuth()
   const {
@@ -147,6 +194,14 @@ export default function Home() {
   >(null)
   const pendentes = dueCount(db.patients)
   const [solicitacoes, setSolicitacoes] = useState<PendingRequest[]>([])
+  // Conversas esperando alguem da equipe (22/09/2026). Ver o bloco do
+  // contador, mais abaixo, para o porque.
+  const [espera, setEspera] = useState<EsperaDaEquipe & { longa: boolean; ha: string }>({
+    total: 0,
+    maisAntigaDesde: null,
+    longa: false,
+    ha: '',
+  })
 
   // Solicitacoes do WhatsApp esperando a equipe. Ficam aqui, e nao dentro da
   // Agenda, porque o aviso precisa aparecer para quem abre o sistema em
@@ -155,6 +210,19 @@ export default function Home() {
     try {
       const membership = await getCurrentMembership()
       if (!membership) return
+      // Junto das solicitacoes, e no mesmo relogio de 60s: um aviso a mais
+      // nao justifica outra rodada de consultas.
+      // "Ha quanto tempo" e calculado aqui, na chegada do dado, e nao durante
+      // o desenho da tela: o relogio no meio do render faria a tela mudar de
+      // opiniao a cada redesenho.
+      void conversasEsperandoEquipe(membership.clinicId).then((dados) => {
+        const desde = dados.maisAntigaDesde ? new Date(dados.maisAntigaDesde).getTime() : null
+        setEspera({
+          ...dados,
+          longa: desde !== null && Date.now() - desde > ESPERA_LONGA_MS,
+          ha: haQuantoTempo(dados.maisAntigaDesde),
+        })
+      })
       setSolicitacoes(await listPendingRequests(membership.clinicId))
     } catch (cause) {
       console.error('Nao consegui carregar as solicitacoes pendentes', cause)
@@ -175,8 +243,76 @@ export default function Home() {
     const timer = window.setInterval(() => void carregarSolicitacoes(), 60_000)
     return () => window.clearInterval(timer)
   }, [carregarSolicitacoes])
+  /**
+   * O contador no titulo da aba do navegador.
+   *
+   * Em 22/09/2026 quatro familias esperaram a tarde inteira sem resposta, e a
+   * unica pista estava dentro da tela de Respostas. Com o numero no titulo -
+   * "(3) Central de Cuidado" - quem esta na Agenda, num prontuario, ou ate em
+   * outra aba do navegador ve que tem gente esperando. E o mesmo recurso que o
+   * WhatsApp Web usa, e por isso a recepcao ja sabe ler.
+   */
+  useEffect(() => {
+    document.title = espera.total > 0 ? `(${espera.total}) ${TITULO_DA_ABA}` : TITULO_DA_ABA
+  }, [espera.total])
+  const esperaLonga = espera.longa
+
   const meta = PAGE_META[tab]
   const tabs = role === 'owner' ? TABS : TABS.filter((item) => item.key !== 'admin')
+
+  /**
+   * Aquece a Memed no login, e nao no prontuario.
+   *
+   * Medido em 21/09/2026: o primeiro Prescrever do dia levou 18,9 segundos, e
+   * 7,7 deles foram o download do script da Memed - que ja era "aquecido" ao
+   * abrir o prontuario, so que o medico clicou logo em seguida e o aquecimento
+   * nao tinha terminado. Do segundo clique em diante, 1,7 s.
+   *
+   * Entre entrar no sistema e prescrever a primeira receita passam minutos, nao
+   * segundos. Esse e o intervalo que o download precisa. Comeca aqui, assim que
+   * os dados da clinica carregam, e roda uma vez por sessao.
+   *
+   * So para quem prescreve: a recepcao nunca abre a Memed, e o script dela nao
+   * e leve. Falha nao incomoda ninguem - a proxima tentativa e no clique, com o
+   * erro aparecendo ai, como sempre foi.
+   */
+  useEffect(() => {
+    if (loading || loadError) return
+    if (role !== 'owner' && role !== 'clinician') return
+    void prepararPrescricao().catch(() => {})
+  }, [loading, loadError, role])
+
+  // Ver o bloco CHAVE_TOPO_RESPOSTAS, mais acima, para o porque.
+  const [topoEscolhido, setTopoEscolhido] = useState<boolean | null>(preferenciaDeTopo)
+  const [tela, setTela] = useState(() => ({
+    computador: window.matchMedia('(min-width: 1024px)').matches,
+    baixa: window.matchMedia('(max-height: 900px)').matches,
+  }))
+  useEffect(() => {
+    const largura = window.matchMedia('(min-width: 1024px)')
+    const altura = window.matchMedia('(max-height: 900px)')
+    const ver = () => setTela({ computador: largura.matches, baixa: altura.matches })
+    ver()
+    largura.addEventListener('change', ver)
+    altura.addEventListener('change', ver)
+    return () => {
+      largura.removeEventListener('change', ver)
+      altura.removeEventListener('change', ver)
+    }
+  }, [])
+
+  const topoRecolhido =
+    tab === 'conversas' && tela.computador && (topoEscolhido ?? tela.baixa)
+
+  const alternarTopo = () => {
+    const proximo = !(topoEscolhido ?? tela.baixa)
+    setTopoEscolhido(proximo)
+    try {
+      localStorage.setItem(CHAVE_TOPO_RESPOSTAS, proximo ? 'recolhido' : 'aberto')
+    } catch {
+      // Sem guardar: vale para esta sessao e pronto. Nao e motivo para quebrar.
+    }
+  }
 
   function createPatient() {
     setPreCadastro(null)
@@ -322,6 +458,21 @@ export default function Home() {
                     }`}>
                       {solicitacoes.length}
                     </span>
+                  ) : item.key === 'conversas' && espera.total > 0 ? (
+                    /* Ambar enquanto a espera e curta; vermelho depois de meia
+                       hora, que e quando "chegou agora" virou "esquecido". */
+                    <span
+                      title={`${espera.total} ${espera.total === 1 ? 'conversa esperando' : 'conversas esperando'} a equipe. A mais antiga: ${espera.ha}.`}
+                      className={`min-w-6 rounded-full px-1.5 py-1 text-center text-[10px] font-extrabold ${
+                        active
+                          ? 'bg-[#193d36] text-white'
+                          : esperaLonga
+                            ? 'bg-red-500 text-white'
+                            : 'bg-[#e0a33a] text-[#193d36]'
+                      }`}
+                    >
+                      {espera.total}
+                    </span>
                   ) : item.key === 'followups' && pendentes > 0 ? (
                     <span className={`min-w-6 rounded-full px-1.5 py-1 text-center text-[10px] font-extrabold ${
                       active ? 'bg-[#193d36] text-white' : 'bg-[#35c6a4] text-white'
@@ -395,8 +546,16 @@ export default function Home() {
           <div className="absolute left-1/3 -top-48 h-80 w-80 rounded-full bg-[#9fc2b8]/10 blur-3xl" />
         </div>
 
-        <div className="relative mx-auto max-w-[1460px] px-4 py-6 sm:px-7 lg:px-10 lg:py-9 xl:px-12">
-          <div className="mb-7 flex flex-col gap-5 xl:mb-8 xl:flex-row xl:items-end xl:justify-between">
+        <div
+          className={`relative mx-auto max-w-[1460px] px-4 sm:px-7 lg:px-10 xl:px-12 ${
+            topoRecolhido ? 'py-4 lg:py-4' : 'py-6 lg:py-9'
+          }`}
+        >
+          <div
+            className={`mb-7 flex-col gap-5 xl:mb-8 xl:flex-row xl:items-end xl:justify-between ${
+              topoRecolhido ? 'hidden' : 'flex'
+            }`}
+          >
             <div>
               <div className="mb-2 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1f5f55]">
                 <Sparkles className="h-3.5 w-3.5" />
@@ -451,7 +610,12 @@ export default function Home() {
               />
             )}
             {tab === 'conversas' && (
-              <Conversations focoPatientId={conversaFoco} onCadastrarContato={cadastrarContato} />
+              <Conversations
+                focoPatientId={conversaFoco}
+                onCadastrarContato={cadastrarContato}
+                compacto={topoRecolhido}
+                onAlternarCompacto={tela.computador ? alternarTopo : undefined}
+              />
             )}
             {tab === 'pacientes' && (
               <Patients
@@ -507,6 +671,13 @@ export default function Home() {
               {item.key === 'followups' && pendentes > 0 && !active && (
                 <span className="absolute right-[25%] top-1.5 h-2 w-2 rounded-full bg-[#2f7f74] ring-2 ring-white" />
               )}
+              {item.key === 'conversas' && espera.total > 0 && !active && (
+                <span
+                  className={`absolute right-[25%] top-1.5 h-2 w-2 rounded-full ring-2 ring-white ${
+                    esperaLonga ? 'bg-red-500' : 'bg-[#e0a33a]'
+                  }`}
+                />
+              )}
             </button>
           )
         })}
@@ -514,4 +685,3 @@ export default function Home() {
     </div>
   )
 }
-

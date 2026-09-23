@@ -492,6 +492,7 @@ export type Database = {
           address: string
           archived_at: string | null
           clinic_id: string
+          cnes: string
           created_at: string
           id: string
           name: string
@@ -501,6 +502,7 @@ export type Database = {
           address?: string
           archived_at?: string | null
           clinic_id: string
+          cnes?: string
           created_at?: string
           id?: string
           name: string
@@ -510,6 +512,7 @@ export type Database = {
           address?: string
           archived_at?: string | null
           clinic_id?: string
+          cnes?: string
           created_at?: string
           id?: string
           name?: string
@@ -813,6 +816,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      /**
+       * Indicadores do atendimento por WhatsApp num periodo (21/09/2026).
+       * Devolve um objeto; o formato fica em NumerosDoWhatsApp, no repositorio.
+       */
+      numeros_do_whatsapp: {
+        Args: { p_clinic: string; p_de: string; p_ate: string }
+        Returns: Record<string, unknown>
+      }
       conferir_integridade_prontuario: {
         Args: { p_clinic_id: string }
         Returns: {

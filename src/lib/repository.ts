@@ -379,6 +379,8 @@ export interface Unit {
   id: string
   name: string
   address: string
+  /** Numero do estabelecimento de saude. Vazio ate a clinica levantar. */
+  cnes: string
 }
 
 export interface AvailabilityRule {
@@ -433,6 +435,16 @@ export interface Appointment {
   /** Quando o lembrete da vespera saiu. Nulo enquanto nao foi enviado. */
   reminderSentAt: string | null
   /**
+   * Quando a Meta recusou o lembrete, e por que.
+   *
+   * O banco guarda isso desde sempre; a tela nao mostrava. Em 20/09/2026
+   * descobrimos que os lembretes estavam parados havia tres semanas por um
+   * erro de maiusculas no nome do segredo do cron - e nada na tela dizia. Uma
+   * falha que so existe no banco e uma falha que ninguem ve.
+   */
+  reminderFailedAt: string | null
+  reminderFailureReason: string | null
+  /**
    * O que a familia informou pelo WhatsApp ao marcar. Declarado por mensagem,
    * sem ninguem conferir: a equipe le, confere e transforma em cadastro.
    */
@@ -447,6 +459,16 @@ export interface Appointment {
   }
   /** Quantas vezes esta consulta ja trocou de data. Zero na primeira. */
   rescheduleCount: number
+  /** Convenio informado no agendamento. Vazio = particular. */
+  insurance: string
+  /**
+   * A data da consulta anterior, quando esta marcacao cai dentro dos 30 dias.
+   *
+   * Nula quando nao e retorno, quando o paciente nao tem cadastro, ou quando
+   * ele veio de antes do sistema e a consulta antiga nunca foi registrada aqui.
+   * Serve para a etiqueta na agenda avisar a recepcao, nao para decidir preco.
+   */
+  retornoDe: string | null
 }
 
 export const WEEKDAY_LABEL = [
@@ -462,7 +484,7 @@ export const WEEKDAY_LABEL = [
 export async function listUnits(clinicId: string): Promise<Unit[]> {
   const { data, error } = await supabase
     .from('clinic_units')
-    .select('id,name,address')
+    .select('id,name,address,cnes')
     .eq('clinic_id', clinicId)
     .is('archived_at', null)
     .order('name')
@@ -474,10 +496,26 @@ export async function createUnit(clinicId: string, name: string, address: string
   const { data, error } = await supabase
     .from('clinic_units')
     .insert({ clinic_id: clinicId, name: name.trim(), address: address.trim() })
-    .select('id,name,address')
+    .select('id,name,address,cnes')
     .single()
   if (error) fail(error)
   return data
+}
+
+/**
+ * Guarda o CNES da unidade.
+ *
+ * Existe porque a unidade nasceu sem esse campo e não havia como editá-la:
+ * dava para cadastrar e arquivar, nada no meio. Trocar o número de um
+ * estabelecimento não deveria custar recadastrar a unidade e perder o vínculo
+ * das consultas antigas com ela.
+ */
+export async function saveUnitCnes(unitId: string, cnes: string) {
+  const { error } = await supabase
+    .from('clinic_units')
+    .update({ cnes: cnes.replace(/\D/g, '') })
+    .eq('id', unitId)
+  if (error) fail(error)
 }
 
 /** Arquiva em vez de apagar: agendamentos antigos continuam apontando para a unidade. */
@@ -682,7 +720,7 @@ type LinhaComFicha = {
   intake_email?: string | null
 }
 
-const FICHA_VAZIA = { nome: '', nascimento: '', responsavel: '', cpf: '', email: '', telemedicina: false }
+const FICHA_VAZIA = { nome: '', nascimento: '', responsavel: '', cpf: '', email: '', telemedicina: false, convenio: '' }
 
 /**
  * A ficha que a familia preencheu pelo WhatsApp, por consulta.
@@ -695,7 +733,7 @@ async function fichasDasConsultas(clinicId: string, unitId: string) {
   const vazio = new Map<string, typeof FICHA_VAZIA>()
   try {
     const { data, error } = await tabelaCrua('appointments')
-      .select('id,intake_patient_name,intake_birth_date,intake_guardian,intake_cpf,intake_email,modality')
+      .select('id,intake_patient_name,intake_birth_date,intake_guardian,intake_cpf,intake_email,modality,insurance')
       .eq('clinic_id', clinicId)
       .eq('unit_id', unitId)
       .order('id', { ascending: true })
@@ -707,9 +745,10 @@ async function fichasDasConsultas(clinicId: string, unitId: string) {
         responsavel: linha.intake_guardian ?? '',
         cpf: linha.intake_cpf ?? '',
         email: linha.intake_email ?? '',
-        // Vem junto da ficha porque as duas colunas sao mais novas que os
-        // tipos gerados, e uma consulta crua so ja paga as duas.
+        // Vem junto da ficha porque estas colunas sao mais novas que os tipos
+        // gerados, e uma consulta crua so ja paga todas.
         telemedicina: linha.modality === 'telemedicina',
+        convenio: (linha as { insurance?: string | null }).insurance ?? '',
       })
     }
   } catch {
@@ -718,23 +757,44 @@ async function fichasDasConsultas(clinicId: string, unitId: string) {
   return vazio
 }
 
+/**
+ * Meia-noite de hoje, no relógio de quem está olhando a tela.
+ *
+ * A agenda passou a começar aqui, e não em "agora". Antes, a consulta das 8h
+ * sumia da tela às 8h01: quem estava na recepção não conseguia nem conferir
+ * quem já tinha chegado, e marcar presença seria impossível num horário que
+ * some sozinho. O dia inteiro fica à vista até virar meia-noite.
+ */
+function inicioDeHoje() {
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+  return hoje.toISOString()
+}
+
 export async function listAppointments(clinicId: string, unitId: string): Promise<Appointment[]> {
   const { data, error } = await supabase
     .from('appointments')
-    .select('id,unit_id,patient_id,starts_at,ends_at,status,source,staff_note,contact_name,contact_phone,confirmed_by_clinic,hold_expires_at,confirmed_at,reschedule_requested_at,reminder_sent_at,reschedule_count')
+    .select('id,unit_id,patient_id,starts_at,ends_at,status,source,staff_note,contact_name,contact_phone,confirmed_by_clinic,hold_expires_at,confirmed_at,reschedule_requested_at,reminder_sent_at,reminder_failed_at,reminder_failure_reason,reschedule_count')
     .eq('clinic_id', clinicId)
     .eq('unit_id', unitId)
     .neq('status', 'cancelled')
-    .gte('starts_at', new Date().toISOString())
+    .gte('starts_at', inicioDeHoje())
     .order('starts_at')
   if (error) fail(error)
 
   const rows = data ?? []
   const patientIds = [...new Set(rows.map((r) => r.patient_id).filter(Boolean))] as string[]
+  // consultation_date junto do nome: e a data da ultima consulta do paciente, e
+  // e ela que diz se a proxima e retorno. Vem do cadastro, e nao do prontuario,
+  // de proposito: a recepcao enxerga o cadastro, e e a recepcao quem precisa
+  // desta informacao na hora de cobrar.
   const { data: patients } = patientIds.length
-    ? await supabase.from('patients').select('id,name').in('id', patientIds)
+    ? await supabase.from('patients').select('id,name,consultation_date').in('id', patientIds)
     : { data: [] }
   const nameById = new Map((patients ?? []).map((p) => [p.id, p.name]))
+  const ultimaConsultaPorPaciente = new Map(
+    (patients ?? []).map((p) => [p.id, (p as { consultation_date?: string | null }).consultation_date ?? null]),
+  )
   const fichas = await fichasDasConsultas(clinicId, unitId)
 
   return rows.map((row) => ({
@@ -760,8 +820,191 @@ export async function listAppointments(clinicId: string, unitId: string): Promis
     confirmedAt: row.confirmed_at,
     rescheduleRequestedAt: row.reschedule_requested_at,
     reminderSentAt: row.reminder_sent_at,
+    reminderFailedAt: row.reminder_failed_at,
+    reminderFailureReason: row.reminder_failure_reason,
     rescheduleCount: row.reschedule_count ?? 0,
+    insurance: fichas.get(row.id)?.convenio ?? '',
+    retornoDe: dataDoRetorno(
+      row.patient_id ? ultimaConsultaPorPaciente.get(row.patient_id) ?? null : null,
+      row.starts_at,
+    ),
   }))
+}
+
+/**
+ * O que já passou: dias anteriores a hoje, do mais recente para trás.
+ *
+ * Diferente da agenda em dois pontos, e os dois de propósito. Traz os
+ * cancelados, porque histórico sem cancelamento mente sobre como o dia foi.
+ * E vem em ordem decrescente, porque quem abre o histórico quer ver ontem, e
+ * não o primeiro dia de atendimento da clínica.
+ */
+export async function listAppointmentHistory(
+  clinicId: string,
+  unitId: string,
+  dias = 90,
+): Promise<Appointment[]> {
+  const desde = new Date()
+  desde.setHours(0, 0, 0, 0)
+  desde.setDate(desde.getDate() - dias)
+
+  const { data, error } = await supabase
+    .from('appointments')
+    .select('id,unit_id,patient_id,starts_at,ends_at,status,source,staff_note,contact_name,contact_phone,confirmed_by_clinic,hold_expires_at,confirmed_at,reschedule_requested_at,reminder_sent_at,reminder_failed_at,reminder_failure_reason,reschedule_count')
+    .eq('clinic_id', clinicId)
+    .eq('unit_id', unitId)
+    .gte('starts_at', desde.toISOString())
+    .lt('starts_at', inicioDeHoje())
+    .order('starts_at', { ascending: false })
+  if (error) fail(error)
+
+  const rows = data ?? []
+  const patientIds = [...new Set(rows.map((r) => r.patient_id).filter(Boolean))] as string[]
+  const { data: patients } = patientIds.length
+    ? await supabase.from('patients').select('id,name').in('id', patientIds)
+    : { data: [] }
+  const nameById = new Map((patients ?? []).map((p) => [p.id, p.name]))
+  // Só pelo convênio: o histórico não mostra ficha, mas a recepção precisa
+  // saber pelo que aquela consulta foi faturada.
+  const fichas = await fichasDasConsultas(clinicId, unitId)
+
+  return rows.map((row) => ({
+    id: row.id,
+    unitId: row.unit_id,
+    patientId: row.patient_id,
+    patientName:
+      (row.patient_id && nameById.get(row.patient_id)) ||
+      row.contact_name ||
+      'Sem paciente vinculado',
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    status: row.status,
+    source: row.source,
+    staffNote: row.staff_note,
+    ficha: FICHA_VAZIA,
+    contactName: row.contact_name,
+    contactPhone: formatarTelefone(row.contact_phone || ''),
+    confirmedByClinic: row.confirmed_by_clinic,
+    holdExpiresAt: row.hold_expires_at,
+    confirmedAt: row.confirmed_at,
+    rescheduleRequestedAt: row.reschedule_requested_at,
+    reminderSentAt: row.reminder_sent_at,
+    reminderFailedAt: row.reminder_failed_at,
+    reminderFailureReason: row.reminder_failure_reason,
+    rescheduleCount: row.reschedule_count ?? 0,
+    insurance: fichas.get(row.id)?.convenio ?? '',
+    retornoDe: null,
+  }))
+}
+
+/**
+ * Registra que o paciente compareceu, ou que faltou.
+ *
+ * Os dois estados existem no banco desde a primeira migration da agenda, em
+ * 24/08/2026, e nunca foram gravados por ninguém: toda consulta nascia
+ * "scheduled" e morria assim. Sem isso não existe taxa de falta, que é o
+ * número que uma clínica mais quer ver e o que justifica a confirmação na
+ * véspera.
+ *
+ * Aceita voltar para "marcada": quem clicou errado precisa poder desfazer, e
+ * um registro de presença errado é pior do que nenhum.
+ */
+export async function marcarPresenca(
+  appointmentId: string,
+  presenca: 'attended' | 'no_show' | 'scheduled',
+) {
+  const { error } = await supabase
+    .from('appointments')
+    .update({ status: presenca })
+    .eq('id', appointmentId)
+  if (error) fail(error)
+}
+
+/**
+ * Marca presença sozinha quando o médico salva a evolução da consulta.
+ *
+ * Se existe prontuário escrito daquele dia, o paciente esteve lá - não há
+ * cenário em que alguém redija a evolução de quem faltou. Poupa a recepção de
+ * clicar, que é o tipo de tarefa que se esquece justamente nos dias cheios.
+ *
+ * Só mexe em consulta que ainda está "marcada". Se a recepção já registrou
+ * falta, o registro dela vale: ela estava lá e o sistema não.
+ *
+ * Nunca interrompe o salvamento do prontuário. O prontuário é o documento; a
+ * presença é a etiqueta em cima dele.
+ */
+async function marcarPresencaPeloProntuario(
+  clinicId: string,
+  patientId: string,
+  data: string,
+) {
+  try {
+    const dia = data.slice(0, 10)
+    if (!dia) return
+    // O dia no relógio de quem atende, e não em UTC. Sem o "Z" o JavaScript lê
+    // a data como local: em Santos, a consulta das 22h é 01h UTC do dia
+    // seguinte, e uma janela em UTC deixaria o fim do expediente de fora.
+    const inicio = new Date(`${dia}T00:00:00`)
+    const fim = new Date(`${dia}T23:59:59.999`)
+
+    // A consulta nem sempre está ligada à ficha. Quando a equipe marca pela
+    // Agenda, ela digita nome e telefone na mão e o appointment nasce sem
+    // patient_id - é o caso da maioria da agenda desta clínica. Procurar só
+    // pelo vínculo deixaria de marcar justamente esses.
+    const { data: ficha } = await supabase
+      .from('patients')
+      .select('name,phone')
+      .eq('id', patientId)
+      .maybeSingle()
+
+    // Últimos 8 dígitos: a agenda guarda o telefone com o 55 do país e o
+    // cadastro sem ele. O número do assinante é o que sobrevive aos dois
+    // formatos, ao nono dígito e ao DDD escrito de jeitos diferentes.
+    const digitos = (ficha?.phone ?? '').replace(/\D/g, '')
+    const finalDoTelefone = digitos.length >= 8 ? digitos.slice(-8) : ''
+    // Vírgula e parênteses quebram a sintaxe do filtro "ou" do PostgREST.
+    const nome = (ficha?.name ?? '').trim().replace(/[(),]/g, ' ')
+
+    const alternativas = [`patient_id.eq.${patientId}`]
+    if (finalDoTelefone) alternativas.push(`contact_phone.like.*${finalDoTelefone}`)
+    if (nome) alternativas.push(`contact_name.ilike.${nome}`)
+
+    await supabase
+      .from('appointments')
+      .update({ status: 'attended' })
+      .eq('clinic_id', clinicId)
+      .eq('status', 'scheduled')
+      .gte('starts_at', inicio.toISOString())
+      .lte('starts_at', fim.toISOString())
+      .or(alternativas.join(','))
+  } catch (causa) {
+    console.warn('Não consegui marcar presença a partir do prontuário', causa)
+  }
+}
+
+/**
+ * A data da consulta anterior, quando esta marcacao e retorno.
+ *
+ * Retorno em ate 30 dias esta incluido no valor da consulta, e quem olha a
+ * agenda nao tem como saber disso: "retorno" so existe dentro do prontuario,
+ * escrito pelo medico no fim do atendimento. A recepcao cobrava no escuro.
+ *
+ * A conta e simples de proposito - ultima consulta, 30 dias, acabou. Nao vale
+ * como veredicto: devolve a data para a etiqueta MOSTRAR, e quem decide o que
+ * cobrar continua sendo a pessoa. A regra dos 30 dias e do consultorio, e
+ * consultorio abre excecao.
+ *
+ * Estritamente ANTES: consulta e marcacao no mesmo dia e a propria consulta
+ * sendo registrada, nao um retorno dela.
+ */
+function dataDoRetorno(ultimaConsulta: string | null, inicioDaMarcacao: string): string | null {
+  if (!ultimaConsulta) return null
+  const anterior = new Date(`${ultimaConsulta}T12:00:00`)
+  const marcada = new Date(inicioDaMarcacao)
+  if (Number.isNaN(anterior.getTime()) || Number.isNaN(marcada.getTime())) return null
+
+  const dias = Math.floor((marcada.getTime() - anterior.getTime()) / 86_400_000)
+  return dias > 0 && dias <= 30 ? ultimaConsulta : null
 }
 
 export interface PendingRequest {
@@ -1176,8 +1419,11 @@ export interface Conversation {
     | 'cancelamento'
     | 'ajuda'
     | 'falha'
+    | 'anexo'
     | 'cancelou_sozinho'
     | 'urgencia'
+    | 'documento'
+    | 'farmacia'
     | null
   /** Etapa em que o robo parou nesta conversa. Nulo quando nao ha nada aberto. */
   bookingState: string | null
@@ -1190,6 +1436,20 @@ export interface Conversation {
    * conversa - nao custa consulta nova.
    */
   textoBusca: string
+  /**
+   * Alguem da equipe escreveu DEPOIS da ultima mensagem do paciente.
+   *
+   * Existe porque abrir a conversa ja apaga a marca de atencao: quem le para
+   * saber do que se trata perde o sinal e, meia hora depois, nao distingue mais
+   * o que respondeu do que deixou para responder. Voltar na conversa uma a uma
+   * era a unica forma de conferir.
+   *
+   * A resposta do robo nao conta. Ela sai sozinha em toda conversa e, se
+   * contasse, praticamente tudo apareceria como resolvido - justamente o
+   * contrario do que a marca serve para dizer. Por isso a pergunta e sobre
+   * mensagem humana (automatic = false), que o banco separa desde 30/08/2026.
+   */
+  respondidaPelaEquipe: boolean
 }
 
 export interface ConversationMessage {
@@ -1200,6 +1460,10 @@ export interface ConversationMessage {
   templateName: string | null
   createdAt: string
   failureReason: string | null
+  /** Link temporario do anexo, quando a mensagem trouxe arquivo. */
+  anexoUrl: string | null
+  /** Tipo do arquivo, para a tela decidir entre imagem, audio ou link. */
+  anexoMime: string | null
 }
 
 export async function listConversations(clinicId: string): Promise<Conversation[]> {
@@ -1225,7 +1489,7 @@ export async function listConversations(clinicId: string): Promise<Conversation[
       : Promise.resolve({ data: [], error: null }),
     supabase
       .from('whatsapp_messages')
-      .select('conversation_id,body,created_at')
+      .select('conversation_id,body,created_at,direction,automatic')
       .eq('clinic_id', clinicId)
       .order('created_at', { ascending: false }),
   ])
@@ -1235,9 +1499,19 @@ export async function listConversations(clinicId: string): Promise<Conversation[
   const nameById = new Map((patientsResult.data ?? []).map((p) => [p.id, p.name]))
   const lastBodyByConversation = new Map<string, string>()
   const textoPorConversa = new Map<string, string[]>()
+  // Quem falou por ultimo, ignorando o robo. A lista ja vem da mais nova para a
+  // mais antiga, entao a primeira mensagem que interessa de cada conversa e a
+  // que decide - e o resto daquela conversa nao muda mais o veredito.
+  const respondidaPorConversa = new Map<string, boolean>()
   for (const message of messagesResult.data ?? []) {
     if (!lastBodyByConversation.has(message.conversation_id)) {
       lastBodyByConversation.set(message.conversation_id, message.body)
+    }
+    if (!respondidaPorConversa.has(message.conversation_id)) {
+      const doPaciente = message.direction === 'inbound'
+      const daEquipe = message.direction === 'outbound' && message.automatic === false
+      if (doPaciente) respondidaPorConversa.set(message.conversation_id, false)
+      else if (daEquipe) respondidaPorConversa.set(message.conversation_id, true)
     }
     const acumulado = textoPorConversa.get(message.conversation_id)
     if (acumulado) acumulado.push(message.body)
@@ -1259,6 +1533,9 @@ export async function listConversations(clinicId: string): Promise<Conversation[
     lastMessageAt: row.last_message_at,
     lastMessage: lastBodyByConversation.get(row.id) ?? '',
     textoBusca: (textoPorConversa.get(row.id) ?? []).join(' \n ').toLowerCase(),
+    // Sem nenhuma mensagem humana nem do paciente - so o robo falou - a
+    // conversa nao esta respondida: nao houve resposta nenhuma da equipe.
+    respondidaPelaEquipe: respondidaPorConversa.get(row.id) ?? false,
   }))
 }
 
@@ -1291,7 +1568,10 @@ export async function listConversationMessages(conversationId: string): Promise<
     .order('created_at', { ascending: true })
 
   if (error) fail(error)
-  return (data ?? []).map((row) => ({
+  const linhas = data ?? []
+  const anexos = await anexosDasMensagens(conversationId)
+
+  return linhas.map((row) => ({
     id: row.id,
     direction: row.direction,
     body: row.body,
@@ -1299,14 +1579,87 @@ export async function listConversationMessages(conversationId: string): Promise<
     templateName: row.template_name,
     createdAt: row.created_at,
     failureReason: row.failure_reason,
+    anexoUrl: anexos.get(row.id)?.url ?? null,
+    anexoMime: anexos.get(row.id)?.mime ?? null,
   }))
 }
 
+/**
+ * Os anexos da conversa, cada um com um link temporario.
+ *
+ * Consulta a parte, dentro de try/catch, porque as colunas sao mais novas que
+ * os tipos gerados - e porque a conversa tem de abrir mesmo que o acervo esteja
+ * fora do ar. Foi a licao de 19/09/2026: pedir coluna nova na consulta
+ * principal derrubou a tela inteira quando a migration ainda nao tinha rodado.
+ *
+ * O link dura cinco minutos e nasce na hora. O arquivo e foto de exame, de
+ * lesao, de crianca - link permanente seria prontuario circulando solto.
+ */
+async function anexosDasMensagens(conversationId: string) {
+  const vazio = new Map<string, { url: string; mime: string | null }>()
+  try {
+    // O encadeamento cru termina num order() para virar promessa; a ordem
+    // nao importa aqui, so o fato de a consulta ser executada.
+    const { data, error } = await tabelaCrua('whatsapp_messages')
+      .select('id,media_path,media_mime')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true })
+    if (error) return vazio
+
+    const comArquivo = ((data ?? []) as { id: string; media_path?: string | null; media_mime?: string | null }[])
+      .filter((linha) => linha.media_path)
+    if (comArquivo.length === 0) return vazio
+
+    const { data: links } = await supabase.storage
+      .from('whatsapp-anexos')
+      .createSignedUrls(comArquivo.map((linha) => linha.media_path as string), 300)
+
+    const porCaminho = new Map((links ?? []).map((l) => [l.path ?? '', l.signedUrl]))
+    for (const linha of comArquivo) {
+      const url = porCaminho.get(linha.media_path as string)
+      if (url) vazio.set(linha.id, { url, mime: linha.media_mime ?? null })
+    }
+  } catch {
+    // Antes da migration rodar nao ha coluna nem acervo. A conversa segue.
+  }
+  return vazio
+}
+
 /** Zera o contador de nao lidas e tira o destaque de atencao. */
+/**
+ * Motivos que sobrevivem a alguem abrir a conversa.
+ *
+ * Abrir e LER. Para quase tudo, ler resolve - a conversa deixa de precisar de
+ * atencao porque a pessoa ja sabe do que se trata. Mas um pedido de 2a via ou
+ * de exame so termina quando o documento sai, e o robo prometeu um dia util em
+ * nome da clinica. Se a bandeira caisse na leitura, a recepcao abriria para
+ * saber o que era e, com isso, tiraria o pedido da lista de pendencias antes
+ * de ele ter sido atendido - um pedido esquecido ficaria indistinguivel de um
+ * resolvido.
+ *
+ * O que baixa a bandeira desses e responder: a etiqueta "Respondida" aparece
+ * quando alguem da equipe escreve depois do paciente, e concluir a conversa
+ * limpa tudo.
+ */
+const ATENCAO_QUE_NAO_CAI_NA_LEITURA = ['documento', 'farmacia']
+
 export async function markConversationSeen(conversationId: string) {
+  const { data: atual } = await supabase
+    .from('whatsapp_conversations')
+    .select('attention_reason')
+    .eq('id', conversationId)
+    .maybeSingle()
+
+  const motivo = String(atual?.attention_reason ?? '')
+  const pendente = ATENCAO_QUE_NAO_CAI_NA_LEITURA.includes(motivo)
+
   const { error } = await supabase
     .from('whatsapp_conversations')
-    .update({ unread_count: 0, needs_attention: false, attention_reason: null })
+    .update(
+      pendente
+        ? { unread_count: 0 }
+        : { unread_count: 0, needs_attention: false, attention_reason: null },
+    )
     .eq('id', conversationId)
   if (error) fail(error)
 }
@@ -1405,6 +1758,31 @@ export async function getReplyWindow(conversationId: string): Promise<string | n
 }
 
 /**
+ * O motivo, em português, que a Edge Function devolveu.
+ *
+ * As funções recusam com uma frase pronta ("esta pessoa não tem consulta futura
+ * marcada", "a janela de 24 horas fechou"). Só que o supabase-js embrulha
+ * qualquer status fora do 2xx num FunctionsHttpError cujo `context` é a Response
+ * crua - e ali `body` é um stream, não o JSON já lido. Nós líamos
+ * `context.body.error`, que é sempre undefined: o motivo real se perdia e a tela
+ * mostrava a frase genérica, ou nada que explicasse o 409 do console.
+ *
+ * O `clone()` existe porque o corpo só pode ser lido uma vez.
+ */
+async function motivoDaFuncao(causa: unknown, data: unknown, padrao: string): Promise<string> {
+  const contexto = (causa as { context?: unknown }).context
+  if (contexto instanceof Response) {
+    try {
+      const corpo = (await contexto.clone().json()) as { error?: string } | null
+      if (corpo?.error) return corpo.error
+    } catch {
+      // Corpo vazio ou que não é JSON: fica o texto padrão.
+    }
+  }
+  return (data as { error?: string } | null)?.error || padrao
+}
+
+/**
  * Manda o menu do robo para a conversa e devolve a pessoa ao atendimento
  * automatico. So funciona com a janela de 24h aberta, como qualquer mensagem.
  */
@@ -1413,10 +1791,25 @@ export async function sendConversationMenu(conversationId: string) {
     body: { conversationId, menu: true },
   })
   if (error) {
-    const detalhe =
-      (error as { context?: { body?: { error?: string } } }).context?.body?.error ??
-      (data as { error?: string } | null)?.error
-    throw new Error(detalhe || 'Não foi possível enviar o menu.')
+    throw new Error(await motivoDaFuncao(error, data, 'Não foi possível enviar o menu.'))
+  }
+  if ((data as { error?: string } | null)?.error) {
+    throw new Error((data as { error: string }).error)
+  }
+}
+
+/**
+ * Refaz as perguntas do cadastro na conversa, a pedido da equipe.
+ *
+ * Para quem marcou e abandonou a ficha: em vez de ligar atrás do CPF, a
+ * recepção dispara o questionário e o robô conduz, como teria feito na hora.
+ */
+export async function sendConversationQuestionnaire(conversationId: string) {
+  const { data, error } = await supabase.functions.invoke('whatsapp-reply', {
+    body: { conversationId, questionario: true },
+  })
+  if (error) {
+    throw new Error(await motivoDaFuncao(error, data, 'Não foi possível enviar o questionário.'))
   }
   if ((data as { error?: string } | null)?.error) {
     throw new Error((data as { error: string }).error)
@@ -1436,10 +1829,7 @@ export async function sendConversationReply(
   if (error) {
     // O corpo da resposta traz a mensagem em portugues; o error do invoke traz
     // so "non-2xx status code", que nao ajuda ninguem na tela.
-    const detalhe =
-      (error as { context?: { body?: { error?: string } } }).context?.body?.error ??
-      (data as { error?: string } | null)?.error
-    throw new Error(detalhe || 'Não foi possível enviar a mensagem.')
+    throw new Error(await motivoDaFuncao(error, data, 'Não foi possível enviar a mensagem.'))
   }
   if ((data as { error?: string } | null)?.error) {
     throw new Error((data as { error: string }).error)
@@ -1612,6 +2002,7 @@ export async function createConsultation(
     .single()
 
   if (error) fail(error)
+  await marcarPresencaPeloProntuario(clinicId, patientId, draft.data)
   return {
     consultation: mapConsultation(data as ConsultationRow),
     patient: await patientById(clinicId, patientId),
@@ -1655,6 +2046,7 @@ export async function editConsultation(
     .single()
 
   if (error) fail(error)
+  await marcarPresencaPeloProntuario(clinicId, patientId, draft.data)
   return {
     consultation: mapConsultation(data as ConsultationRow),
     patient: await patientById(clinicId, patientId),
@@ -1932,6 +2324,67 @@ export async function atualizarFotoDoPerfil() {
   if (error) throw new Error(await motivoDaFalha(error, 'Não foi possível trocar a foto.'))
 }
 
+/**
+ * Grava o cartao de visita da conta: site, endereco, descricao e e-mail.
+ *
+ * E o que a familia ve ao tocar no nome da conversa, e hoje esta vazio. Nao
+ * mexe no nome de exibicao, que e outra coisa e depende da Meta.
+ */
+/** O cartao de visita do WhatsApp, como a clinica escreve em Preferencias. */
+export interface PerfilDoWhatsApp {
+  /** Recado curto, no topo do perfil. A Meta corta em 139 caracteres. */
+  recado: string
+  endereco: string
+  descricao: string
+  email: string
+  site: string
+}
+
+const CAMPOS_DO_PERFIL =
+  'whatsapp_profile_about,whatsapp_profile_address,whatsapp_profile_description,' +
+  'whatsapp_profile_email,whatsapp_profile_website'
+
+export async function getPerfilDoWhatsApp(clinicId: string): Promise<PerfilDoWhatsApp> {
+  const { data, error } = await tabelaCrua('clinic_settings')
+    .select(CAMPOS_DO_PERFIL)
+    .eq('clinic_id', clinicId)
+    .order('clinic_id', { ascending: true })
+  if (error) fail(error)
+  const linha = ((data ?? []) as Record<string, string | null>[])[0] ?? {}
+  return {
+    recado: linha.whatsapp_profile_about ?? '',
+    endereco: linha.whatsapp_profile_address ?? '',
+    descricao: linha.whatsapp_profile_description ?? '',
+    email: linha.whatsapp_profile_email ?? '',
+    site: linha.whatsapp_profile_website ?? '',
+  }
+}
+
+export async function savePerfilDoWhatsApp(clinicId: string, perfil: PerfilDoWhatsApp) {
+  const atualizar = (supabase.from as unknown as (n: string) => {
+    update: (valores: Record<string, unknown>) => {
+      eq: (coluna: string, valor: string) => PromiseLike<{ error: { message: string } | null }>
+    }
+  })('clinic_settings')
+  const { error } = await atualizar
+    .update({
+      whatsapp_profile_about: perfil.recado.trim(),
+      whatsapp_profile_address: perfil.endereco.trim(),
+      whatsapp_profile_description: perfil.descricao.trim(),
+      whatsapp_profile_email: perfil.email.trim(),
+      whatsapp_profile_website: perfil.site.trim(),
+    })
+    .eq('clinic_id', clinicId)
+  if (error) fail(error)
+}
+
+export async function atualizarDadosDoPerfil() {
+  const { error } = await supabase.functions.invoke('whatsapp-perfil', {
+    body: { acao: 'dados' },
+  })
+  if (error) throw new Error(await motivoDaFalha(error, 'Não foi possível gravar o perfil.'))
+}
+
 // ---------------------------------------------------------------------------
 // Receitas emitidas pela Memed
 // ---------------------------------------------------------------------------
@@ -1973,9 +2426,10 @@ type ConsultaCrua = {
   is: (coluna: string, valor: null) => ConsultaCrua
   /** Maior ou igual, para recortes de data. */
   gte: (coluna: string, valor: string) => ConsultaCrua
+  /** `order('x')` sozinho ja ordena crescente, como no supabase-js. */
   order: (
     coluna: string,
-    opcoes: { ascending: boolean },
+    opcoes?: { ascending: boolean },
   ) => PromiseLike<{ data: unknown; error: unknown }>
 }
 
@@ -2309,4 +2763,209 @@ export async function saveTelemedicina(clinicId: string, dados: Telemedicina) {
     .update({ telemedicine_enabled: dados.ativa, telemedicine_info_text: dados.texto.trim() })
     .eq('clinic_id', clinicId)
   if (error) fail(error)
+}
+
+/**
+ * Numeros do atendimento por WhatsApp num periodo.
+ *
+ * A conta e feita no banco, pela funcao numeros_do_whatsapp. Ver a migration
+ * 20260921120000 para o porque: buscar as linhas e contar aqui bateria no teto
+ * de 1000 linhas do PostgREST e o painel mostraria menos do que aconteceu, sem
+ * erro nenhum na tela.
+ */
+export type NumerosDoWhatsApp = {
+  contatos: number
+  contatosForaDoHorario: number
+  pediramParaNaoReceber: number
+  mensagensRecebidas: number
+  enviadasRobo: number
+  enviadasEquipe: number
+  enviadasLembrete: number
+  enviadasAcompanhamento: number
+  contidas: number
+  atendidasPorGente: number
+  consultasPeloWhatsApp: number
+  consultasPelaRecepcao: number
+  faltasWhatsApp: number
+  faltasRecepcao: number
+  compareceuWhatsApp: number
+  compareceuRecepcao: number
+  /** Quantas vezes cada numero do menu (1 a 5) foi escolhido. */
+  opcoesEscolhidas: Record<string, number>
+  /** Contagem crua por tipo de evento. Serve tambem para ver evento inesperado. */
+  eventos: Record<string, number>
+  chamouEquipePorMotivo: Record<string, number>
+  desistiram: number
+}
+
+const NUMEROS_ZERADOS: NumerosDoWhatsApp = {
+  contatos: 0, contatosForaDoHorario: 0, pediramParaNaoReceber: 0,
+  mensagensRecebidas: 0, enviadasRobo: 0, enviadasEquipe: 0,
+  enviadasLembrete: 0, enviadasAcompanhamento: 0,
+  contidas: 0, atendidasPorGente: 0,
+  consultasPeloWhatsApp: 0, consultasPelaRecepcao: 0,
+  faltasWhatsApp: 0, faltasRecepcao: 0,
+  compareceuWhatsApp: 0, compareceuRecepcao: 0,
+  opcoesEscolhidas: {}, eventos: {}, chamouEquipePorMotivo: {}, desistiram: 0,
+}
+
+function inteiro(valor: unknown): number {
+  const n = Number(valor)
+  return Number.isFinite(n) ? n : 0
+}
+
+function contagens(valor: unknown): Record<string, number> {
+  if (!valor || typeof valor !== 'object') return {}
+  const saida: Record<string, number> = {}
+  for (const [chave, quantas] of Object.entries(valor as Record<string, unknown>)) {
+    saida[chave] = inteiro(quantas)
+  }
+  return saida
+}
+
+export async function numerosDoWhatsApp(
+  clinicId: string,
+  de: Date,
+  ate: Date,
+): Promise<NumerosDoWhatsApp> {
+  const { data, error } = await supabase.rpc('numeros_do_whatsapp', {
+    p_clinic: clinicId,
+    p_de: de.toISOString(),
+    p_ate: ate.toISOString(),
+  })
+  // A funcao nasce com esta migration, e a tela sobe antes dela. Sem este
+  // desvio o painel quebraria inteiro no intervalo entre um deploy e outro;
+  // com ele, aparece zerado e o aviso da tela explica.
+  if (error) {
+    console.warn('numeros_do_whatsapp indisponivel', error)
+    return NUMEROS_ZERADOS
+  }
+  const bruto = (data ?? {}) as Record<string, unknown>
+  return {
+    contatos: inteiro(bruto.contatos),
+    contatosForaDoHorario: inteiro(bruto.contatos_fora_do_horario),
+    pediramParaNaoReceber: inteiro(bruto.pediram_para_nao_receber),
+    mensagensRecebidas: inteiro(bruto.mensagens_recebidas),
+    enviadasRobo: inteiro(bruto.enviadas_robo),
+    enviadasEquipe: inteiro(bruto.enviadas_equipe),
+    enviadasLembrete: inteiro(bruto.enviadas_lembrete),
+    enviadasAcompanhamento: inteiro(bruto.enviadas_acompanhamento),
+    contidas: inteiro(bruto.contidas),
+    atendidasPorGente: inteiro(bruto.atendidas_por_gente),
+    consultasPeloWhatsApp: inteiro(bruto.consultas_pelo_whatsapp),
+    consultasPelaRecepcao: inteiro(bruto.consultas_pela_recepcao),
+    faltasWhatsApp: inteiro(bruto.faltas_whatsapp),
+    faltasRecepcao: inteiro(bruto.faltas_recepcao),
+    compareceuWhatsApp: inteiro(bruto.compareceu_whatsapp),
+    compareceuRecepcao: inteiro(bruto.compareceu_recepcao),
+    opcoesEscolhidas: contagens(bruto.opcoes_escolhidas),
+    eventos: contagens(bruto.eventos),
+    chamouEquipePorMotivo: contagens(bruto.chamou_equipe_por_motivo),
+    desistiram: inteiro(bruto.desistiram),
+  }
+}
+
+/**
+ * Horarios que vagaram porque alguem cancelou.
+ *
+ * Pedido em 22/09/2026, e a ideia e boa: quando o paciente cancela pelo
+ * WhatsApp, a consulta some da agenda e o horario volta para a lista de livres
+ * igual a qualquer outro. A recepcao ve "16:40 livre" sem saber que as 16:40
+ * tinha alguem marcado ate ontem - e que existe uma vaga de ultima hora para
+ * oferecer a quem esta esperando.
+ *
+ * Ate aqui o unico aviso era a conversa acender em Respostas. Quem nao abrisse
+ * aquela tela naquele dia nao ficava sabendo.
+ *
+ * SO CANCELAMENTO DO PACIENTE (cancelled_by nulo). Quando a clinica cancela,
+ * ela ja sabe - marcar o proprio horario que ela acabou de liberar seria
+ * avisar alguem de algo que essa pessoa fez.
+ *
+ * Sete dias de janela: depois disso a vaga ja e so um horario livre como
+ * outro qualquer, e continuar pintando vira enfeite que ninguem le.
+ */
+export interface VagaDeCancelamento {
+  /** Inicio da consulta que foi cancelada, no mesmo formato dos slots livres. */
+  quando: string
+  paciente: string
+  canceladoEm: string
+}
+
+export async function listVagasDeCancelamento(
+  clinicId: string,
+  unitId: string,
+): Promise<VagaDeCancelamento[]> {
+  const desde = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
+  const { data, error } = await tabelaCrua('appointments')
+    .select('starts_at,contact_name,patient_id,cancelled_at,cancelled_by')
+    .eq('clinic_id', clinicId)
+    .eq('unit_id', unitId)
+    .eq('status', 'cancelled')
+    .is('cancelled_by', null)
+    .gte('cancelled_at', desde)
+    .gte('starts_at', inicioDeHoje())
+    .order('starts_at')
+
+  // Lista de apoio: se falhar, a agenda continua inteira e os horarios livres
+  // aparecem sem a marca. Nunca derrubar a agenda por causa de um enfeite.
+  if (error) return []
+
+  type Linha = {
+    starts_at: string
+    contact_name: string | null
+    patient_id: string | null
+    cancelled_at: string | null
+  }
+  const linhas = (data ?? []) as Linha[]
+  if (linhas.length === 0) return []
+
+  const ids = [...new Set(linhas.map((l) => l.patient_id).filter(Boolean))] as string[]
+  const { data: pacientes } = ids.length
+    ? await supabase.from('patients').select('id,name').in('id', ids)
+    : { data: [] }
+  const nomePorId = new Map((pacientes ?? []).map((p) => [p.id, p.name]))
+
+  return linhas.map((linha) => ({
+    quando: linha.starts_at,
+    paciente:
+      (linha.patient_id && nomePorId.get(linha.patient_id)) ||
+      linha.contact_name ||
+      'Contato sem cadastro',
+    canceladoEm: linha.cancelled_at ?? '',
+  }))
+}
+
+/**
+ * Quantas conversas esperam alguem da equipe, e desde quando a mais antiga.
+ *
+ * Existe desde 22/09/2026. Naquele dia quatro familias esperaram horas - uma
+ * delas escreveu "alguem pode me ajudar?" quatro horas e meia depois do
+ * primeiro pedido - e nenhuma mensagem da equipe saiu o dia inteiro. O aviso
+ * existia, mas so dentro da tela de Respostas: quem estava na Agenda ou num
+ * prontuario nao via nada.
+ *
+ * O "desde" e a ultima mensagem da conversa, e nao a hora exata em que a
+ * bandeira subiu (que nao e guardada). Serve para o que importa: saber se a
+ * espera e de minutos ou de horas.
+ */
+export interface EsperaDaEquipe {
+  total: number
+  maisAntigaDesde: string | null
+}
+
+export async function conversasEsperandoEquipe(clinicId: string): Promise<EsperaDaEquipe> {
+  const { data, error } = await supabase
+    .from('whatsapp_conversations')
+    .select('last_message_at')
+    .eq('clinic_id', clinicId)
+    .eq('needs_attention', true)
+    .neq('status', 'opted_out')
+    .order('last_message_at', { ascending: true, nullsFirst: false })
+  // Aviso de apoio: se a consulta falhar, o sistema segue sem o contador.
+  if (error) return { total: 0, maisAntigaDesde: null }
+  const linhas = data ?? []
+  return {
+    total: linhas.length,
+    maisAntigaDesde: linhas.find((l) => l.last_message_at)?.last_message_at ?? null,
+  }
 }

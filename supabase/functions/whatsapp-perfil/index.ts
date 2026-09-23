@@ -16,7 +16,43 @@ import { adminClient, corsHeaders, json, userClient } from '../_shared/whatsapp.
  * arquivo la e chamar isto de novo.
  */
 
-type Pedido = { imagemUrl?: string; acao?: 'foto' | 'status' }
+type Pedido = { imagemUrl?: string; acao?: 'foto' | 'status' | 'dados' }
+
+/**
+ * O perfil que a familia ve ao tocar no nome da conversa.
+ *
+ * Site, endereco, descricao e e-mail. Nada disso e o "nome de exibicao", que e
+ * outra coisa e mora no Gerenciador; aqui e o cartao de visita da conta.
+ *
+ * Os textos sao da clinica e ficam no banco, editaveis em Preferencias: o
+ * endereco muda de sala, de predio e de unidade, e trocar isso nao pode
+ * depender de programador. Se algum campo estiver vazio, ele simplesmente nao
+ * vai para a Meta - e melhor um perfil incompleto do que um endereco errado.
+ *
+ * vertical 'HEALTH' e a categoria da Meta para saude, e aparece como rotulo.
+ * Essa fica no codigo porque e classificacao da Meta, e nao texto da clinica.
+ */
+const LIMITES = { about: 139, address: 256, description: 512, email: 128 }
+
+function montarPerfil(linha: Record<string, unknown>) {
+  const texto = (campo: string, limite: number) =>
+    String(linha[campo] ?? '').trim().slice(0, limite)
+
+  const perfil: Record<string, unknown> = { vertical: 'HEALTH' }
+  const about = texto('whatsapp_profile_about', LIMITES.about)
+  const address = texto('whatsapp_profile_address', LIMITES.address)
+  const description = texto('whatsapp_profile_description', LIMITES.description)
+  const email = texto('whatsapp_profile_email', LIMITES.email)
+  const site = texto('whatsapp_profile_website', 256)
+
+  if (about) perfil.about = about
+  if (address) perfil.address = address
+  if (description) perfil.description = description
+  if (email) perfil.email = email
+  // A Meta aceita ate dois sites; a clinica tem um.
+  if (site) perfil.websites = [site]
+  return perfil
+}
 
 /**
  * Como a Meta chama cada situacao do nome, em portugues.
@@ -90,6 +126,49 @@ Deno.serve(async (req) => {
         situacaoDoPedido: traduz(dados.new_name_status),
         qualidade: dados.quality_rating ?? null,
       })
+    }
+
+    // Grava o cartao de visita da conta: site, endereco, descricao, e-mail.
+    //
+    // Endpoint diferente do da foto e de uma vez so - a Meta aceita o objeto
+    // inteiro num POST. Nao mexe no nome de exibicao nem gasta nenhuma das
+    // tres trocas de nome permitidas a cada 30 dias.
+    if (corpo.acao === 'dados') {
+      // Os textos vem do banco, escritos pela clinica em Preferencias.
+      const { data: linha } = await escopo
+        .from('clinic_settings')
+        .select(
+          'whatsapp_profile_about,whatsapp_profile_address,whatsapp_profile_description,' +
+            'whatsapp_profile_email,whatsapp_profile_website',
+        )
+        .eq('clinic_id', ajustes.clinic_id)
+        .maybeSingle()
+
+      const PERFIL = montarPerfil((linha ?? {}) as Record<string, unknown>)
+      if (Object.keys(PERFIL).length <= 1) {
+        return json({
+          error: 'Preencha o perfil em Preferências antes de enviar para a Meta.',
+          code: 'PERFIL_VAZIO',
+        }, 400)
+      }
+
+      const resposta = await fetch(
+        `https://graph.facebook.com/${versao}/${ajustes.whatsapp_phone_number_id}/whatsapp_business_profile`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', ...PERFIL }),
+        },
+      )
+      const dados = await resposta.json()
+      if (!resposta.ok) {
+        console.error('Falha ao gravar o perfil', dados)
+        return json({
+          error: 'A Meta recusou a gravação do perfil.',
+          details: JSON.stringify(dados).slice(0, 400),
+        }, 502)
+      }
+      return json({ ok: true, perfil: PERFIL })
     }
 
     const imagemUrl = corpo.imagemUrl?.trim() || PADRAO

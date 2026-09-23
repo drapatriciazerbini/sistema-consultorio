@@ -9,7 +9,8 @@
 // O banco aqui e falso e mora neste arquivo. Isso e proposital: o objetivo e
 // exercitar as DECISOES do robo (o que responder, o que gravar, quando ficar
 // calado), e nao o Supabase.
-import { tratarConversa } from './atendimento.build.mjs'
+import { tratarConversa, iniciarQuestionario, colherEventos } from './atendimento.build.mjs'
+import { readFileSync } from 'node:fs'
 
 // ---------------------------------------------------------------
 // Banco falso
@@ -23,6 +24,9 @@ function fazerAdmin({
   remarcacoesAnteriores = 0,
   respostasProntas = [],
   telemedicina = { ativa: false, texto: '' },
+  // Colunas que este banco falso NÃO tem. Recusa o update inteiro quando
+  // alguma aparece, que é exatamente o que o Postgres faz.
+  colunasAusentes = [],
 }) {
   const conversa = {
     booking_state: null,
@@ -34,6 +38,10 @@ function fazerAdmin({
   }
   const marcadas = []
   const canceladas = []
+  // O que foi gravado na ficha do paciente. Antes o banco falso nem conhecia a
+  // tabela: a ficha so era exercitada ate a PRIMEIRA pergunta, e o que
+  // acontecia com a resposta ninguem via.
+  const fichas = []
 
   const chain = (resultado) => ({
     select: () => chain(resultado),
@@ -41,8 +49,8 @@ function fazerAdmin({
     is: () => chain(resultado),
     order: () => chain(resultado),
     limit: () => chain(resultado),
-    maybeSingle: async () => ({ data: resultado.single ?? null }),
-    then: (r) => r({ data: resultado.list ?? [] }),
+    maybeSingle: async () => ({ data: resultado.single ?? null, error: resultado.erro ?? null }),
+    then: (r) => r({ data: resultado.list ?? (resultado.erro ? null : []), error: resultado.erro ?? null }),
   })
 
   const admin = {
@@ -50,6 +58,14 @@ function fazerAdmin({
       if (tabela === 'whatsapp_conversations') {
         return {
           update: (campos) => {
+            const faltando = colunasAusentes.filter((c) => c in campos)
+            if (faltando.length > 0) {
+              return {
+                eq: async () => ({
+                  error: { code: '42703', message: `column ${faltando[0]} does not exist` },
+                }),
+              }
+            }
             Object.assign(conversa, campos)
             return { eq: async () => ({}) }
           },
@@ -57,12 +73,36 @@ function fazerAdmin({
       }
       if (tabela === 'clinic_units') {
         return {
-          select: () =>
-            chain({
+          select: (colunas = '') => {
+            // Postgres recusa a consulta INTEIRA quando uma coluna não existe.
+            const faltando = colunasAusentes.find((c) => String(colunas).includes(c))
+            if (faltando) {
+              return chain({
+                list: null,
+                single: null,
+                erro: { code: '42703', message: `column ${faltando} does not exist` },
+              })
+            }
+            return chain({
               list: unidades,
               single: unidades[0],
               _porId: (id) => unidades.find((u) => u.id === id) ?? null,
-            }),
+            })
+          },
+        }
+      }
+      // Ficha do paciente. Recebe o que a familia responde quando ja existe
+      // cadastro - e, desde 16/09/2026, e o unico destino quando a equipe
+      // dispara o questionario para quem nao tem consulta marcada.
+      if (tabela === 'patients') {
+        return {
+          select: () => chain({ single: null, list: [] }),
+          update: (campos) => ({
+            eq: async (_coluna, valor) => {
+              fichas.push({ id: valor, ...campos })
+              return { error: null }
+            },
+          }),
         }
       }
       if (tabela === 'clinics') {
@@ -88,15 +128,36 @@ function fazerAdmin({
       }
       if (tabela === 'appointments') {
         return {
-          // A consulta que vai ser substituida, para o contador de remarcacoes
-          // saber de quantas vezes esta partindo.
-          select: () => chain({ single: { reschedule_count: remarcacoesAnteriores } }),
+          // A consulta lida de volta. Alem do contador de remarcacoes, traz o
+          // horario e a unidade: e com eles que o fim do questionario decide se
+          // monta um comprovante. O horario e FUTURO de proposito, para o teste
+          // do questionario manual provar que quem segura o comprovante e a
+          // regra do "manual", e nao a data.
+          select: () =>
+            chain({
+              single: {
+                reschedule_count: remarcacoesAnteriores,
+                starts_at: '2027-09-14T18:00:00Z',
+                modality: 'presencial',
+                clinic_units: { name: 'Livance Ibirapuera - São Paulo', address: 'Rua Y, 30' },
+              },
+            }),
           // A consulta marcada e lida de volta: e o id dela que a ficha de
           // dados (nome, nascimento, CPF...) usa para saber onde guardar.
           insert: (linha) => ({
             select: () => ({
               maybeSingle: async () => {
                 if (erroInsert) return { data: null, error: erroInsert }
+                // Coluna que este banco não tem recusa o INSERT inteiro, como
+                // o Postgres faz. Sem isto, o plano B de marcar() passaria
+                // sem nunca ter sido exercitado.
+                const faltando = colunasAusentes.find((c) => c in linha)
+                if (faltando) {
+                  return {
+                    data: null,
+                    error: { code: '42703', message: `column ${faltando} does not exist` },
+                  }
+                }
                 marcadas.push(linha)
                 return { data: { id: `consulta-${marcadas.length}` }, error: null }
               },
@@ -125,7 +186,7 @@ function fazerAdmin({
       throw new Error('rpc nao prevista: ' + nome)
     },
   }
-  return { admin, conversa, marcadas, canceladas }
+  return { admin, conversa, marcadas, canceladas, fichas }
 }
 
 const TRES_UNIDADES = [
@@ -182,7 +243,7 @@ const achados = []
  *   - null    -> o robo precisa ficar em silencio
  */
 async function caso(titulo, passos, opcoes = {}) {
-  const { admin, conversa, marcadas, canceladas } = fazerAdmin({
+  const { admin, conversa, marcadas, canceladas, fichas } = fazerAdmin({
     unidades: opcoes.unidades ?? TRES_UNIDADES,
     slotsPorUnidade: opcoes.slots ?? SLOTS_CHEIOS,
     falharSlots: opcoes.falharSlots,
@@ -190,7 +251,18 @@ async function caso(titulo, passos, opcoes = {}) {
     remarcacoesAnteriores: opcoes.remarcacoesAnteriores ?? 0,
     respostasProntas: opcoes.respostasProntas ?? [],
     telemedicina: opcoes.telemedicina ?? { ativa: false, texto: '' },
+    colunasAusentes: opcoes.colunasAusentes ?? [],
   })
+
+  // A conversa começa como se o menu já tivesse aparecido alguma vez.
+  //
+  // Desde 16/09/2026 a PRIMEIRA mensagem de alguém sempre recebe o menu, sem
+  // atalho: quem chega pelo botão do site, com "gostaria de agendar" escrito
+  // pronto, precisa ver a apresentação e as outras opções antes de ser levado
+  // para dentro do agendamento. Os casos abaixo testam o que acontece DEPOIS
+  // disso, então nascem com o menu já visto. Quem quiser testar a primeira
+  // mensagem passa `primeiraMensagem: true`.
+  conversa.menu_sent_at = opcoes.primeiraMensagem ? null : '2026-08-31T12:00:00Z'
 
   const transcricao = []
   let ultimoToque = { resposta: '', botoes: undefined, lista: undefined }
@@ -200,7 +272,12 @@ async function caso(titulo, passos, opcoes = {}) {
   // pergunta ao robo sobre uma consulta que ja nao existe.
   let consultas = opcoes.consultas ?? []
 
-  for (const [texto, esperado] of passos) {
+  // Terceiro item do passo: ajustes que valem só daquela mensagem em diante.
+  // Serve para simular alguém da equipe entrando no meio da conversa, que é
+  // quando o robô precisa se calar.
+  let ajustes = {}
+  for (const [texto, esperado, mudanca] of passos) {
+    if (mudanca) ajustes = { ...ajustes, ...mudanca }
     consultas = consultas.filter((c) => !canceladas.includes(c.id))
     const r = await tratarConversa({
       admin,
@@ -211,14 +288,29 @@ async function caso(titulo, passos, opcoes = {}) {
       unidadeEmAndamento: conversa.booking_unit_id,
       modalidadeEmAndamento: conversa.booking_modality ?? null,
       pacienteEmAndamento: conversa.booking_patient_id ?? null,
+      // A consulta cuja ficha esta sendo preenchida. Faltava aqui: sem ela, a
+      // segunda resposta da familia caia no "nao ha onde guardar" e o teste
+      // nunca via o questionario ate o fim.
+      consultaEmCadastro: conversa.booking_intake_id ?? null,
+      convenioEmAndamento: conversa.booking_insurance ?? null,
       consultas,
       consultaASubstituir: conversa.booking_replaces_id ?? null,
       // Quantas respostas prontas o robo ja deu nesta espera pela equipe. Sai
       // do banco falso, como no webhook de verdade, para o limite de tres ser
       // contado entre uma mensagem e outra.
       respostasNaEspera: conversa.auto_replies_while_waiting ?? 0,
-      podeIniciarMenu: opcoes.podeIniciarMenu ?? true,
-      texto,
+      // A mensagem e um anexo? No teste, o texto "[ANEXO]" faz as vezes da foto
+      // que a Meta entrega sem corpo nenhum.
+      anexo: texto === '[ANEXO]',
+      // ... e sem corpo nenhum e literal: foto sem legenda chega com texto
+      // vazio. Mandar a palavra "[ANEXO]" como se fosse o que a pessoa
+      // escreveu faria o robo guardar isso como resposta dela - foi assim que
+      // o pedido de 2a via registrou "[ANEXO]" no lugar do motivo.
+      // O banco falso guarda menu_sent_at como o de verdade: assim o teste sabe
+      // se aquela mensagem e a primeira da conversa.
+      jaViuOMenu: Boolean(conversa.menu_sent_at),
+      podeIniciarMenu: ajustes.podeIniciarMenu ?? opcoes.podeIniciarMenu ?? true,
+      texto: texto === '[ANEXO]' ? '' : texto,
       telefone: opcoes.telefone ?? '5511999999999',
       pacientes: opcoes.pacientes ?? [],
       nomeDoPerfil: opcoes.nomeDoPerfil ?? 'Paula Medina',
@@ -226,7 +318,7 @@ async function caso(titulo, passos, opcoes = {}) {
     })
 
     const resposta = r?.resposta ?? null
-    ultimoToque = { resposta: r?.resposta ?? '', botoes: r?.botoes, lista: r?.lista }
+    ultimoToque = { resposta: r?.resposta ?? '', botoes: r?.botoes, lista: r?.lista, concluida: r?.concluida, atencao: r?.atencao }
     transcricao.push(`  > ${texto}\n    ${resposta ? resposta.replace(/\n/g, '\n    ') : '(silêncio)'}`)
 
     if (esperado === null) {
@@ -248,9 +340,9 @@ async function caso(titulo, passos, opcoes = {}) {
   }
 
   if (opcoes.verificar) {
-    opcoes.verificar({ marcadas, canceladas, conversa, transcricao, titulo, ultimoToque })
+    opcoes.verificar({ marcadas, canceladas, conversa, transcricao, titulo, ultimoToque, fichas })
   }
-  return { marcadas, canceladas, conversa, transcricao }
+  return { marcadas, canceladas, conversa, transcricao, fichas }
 }
 
 // ---------------------------------------------------------------
@@ -276,10 +368,23 @@ await caso('Opção 1 pergunta a unidade e depois entrega as informações', [
   ['1', ['R$ 450,00', 'ver outra unidade']],
 ])
 
-await caso('Opção 1 com uma unidade só responde direto', [
+// Com um atendimento só, o robô não oferece "ver outra unidade": o *1* levava
+// de volta à mesmíssima mensagem, que convidava de novo a ver a outra unidade
+// que não existe. Digita 1, lê o mesmo texto, digita 1, lê o mesmo texto.
+await caso('Opção 1 com uma unidade só responde direto, e sem oferecer outra', [
   ['Oi', 'Como podemos ajudar'],
-  ['1', ['R$ 450,00', 'ver todas as opções']],
-], { unidades: UMA_UNIDADE })
+  ['1', ['R$ 450,00', 'voltar ao início']],
+], {
+  unidades: UMA_UNIDADE,
+  verificar: ({ ultimoToque, titulo }) => {
+    if (ultimoToque.resposta.includes('outra unidade')) {
+      falhas.push(`${titulo} | ofereceu uma unidade que não existe`)
+    } else passou++
+    const ids = (ultimoToque.lista?.linhas ?? []).map((l) => l.id)
+    if (ids.includes('1')) falhas.push(`${titulo} | a lista ainda tem a linha "Outra unidade"`)
+    else passou++
+  },
+})
 
 // O fecho comum (telefones, horario, como agendar) vai no fim do texto de
 // qualquer unidade: e o campo antigo de informacoes, editado uma vez so.
@@ -620,6 +725,26 @@ await caso(
   },
 )
 
+// Quem desiste no meio das perguntas fica com a consulta marcada e a ficha
+// vazia. Até 16/09/2026 a remarcação pulava a ficha inteira, e virava a porta
+// dos fundos para nunca mais responder nada: foi o caso do Sandro, que saiu na
+// primeira pergunta, remarcou e recebeu "Consulta remarcada!" sem cadastro.
+await caso('Remarcação de quem não completou o cadastro volta a perguntar', [
+  ['Oi', 'Como podemos ajudar'],
+  ['4', 'Sua consulta'],
+  ['REMARCAR', 'Vamos remarcar'],
+  ['SIM', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', ['está guardado', 'nome completo do paciente']],
+], {
+  // Consulta existente sem paciente vinculado: é o contato que marcou pelo
+  // WhatsApp e abandonou as perguntas.
+  consultas: [{ ...CONSULTA_ANA, paciente: 'Sandro' }],
+  pacientes: [],
+})
+
+// E quem já tem tudo continua sem ser interrogado na remarcação.
 await caso(
   'Remarcar leva a contagem adiante em vez de zerar',
   [
@@ -809,15 +934,15 @@ function conferirLimites(toque, titulo) {
 }
 
 await caso(
-  'Menu vem como lista tocável com as quatro opções',
+  'Menu vem como lista tocável com as cinco opções',
   [['Oi', 'Como podemos ajudar']],
   {
     verificar: ({ ultimoToque, titulo }) => {
       const linhas = ultimoToque.lista?.linhas ?? []
-      if (linhas.length !== 4) falhas.push(`${titulo} | esperava 4 linhas, veio ${linhas.length}`)
+      if (linhas.length !== 5) falhas.push(`${titulo} | esperava 5 linhas, veio ${linhas.length}`)
       else passou++
       // Os ids precisam ser exatamente o que o robô aceita digitado.
-      if (linhas.map((l) => l.id).join(',') !== '1,2,3,4') {
+      if (linhas.map((l) => l.id).join(',') !== '1,2,3,4,5') {
         falhas.push(`${titulo} | ids fora do padrão: ${linhas.map((l) => l.id).join(',')}`)
       } else passou++
       conferirLimites(ultimoToque, titulo)
@@ -979,7 +1104,7 @@ await caso('Depois da resposta pronta o 2 ainda marca consulta', [
 ], { respostasProntas: RESPOSTAS })
 
 await caso('Pergunta clínica não é respondida, mas recebe o caminho certo', [
-  ['Minha mãe está com dor de barriga, posso dar dipirona?', ['quem responde é a Dra. Patrícia', 'Digite *3*']],
+  ['Meu filho está com dor de barriga, posso dar dipirona?', ['quem responde é a Dra. Patrícia', 'Digite *3*']],
 ], { respostasProntas: RESPOSTAS })
 
 await caso('Palavra de valor junto de sintoma não recebe o preço', [
@@ -991,7 +1116,7 @@ await caso('Assunto que ninguém cadastrou cai no menu, sem inventar', [
 ], { respostasProntas: RESPOSTAS })
 
 await caso('Sintoma junto de "quero marcar" continua podendo marcar pelo menu', [
-  ['oi, meu pai tem refluxo, queria marcar uma consulta', 'quem responde é a Dra. Patrícia'],
+  ['oi, meu filho tem refluxo, queria marcar uma consulta', 'quem responde é a Dra. Patrícia'],
   ['2', 'Em qual unidade'],
 ], { respostasProntas: RESPOSTAS })
 
@@ -1030,11 +1155,137 @@ await caso('Resposta pronta na fila não solta a conversa da equipe', [
   ['bom dia', null],
 ], { respostasProntas: RESPOSTAS })
 
+// Caso real de 22/09/2026: a familia estava na fila desde a vespera e mandou
+// "Boa tarde". Calar esta certo. O defeito era outro: o webhook calava sem
+// acender a conversa, e ela ficou apagada o dia inteiro. Este caso fixa que o
+// robo devolve silencio aqui - e e esse silencio (resultado nulo) que agora faz
+// o webhook subir a bandeira de atencao.
+await caso('Real 22/09: "Boa tarde" de quem está na fila fica em silêncio', [
+  ['Oi', 'Como podemos ajudar'],
+  ['3', 'direcionando você'],
+  ['Boa tarde', null],
+])
+
 // Com alguem da equipe escrevendo agora, nem palavra-chave aparece: seria o
 // robo falando por cima da atendente.
 await caso('Equipe conversando: o robô não responde nem palavra-chave', [
   ['Vocês atendem convênio?', null],
 ], { respostasProntas: RESPOSTAS, podeIniciarMenu: false })
+
+// O mesmo vale no menu, e ali a trava nao existia. Caso real de 15/09/2026: a
+// equipe explicou a mao que a Trasmontano e atendida, e meia hora depois o robo
+// repetiu a resposta pronta de convenio por cima dela.
+await caso('Equipe conversando: nem resposta pronta nem "não entendi" no menu', [
+  ['Unimed não?', null],
+], { respostasProntas: RESPOSTAS, podeIniciarMenu: false })
+
+// Numero de menu a pessoa escolheu de propósito, entao continua valendo mesmo
+// com a equipe na conversa.
+await caso('Mas o número do menu continua valendo', [
+  ['Oi', 'Como podemos ajudar'],
+  // A equipe entra na conversa a partir daqui.
+  ['2', 'Em qual unidade', { podeIniciarMenu: false }],
+])
+
+// Pergunta curta na fila continua respondida: uma palavra basta quando a pessoa
+// nao esta pedindo para marcar.
+await caso('"Convênio?" na fila é respondido mesmo casando com uma palavra só', [
+  ['Oi', 'Como podemos ajudar'],
+  ['3', 'direcionando você'],
+  ['convênio?', ['particular', 'continua na fila']],
+], { respostasProntas: RESPOSTAS })
+
+// E o pedido de marcar continua em silêncio, porque "retorno" sozinho não é
+// pergunta.
+await caso('"Quero marcar retorno para o Tomás" na fila continua em silêncio', [
+  ['Oi', 'Como podemos ajudar'],
+  ['3', 'direcionando você'],
+  ['quero marcar retorno para o Tomás', null],
+], { respostasProntas: [...RESPOSTAS, {
+  id: 'r4',
+  subject: 'O que levar',
+  keywords: ['levar', 'documento', 'retorno', 'exames'],
+  answer: 'Leve um documento com foto do responsável.',
+}] })
+
+// ---------------------------------------------------------------
+// "Quero marcar" escrito como as pessoas escrevem
+// ---------------------------------------------------------------
+//
+// Ate 15/09/2026 so valia a frase exata. "Quero marcar retorno para o Tomás"
+// caia na resposta pronta de documentos, porque "retorno" e palavra-chave dela.
+
+for (const frase of [
+  'quero marcar retorno para o Tomás Oliveira',
+  'queria marcar uma consulta',
+  'gostaria de agendar para o meu filho',
+  'tem horarios essa semana?',
+  'MARCAR',
+]) {
+  await caso(`"${frase}" abre o agendamento`, [[frase, 'Em qual unidade']])
+}
+
+// Mas a PRIMEIRA mensagem, não. O botão do site manda "Vim pelo site e gostaria
+// de agendar uma consulta" já escrito, e a conversa começava em "Em qual
+// unidade?", sem apresentação e sem as outras opções. Quem chega tem que ver o
+// menu antes de ser levado para dentro de um fluxo.
+await caso('Primeira mensagem sempre vê o menu, mesmo pedindo para agendar', [
+  ['Olá! Vim pelo site da Dra. Patrícia e gostaria de agendar uma consulta.', 'Como podemos ajudar'],
+], { primeiraMensagem: true })
+
+// E o menu vence a resposta pronta: "retorno" é palavra-chave do texto de
+// documentos, e quem pediu para marcar não perguntou o que levar.
+await caso('Pedido de agendamento na primeira mensagem não vira resposta pronta', [
+  ['quero marcar retorno para o Tomás', 'Como podemos ajudar'],
+], { primeiraMensagem: true, respostasProntas: RESPOSTAS })
+
+// E da segunda em diante o atalho volta a valer: ela já sabe o que existe ali.
+await caso('Depois do menu, o atalho volta a valer', [
+  ['Olá! Vim pelo site da Dra. Patrícia e gostaria de agendar uma consulta.', 'Como podemos ajudar'],
+  ['quero agendar', 'Em qual unidade'],
+], { primeiraMensagem: true })
+
+// Remarcar e desmarcar contem "marcar" e sao o oposto: quem pede isso ja tem
+// consulta. Vao para o menu, onde o *4* cuida do assunto.
+for (const frase of ['quero remarcar', 'preciso desmarcar minha consulta']) {
+  await caso(`"${frase}" não abre consulta nova`, [[frase, 'Como podemos ajudar']])
+}
+
+// Preco continua sendo preco: "consulta" sozinha nao abre a agenda.
+await caso('"Quanto custa a consulta?" continua respondendo o valor', [
+  ['Quanto custa a consulta?', 'custa R$ 450,00'],
+], { respostasProntas: RESPOSTAS })
+
+// ---------------------------------------------------------------
+// Anexo: foto, exame, áudio
+// ---------------------------------------------------------------
+
+// O robo nao le arquivo nenhum. Responder o menu a uma foto de exame e dizer
+// "nao vi o que voce mandou, escolha uma opcao".
+await caso('Foto vai para a equipe, não recebe menu', [
+  ['[ANEXO]', ['Recebi o que você enviou', 'equipe']],
+])
+
+// Segunda foto na mesma espera nao merece outro "vou entregar": a equipe ja
+// esta com a conversa.
+await caso('Segunda foto na fila não repete o aviso', [
+  ['[ANEXO]', 'Recebi o que você enviou'],
+  ['[ANEXO]', null],
+])
+
+// Anexo no meio de um agendamento tambem entrega: alguma coisa fora do comum
+// esta acontecendo, e a pessoa quer que alguem olhe.
+await caso('Foto no meio do agendamento também entrega para a equipe', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Em qual unidade'],
+  ['[ANEXO]', 'Recebi o que você enviou'],
+])
+
+// MENU continua furando tudo, inclusive a entrega do anexo.
+await caso('Depois do anexo, MENU ainda volta ao início', [
+  ['[ANEXO]', 'Recebi o que você enviou'],
+  ['0', 'Como podemos ajudar'],
+])
 
 // ---------------------------------------------------------------
 // Pergunta no meio de uma escolha
@@ -1059,13 +1310,14 @@ await caso('E também no meio da escolha do dia e do horário', [
   ['1', 'nome completo do paciente'],
 ], { respostasProntas: RESPOSTAS })
 
-// Sintoma continua sem resposta automatica, mesmo no meio de uma escolha: e
-// consulta medica, e o "Nao entendi" leva a pessoa de volta ao caminho da
-// equipe.
+// Sintoma continua sem resposta automática, mesmo no meio de uma escolha: é
+// consulta médica. E desde 20/09/2026 o robô diz POR QUE não responde, em vez
+// de "não entendi" - a mãe que escreve um sintoma não errou a forma de
+// responder, e mandá-la reler o menu não avisa ninguém.
 await caso('Sintoma no meio da escolha não vira resposta automática', [
   ['Oi', 'Como podemos ajudar'],
   ['2', 'Em qual unidade'],
-  ['ele está com febre, quanto custa?', 'Não entendi'],
+  ['ele está com febre, quanto custa?', ['não posso orientar', 'número da unidade']],
 ], { respostasProntas: RESPOSTAS })
 
 // Urgencia nunca entra na conta: ela responde sempre, mesmo depois do limite.
@@ -1185,6 +1437,1161 @@ await caso('Informações da telemedicina vêm do texto próprio', [
 ], { telemedicina: TELE })
 
 // ---------------------------------------------------------------
+
+
+// ---------------------------------------------------------------
+// Questionário disparado pela equipe (botão "Questionário")
+// ---------------------------------------------------------------
+//
+// O caminho normal é o robô perguntar logo depois de marcar. Este é o outro:
+// alguém da recepção aperta o botão na tela de Respostas e o robô refaz as
+// perguntas na conversa que já existe.
+
+// Pedro tem ficha e nenhuma consulta marcada - o caso que o botão não atendia
+// até 16/09/2026, porque exigia consulta FUTURA. As respostas vão para a
+// ficha, que é o único destino que existe aqui.
+{
+  const titulo = 'Questionário sem consulta grava na ficha'
+  const { admin, conversa, fichas } = fazerAdmin({
+    unidades: TRES_UNIDADES,
+    slotsPorUnidade: SLOTS_CHEIOS,
+  })
+  conversa.menu_sent_at = '2026-08-31T12:00:00Z'
+
+  const inicio = await iniciarQuestionario(admin, 'conv1', null, PEDRO)
+  if (!inicio?.resultado?.resposta?.includes('nascimento')) {
+    falhas.push(`${titulo} | a primeira pergunta deveria ser o nascimento, veio: ${inicio?.resultado?.resposta?.slice(0, 80)}`)
+  } else passou++
+
+  // Sem "Voltar ao menu": a pessoa não estava em fluxo nenhum, e um pedido de
+  // quatro dados não deve virar porta de entrada para o menu inteiro.
+  if ((inicio?.resultado?.botoes ?? []).some((b) => b.id === 'MENU')) {
+    falhas.push(`${titulo} | o questionário manual não deve oferecer "Voltar ao menu"`)
+  } else passou++
+
+  // Sem consulta, quem diz de quem são as respostas é o vínculo na conversa.
+  if (conversa.booking_patient_id !== PEDRO.id) {
+    falhas.push(`${titulo} | deveria amarrar a conversa ao paciente, veio ${conversa.booking_patient_id}`)
+  } else passou++
+
+  const responder = async (texto) => {
+    const r = await tratarConversa({
+      admin,
+      clinicId: 'c1',
+      conversationId: 'conv1',
+      estadoAtual: conversa.booking_state,
+      opcoesAtuais: conversa.booking_options,
+      unidadeEmAndamento: conversa.booking_unit_id,
+      modalidadeEmAndamento: null,
+      pacienteEmAndamento: conversa.booking_patient_id ?? null,
+      consultas: [],
+      consultaASubstituir: null,
+      consultaEmCadastro: conversa.booking_intake_id ?? null,
+      respostasNaEspera: 0,
+      jaViuOMenu: true,
+      podeIniciarMenu: true,
+      texto,
+      telefone: '5511999999999',
+      pacientes: [PEDRO],
+      nomeDoPerfil: 'Paula Medina',
+      textos: TEXTOS,
+    })
+    return r?.resposta ?? ''
+  }
+
+  await responder('12/05/2019')
+  await responder('Marina Souza')
+  await responder('390.533.447-05')
+  const fecho = await responder('marina@exemplo.com')
+
+  const gravado = Object.assign({}, ...fichas.map((f) => ({ ...f })))
+  for (const [campo, valor] of [
+    ['birth_date', '2019-05-12'],
+    ['guardian_name', 'Marina Souza'],
+    ['cpf', '39053344705'],
+  ]) {
+    if (gravado[campo] !== valor) {
+      falhas.push(`${titulo} | ${campo} deveria ser "${valor}", veio "${gravado[campo]}"`)
+    } else passou++
+  }
+  // Todas as gravações são na ficha do Pedro, e não na de outra pessoa.
+  if (fichas.some((f) => f.id !== PEDRO.id)) {
+    falhas.push(`${titulo} | gravou em ficha alheia: ${fichas.map((f) => f.id).join(', ')}`)
+  } else passou++
+
+  // Sem consulta, o robô não pode dizer "anotamos na sua consulta": quem lê
+  // sairia procurando por uma consulta que não existe.
+  if (fecho.includes('na sua consulta')) {
+    falhas.push(`${titulo} | o fecho fala de consulta que não existe: ${fecho.slice(0, 120)}`)
+  } else passou++
+  if (!fecho.includes('no seu cadastro')) {
+    falhas.push(`${titulo} | o fecho deveria falar do cadastro, veio: ${fecho.slice(0, 120)}`)
+  } else passou++
+}
+
+// Com consulta em mãos o questionário manual grava nela - mas não anuncia
+// "Consulta marcada!" no fim. Em 16/09/2026 anunciou: pegou a consulta do dia
+// 14, dois dias ANTES, e a família leu um comprovante de algo que ninguém
+// tinha acabado de marcar.
+{
+  const titulo = 'Questionário manual não anuncia consulta'
+  const { admin, conversa, fichas } = fazerAdmin({
+    unidades: TRES_UNIDADES,
+    slotsPorUnidade: SLOTS_CHEIOS,
+  })
+  conversa.menu_sent_at = '2026-08-31T12:00:00Z'
+
+  await iniciarQuestionario(admin, 'conv1', 'consulta-antiga', PEDRO)
+
+  const responder = async (texto) => {
+    const r = await tratarConversa({
+      admin,
+      clinicId: 'c1',
+      conversationId: 'conv1',
+      estadoAtual: conversa.booking_state,
+      opcoesAtuais: conversa.booking_options,
+      unidadeEmAndamento: conversa.booking_unit_id,
+      modalidadeEmAndamento: null,
+      pacienteEmAndamento: conversa.booking_patient_id ?? null,
+      consultas: [],
+      consultaASubstituir: null,
+      consultaEmCadastro: conversa.booking_intake_id ?? null,
+      respostasNaEspera: 0,
+      jaViuOMenu: true,
+      podeIniciarMenu: true,
+      texto,
+      telefone: '5511999999999',
+      pacientes: [PEDRO],
+      nomeDoPerfil: 'Paula Medina',
+      textos: TEXTOS,
+    })
+    return r?.resposta ?? ''
+  }
+
+  await responder('12/05/2019')
+  await responder('Marina Souza')
+  await responder('PULAR')
+  const fecho = await responder('PULAR')
+
+  if (fecho.includes('Consulta marcada')) {
+    falhas.push(`${titulo} | anunciou comprovante: ${fecho.slice(0, 140)}`)
+  } else passou++
+  if (!fecho.includes('Tudo certo')) {
+    falhas.push(`${titulo} | deveria agradecer e encerrar, veio: ${fecho.slice(0, 140)}`)
+  } else passou++
+  // O que a família respondeu tem de ter chegado à ficha mesmo assim.
+  if (!fichas.some((f) => f.birth_date === '2019-05-12')) {
+    falhas.push(`${titulo} | o nascimento não chegou à ficha`)
+  } else passou++
+}
+
+// Cadastro completo não vira mensagem: a Ana tem tudo, e perguntar de novo a
+// quem a clínica atende há anos é o robô dizendo que não a conhece.
+{
+  const titulo = 'Questionário não pergunta a quem já tem tudo'
+  const { admin } = fazerAdmin({ unidades: TRES_UNIDADES, slotsPorUnidade: SLOTS_CHEIOS })
+  const inicio = await iniciarQuestionario(admin, 'conv1', null, ANA)
+  if (inicio !== null) {
+    falhas.push(`${titulo} | deveria devolver null, veio ${JSON.stringify(inicio)?.slice(0, 100)}`)
+  } else passou++
+}
+
+
+// ---------------------------------------------------------------
+// Idade atendida não pode cair no texto de convênio
+// ---------------------------------------------------------------
+//
+// Em 18/09/2026 a Crislaine perguntou três vezes se o consultório atende bebê
+// de três meses, e nas três recebeu a resposta de convênio, porque 'atende'
+// estava na lista de palavras de plano de saúde. Ela só foi respondida por
+// gente às 00:03, seis horas depois. Este bloco é aquela conversa.
+
+const RESPOSTAS_IDADE = [
+  {
+    id: 'r-conv',
+    subject: 'Convênios',
+    keywords: [
+      'convenio', 'plano', 'saude', 'aceita', 'aceitam', 'carteirinha',
+      'reembolso', 'particular', 'unimed', 'trasmontano', 'bradesco',
+    ],
+    answer: 'Atendemos Trasmontano na unidade de Santos. Outros convênios não são atendidos.',
+  },
+  {
+    id: 'r-idade',
+    subject: 'Idade atendida',
+    keywords: [
+      'bebe', 'bebê', 'bebes', 'bebês', 'recem', 'recém', 'nascido',
+      'idade', 'meses', 'crianca', 'criança', 'adolescente', 'anos',
+    ],
+    answer: 'O Dr. Marcello atende desde recém-nascidos até 19 anos.',
+  },
+]
+
+await caso('Pergunta de bebê recebe a idade, e não convênio', [
+  ['Vocês atendem bebês?', 'recém-nascidos até 19 anos'],
+], { respostasProntas: RESPOSTAS_IDADE })
+
+await caso('"A partir de qual idade" recebe a idade', [
+  ['A partir de qual idade vocês atendem?', 'recém-nascidos até 19 anos'],
+], { respostasProntas: RESPOSTAS_IDADE })
+
+await caso('Bebê de três meses: a pergunta inteira da Crislaine', [
+  ['Qual valor da consulta? E vocês atendem bebês com 3 meses de vida?', 'recém-nascidos até 19 anos'],
+], { respostasProntas: RESPOSTAS_IDADE })
+
+// O outro lado da correção: tirar 'atende' da lista de convênio não pode fazer
+// o robô deixar de reconhecer quem pergunta de plano.
+await caso('Pergunta de convênio continua reconhecida', [
+  ['Vocês aceitam convênio?', 'Trasmontano'],
+], { respostasProntas: RESPOSTAS_IDADE })
+
+await caso('Marca do plano sozinha é reconhecida', [
+  ['atendem trasmontano?', 'Trasmontano'],
+], { respostasProntas: RESPOSTAS_IDADE })
+
+await caso('Plano que não é atendido também cai no texto certo', [
+  ['vocês aceitam unimed?', 'Outros convênios não são atendidos'],
+], { respostasProntas: RESPOSTAS_IDADE })
+
+
+// ---------------------------------------------------------------
+// Convênio no agendamento
+// ---------------------------------------------------------------
+//
+// O Dr. Marcello passou a atender Trasmontano em Santos em 19/09/2026. A
+// recepção precisa saber antes da pessoa chegar se fatura pelo plano ou cobra
+// particular - antes disso ela descobria na hora, com a família na frente.
+//
+// A pergunta é da UNIDADE: quem não aceita convênio não pergunta nada, e o
+// fluxo continua com o mesmo número de passos de sempre.
+
+const UNIDADE_COM_CONVENIO = [
+  { id: 'u-santos', name: 'Liferty · Santos', address: 'Av. Ana Costa, 100', accepts_insurance: 'Trasmontano' },
+]
+
+await caso('Unidade com convênio pergunta antes das datas', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', ['pelo convênio', 'Trasmontano', 'Particular']],
+], { unidades: UNIDADE_COM_CONVENIO, slots: { 'u-santos': SLOTS_CHEIOS['u-santos'] } })
+
+await caso('Escolhendo o convênio, ele é gravado na consulta', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'pelo convênio'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'está guardado'],
+], {
+  unidades: UNIDADE_COM_CONVENIO,
+  slots: { 'u-santos': SLOTS_CHEIOS['u-santos'] },
+  verificar: ({ marcadas, titulo }) => {
+    const m = marcadas[0]
+    if (!m) return falhas.push(`${titulo} | nenhuma consulta gravada`)
+    if (m.insurance !== 'Trasmontano') {
+      falhas.push(`${titulo} | deveria gravar Trasmontano, veio "${m.insurance}"`)
+    } else passou++
+  },
+})
+
+await caso('Escolhendo particular, a consulta fica sem convênio', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'pelo convênio'],
+  ['2', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'está guardado'],
+], {
+  unidades: UNIDADE_COM_CONVENIO,
+  slots: { 'u-santos': SLOTS_CHEIOS['u-santos'] },
+  verificar: ({ marcadas, titulo }) => {
+    const m = marcadas[0]
+    if (!m) return falhas.push(`${titulo} | nenhuma consulta gravada`)
+    if (m.insurance !== '') {
+      falhas.push(`${titulo} | particular deveria ficar vazio, veio "${m.insurance}"`)
+    } else passou++
+  },
+})
+
+await caso('Responder o nome do plano por escrito também vale', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'pelo convênio'],
+  ['trasmontano', 'Datas disponíveis'],
+], { unidades: UNIDADE_COM_CONVENIO, slots: { 'u-santos': SLOTS_CHEIOS['u-santos'] } })
+
+// A unidade sem convênio não ganha passo nenhum: vai direto para as datas.
+await caso('Unidade sem convênio vai direto para as datas', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Datas disponíveis'],
+], { unidades: UMA_UNIDADE })
+
+
+// ---------------------------------------------------------------
+// Coluna nova que o banco ainda não tem
+// ---------------------------------------------------------------
+//
+// Em 19/09/2026 o robô foi ao ar gravando booking_insurance antes de a coluna
+// existir. O Postgres não ignora coluna desconhecida: recusa o UPDATE inteiro.
+// O estado da conversa parou de ser gravado e o robô nunca saía do menu - o
+// paciente digitava 1, recebia o menu, digitava 1 de novo, recebia o menu.
+// Três voltas, sem erro visível em lugar nenhum.
+//
+// Perder o campo novo é um arranhão. Perder o estado trava o atendimento.
+
+await caso('Sem a coluna nova, o menu continua funcionando', [
+  ['Oi', 'Como podemos ajudar'],
+  ['1', 'Para qual atendimento'],
+], { colunasAusentes: ['booking_insurance'] })
+
+await caso('Sem a coluna nova, dá para marcar consulta até o fim', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'está guardado'],
+], { colunasAusentes: ['booking_insurance'] })
+
+// E com a unidade que pede convênio: a pergunta acontece, a resposta não pode
+// ser gravada, e mesmo assim o agendamento chega ao fim.
+await caso('Sem a coluna nova, o convênio some mas o agendamento segue', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'pelo convênio'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'está guardado'],
+], {
+  unidades: UNIDADE_COM_CONVENIO,
+  slots: { 'u-santos': SLOTS_CHEIOS['u-santos'] },
+  colunasAusentes: ['booking_insurance'],
+})
+
+
+// A unidade sem a coluna nova: o atendimento não pode parar por causa disso.
+//
+// Foi assim que o robô caiu em 19/09/2026. A consulta pedia accepts_insurance
+// antes de a migration rodar, o Postgres recusou tudo, a lista de unidades
+// voltou vazia, e a opção 1 não tinha o que mostrar: devolvia o menu. O
+// paciente digitava 1, recebia o menu, digitava 1 de novo, recebia o menu.
+
+await caso('Coluna de convênio ausente não derruba a opção 1', [
+  ['Oi', 'Como podemos ajudar'],
+  ['1', 'Para qual atendimento'],
+], { colunasAusentes: ['accepts_insurance'] })
+
+await caso('Coluna de convênio ausente não derruba o agendamento', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'está guardado'],
+], { colunasAusentes: ['accepts_insurance'] })
+
+// ---------------------------------------------------------------
+// 2ª via de receita e pedido de exame (opção 5)
+// ---------------------------------------------------------------
+
+await caso('Primeiro contato mostra também a opção 5', [
+  ['Oi', ['*5* 📄 2ª via de receita ou pedido de exame']],
+])
+
+await caso('Paciente único pula a escolha e vai direto ao tipo', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', ['O que você precisa para *Ana Paula Souza*', '2ª via de receita', 'Pedido de exame']],
+], { pacientes: [ANA] })
+
+const pedidoDeReceita = await caso('2ª via de receita, com correção pedida pela farmácia', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['Domperidona', 'A farmácia pediu alguma correção'],
+  ['A validade venceu', [
+    'Pedido registrado',
+    '💊 2ª via de receita · Ana Paula Souza',
+    'Domperidona',
+    'A validade venceu',
+    '1 dia útil',
+  ]],
+], {
+  pacientes: [ANA],
+  verificar: ({ conversa, titulo }) => {
+    // Sem a bandeira o pedido não aparece na lista da clínica: fica um recado
+    // no meio da conversa, que é exatamente o problema que isto resolve.
+    if (conversa.booking_state !== 'atendente') {
+      falhas.push(`${titulo} | deveria terminar esperando a equipe, veio ${conversa.booking_state}`)
+    } else passou++
+  },
+})
+
+achados.push('2ª via de receita, do menu ao comprovante:\n' + pedidoDeReceita.transcricao.join('\n'))
+
+// Quem devolveu o documento muda com o tipo. "A farmácia pediu correção no seu
+// ultrassom?" faz a mãe parar para entender uma pergunta que não era para ela.
+await caso('Pedido de exame diz "exame", e não "medicamento"', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['2', 'Qual exame'],
+  ['Ultrassom de abdome', 'O laboratório ou a clínica de exames pediu alguma correção'],
+  ['não', ['Pedido registrado', '🔬 Pedido de exame', 'Ultrassom de abdome']],
+], { pacientes: [ANA] })
+
+// "Não" é resposta completa, não recusa: nada foi exigido e o pedido segue.
+// Escrever "Pediram correção: não" no comprovante faria a clínica procurar uma
+// exigência que não existe.
+await caso('Sem exigência, o comprovante não inventa uma', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['Domperidona', 'pediu alguma correção'],
+  ['não', 'Pedido registrado'],
+], {
+  pacientes: [ANA],
+  verificar: ({ transcricao, titulo }) => {
+    const comprovante = transcricao[transcricao.length - 1]
+    if (comprovante.includes('Pediram correção')) {
+      falhas.push(`${titulo} | comprovante inventou uma exigência que ninguém fez`)
+    } else passou++
+  },
+})
+
+await caso('Com dois filhos, pergunta de quem é o pedido', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', ['Para qual paciente', 'Ana Paula Souza', 'Pedro Souza']],
+  ['2', 'O que você precisa para *Pedro Souza*'],
+  ['1', 'Qual medicamento'],
+  ['Omeprazol', 'pediu alguma correção'],
+  ['não', ['Pedido registrado', '💊 2ª via de receita · Pedro Souza', 'Omeprazol']],
+], { pacientes: [ANA, PEDRO] })
+
+// A foto sozinha basta. Quem está no balcão da farmácia fotografa o que foi
+// recusado em vez de repetir de cabeça o que o atendente disse - e essa é a
+// informação mais confiável das duas.
+await caso('Foto do documento recusado conta como resposta', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['Domperidona', 'pediu alguma correção'],
+  ['[ANEXO]', ['Pedido registrado', 'enviou foto do documento']],
+], { pacientes: [ANA] })
+
+// A trava do anexo entrega qualquer foto à equipe e encerra o fluxo. Aqui ela
+// não pode valer, ou o pedido morre no penúltimo passo.
+await caso('Foto no meio do pedido não cai na entrega genérica de anexo', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['Domperidona', 'pediu alguma correção'],
+  ['[ANEXO]', 'Pedido registrado'],
+], {
+  pacientes: [ANA],
+  verificar: ({ transcricao, titulo }) => {
+    const ultima = transcricao[transcricao.length - 1]
+    if (ultima.includes('já avisei a nossa equipe')) {
+      falhas.push(`${titulo} | a foto virou anexo genérico e o pedido se perdeu`)
+    } else passou++
+  },
+})
+
+// ---- Controlado ----
+
+// A promessa de "1 dia útil" não pode existir aqui: a receita de controlado sai
+// em receituário especial, a farmácia retém a via original, e mandar um PDF
+// faria a família ir ao balcão para ouvir não.
+await caso('Controlado não recebe promessa de 2ª via por aqui', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['Rivotril', ['receituário especial', 'via original', 'avisei a equipe']],
+], {
+  pacientes: [ANA],
+  verificar: ({ transcricao, titulo, conversa }) => {
+    const ultima = transcricao[transcricao.length - 1]
+    if (ultima.includes('1 dia útil')) {
+      falhas.push(`${titulo} | prometeu prazo de 2ª via para receita que não sai por aqui`)
+    } else passou++
+    if (conversa.booking_state !== 'atendente') {
+      falhas.push(`${titulo} | deveria ir para a equipe, veio ${conversa.booking_state}`)
+    } else passou++
+  },
+})
+
+await caso('Quem diz "é controlado" também sai do automático', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['é o remédio controlado dele', 'receituário especial'],
+], { pacientes: [ANA] })
+
+// O caminho normal não pode ser arrastado junto: domperidona, omeprazol e
+// afins continuam resolvendo sozinhos.
+await caso('Remédio comum não é tratado como controlado', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['Omeprazol', 'pediu alguma correção'],
+], { pacientes: [ANA] })
+
+// Exame não passa pela peneira de controlado: "azul" pode ser o nome de um
+// laboratório, e "especial" aparece em nome de exame.
+await caso('Pedido de exame não é barrado pela lista de controlados', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['2', 'Qual exame'],
+  ['Exame no laboratório Azul', 'pediu alguma correção'],
+], { pacientes: [ANA] })
+
+// ---- O pedido não pode evaporar no meio ----
+
+// Mandar a foto da receita quando o robô pede o nome do medicamento é a coisa
+// mais natural do mundo - e era o que apagava o pedido: o anexo caía na regra
+// geral, que zera booking_options, e a etapa seguinte respondia no vazio.
+await caso('Foto antes do nome do medicamento não apaga o pedido', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['[ANEXO]', 'nome'],
+  ['Domperidona', 'pediu alguma correção'],
+  ['não', ['Pedido registrado', 'Domperidona']],
+], { pacientes: [ANA] })
+
+// "é urgente, ela precisa do omeprazol" não é ida ao pronto-socorro: é uma mãe
+// com pressa de receita. Mandá-la ao 192 e jogar fora o pedido é errado duas
+// vezes.
+await caso('Pressa pela receita não vira transferência de urgência', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['é urgente, ela precisa do omeprazol', 'pediu alguma correção'],
+], {
+  pacientes: [ANA],
+  verificar: ({ transcricao, titulo }) => {
+    if (transcricao.join('\n').includes('192')) {
+      falhas.push(`${titulo} | mandou ao pronto-socorro quem só queria a receita de volta`)
+    } else passou++
+  },
+})
+
+// Urgência de verdade continua valendo: sintoma junto do pedido tem que sair
+// do fluxo e chamar gente.
+await caso('Urgência com sintoma ainda transfere, mesmo dentro do pedido', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['é urgente, ela está vomitando sangue', 'urgência'],
+], { pacientes: [ANA] })
+
+// "cancelar" no meio do pedido é a pessoa querendo sair - e aí o pedido some
+// mesmo. O que não pode é sumir em silêncio, sem ela ter pedido.
+await caso('Escrever "cancelar" no meio do pedido sai do fluxo, e avisa', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['1', 'Qual medicamento'],
+  ['cancelar', 'parei por aqui'],
+], { pacientes: [ANA] })
+
+// ---- Quando a resposta não é um número ----
+
+// As duas etapas reemitiam a MESMA mensagem, sem dizer que não entenderam. No
+// celular isso lê como travamento: a pessoa responde o rótulo do botão que
+// acabou de ler, e recebe a pergunta de novo, idêntica.
+await caso('Responder o nome do botão em vez do número não trava', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['2ª via de receita', 'Qual medicamento'],
+], { pacientes: [ANA] })
+
+await caso('Responder o nome do filho em vez do número não trava', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'Para qual paciente'],
+  ['Pedro', 'O que você precisa para *Pedro Souza*'],
+], { pacientes: [ANA, PEDRO] })
+
+await caso('Resposta que não casa com nada diz que não entendeu', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'O que você precisa'],
+  ['azul', 'Não entendi'],
+], { pacientes: [ANA] })
+
+// ---- A portaria ----
+
+await caso('Número sem atendimento não entra no fluxo do paciente', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', ['não localizei atendimento neste número', 'Sou o paciente ou familiar', 'Sou de farmácia ou laboratório']],
+])
+
+await caso('Quem diz ser o responsável vai para a equipe', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'não localizei atendimento'],
+  ['1', 'direcionando você para um atendente'],
+])
+
+await caso('Farmácia registra o pedido sem receber dado de paciente', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'não localizei atendimento'],
+  ['2', ['nome do paciente', 'precisa ser corrigido']],
+  ['Gabriel Souza, o CID não confere', ['Registrado', 'enviado ao paciente, não por este canal']],
+])
+
+// O robô não pode confirmar que alguém se trata na clínica para um número que
+// nunca consultou aqui. Isso é dado de saúde, e quem escreveu não provou ser
+// ninguém: confirmar a pedido seria entregar prontuário a quem souber um nome.
+await caso('Farmácia não recebe confirmação de que o paciente existe', [
+  ['Oi', 'Como podemos ajudar'],
+  ['5', 'não localizei atendimento'],
+  ['2', 'nome do paciente'],
+  ['A Ana Paula Souza se trata aí?', 'Registrado'],
+], {
+  verificar: ({ transcricao, titulo }) => {
+    const conversaInteira = transcricao.join('\n')
+    if (/Ana Paula Souza/.test(conversaInteira.split('> A Ana Paula')[1] ?? '')) {
+      falhas.push(`${titulo} | o robô repetiu o nome do paciente para um número desconhecido`)
+    } else passou++
+  },
+})
+
+// ---------------------------------------------------------------
+// Defeitos encontrados na varredura de 20/09/2026
+// ---------------------------------------------------------------
+
+// Escolher telemedicina, voltar ao menu e escolher uma unidade FÍSICA deixava
+// booking_modality valendo 'telemedicina'. Como a unidade em andamento é
+// derivada da modalidade, tudo dali para frente virava vídeo: a família saía
+// achando que marcou presencial em Santos e o Dr. Marcello esperava na tela.
+//
+// Só aparecia em unidade com convênio, que na produção é justamente Santos.
+await caso('Voltar da telemedicina para uma unidade física não marca vídeo', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Em qual unidade'],
+  ['2', 'Datas disponíveis'],
+  ['0', 'Como podemos ajudar'],
+  ['2', 'Em qual unidade'],
+  ['1', 'pelo convênio'],
+  ['2', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'está guardado'],
+], {
+  unidades: UNIDADE_COM_CONVENIO,
+  slots: { 'u-santos': SLOTS_CHEIOS['u-santos'] },
+  telemedicina: { ativa: true, texto: 'Telemedicina R$ 450' },
+  verificar: ({ marcadas, titulo }) => {
+    const c = marcadas.at(-1)
+    if (!c) {
+      falhas.push(`${titulo} | não marcou consulta nenhuma`)
+      return
+    }
+    if (c.modality === 'telemedicina') {
+      falhas.push(`${titulo} | marcou TELEMEDICINA para quem escolheu unidade física`)
+    } else passou++
+    if (!c.unit_id) {
+      falhas.push(`${titulo} | consulta presencial gravada sem unidade`)
+    } else passou++
+  },
+})
+
+// Com duas consultas marcadas, CANCELAR e REMARCAR não funcionavam depois de
+// escolher qual: o atalho olhava para quantas consultas a pessoa TEM, e não
+// para qual delas está em foco. O robô respondia "digite CANCELAR" a quem
+// tinha acabado de digitar CANCELAR, e os botões caíam no mesmo lugar - laço
+// fechado, justamente para a mãe com dois filhos em acompanhamento.
+const DUAS_CONSULTAS = [
+  {
+    id: 'c-1',
+    inicio: '2026-09-28T11:00:00Z',
+    unidade: 'Liferty · Santos',
+    endereco: 'Av. Ana Costa, 100',
+    paciente: 'Ana Paula Souza',
+    confirmada: true,
+  },
+  {
+    id: 'c-2',
+    inicio: '2026-09-29T12:00:00Z',
+    unidade: 'Liferty · Santos',
+    endereco: 'Av. Ana Costa, 100',
+    paciente: 'Pedro Souza',
+    confirmada: true,
+  },
+]
+
+await caso('Com duas consultas, CANCELAR funciona depois de escolher qual', [
+  ['Oi', 'Como podemos ajudar'],
+  ['4', 'consultas marcadas'],
+  ['2', 'Digite CANCELAR'],
+  ['cancelar', 'Confirma o cancelamento'],
+  ['sim', 'cancelada'],
+], {
+  pacientes: [ANA, PEDRO],
+  consultas: DUAS_CONSULTAS,
+  verificar: ({ canceladas, titulo }) => {
+    if (!canceladas.includes('c-2')) {
+      falhas.push(`${titulo} | não cancelou a consulta escolhida (canceladas: ${canceladas})`)
+    } else passou++
+  },
+})
+
+await caso('Com duas consultas, REMARCAR também funciona', [
+  ['Oi', 'Como podemos ajudar'],
+  ['4', 'consultas marcadas'],
+  ['1', 'Digite CANCELAR'],
+  ['remarcar', 'Vamos remarcar'],
+], { pacientes: [ANA, PEDRO], consultas: DUAS_CONSULTAS })
+
+// "sim, pode cancelar por favor" é sim. A comparação exata devolvia "sua
+// consulta continua marcada" para quem tinha acabado de confirmar - e no
+// caminho da remarcação, jogava a pessoa no menu depois de ela dizer sim.
+await caso('Confirmação com palavra a mais continua sendo sim', [
+  ['Oi', 'Como podemos ajudar'],
+  ['4', 'Digite CANCELAR'],
+  ['cancelar', 'Confirma o cancelamento'],
+  ['sim, pode cancelar por favor', 'cancelada'],
+], {
+  pacientes: [ANA],
+  consultas: [DUAS_CONSULTAS[0]],
+  verificar: ({ canceladas, titulo }) => {
+    if (!canceladas.includes('c-1')) {
+      falhas.push(`${titulo} | entendeu o sim como desistência e manteve a consulta`)
+    } else passou++
+  },
+})
+
+// E "não" continua sendo não: aceitar demais aqui cancelaria consulta de quem
+// estava recusando.
+await caso('Confirmação em negativo mantém a consulta', [
+  ['Oi', 'Como podemos ajudar'],
+  ['4', 'Digite CANCELAR'],
+  ['cancelar', 'Confirma o cancelamento'],
+  ['não, deixa pra lá', 'continua marcada'],
+], {
+  pacientes: [ANA],
+  consultas: [DUAS_CONSULTAS[0]],
+  verificar: ({ canceladas, titulo }) => {
+    if (canceladas.length) falhas.push(`${titulo} | cancelou a consulta de quem disse não`)
+    else passou++
+  },
+})
+
+// Um dígito solto dentro de uma frase não é escolha de menu.
+//
+// escolha() raspava TODOS os caracteres não numéricos e lia o que sobrava.
+// "meu filho de 2 anos está com sangue nas fezes" virava a opção 2 e abria o
+// agendamento; "ele tem 5 anos, o que devo levar?" abria a 2ª via. A pergunta
+// nunca era respondida, e um sintoma de alarme entrava como "quero marcar".
+await caso('Idade no meio da frase não escolhe opção do menu', [
+  ['Oi', 'Como podemos ajudar'],
+  ['meu filho de 2 anos está com sangue nas fezes', 'não posso orientar'],
+])
+
+await caso('Pergunta com número não vira escolha de menu', [
+  ['Oi', 'Como podemos ajudar'],
+  ['ele tem 5 anos, o que devo levar?', 'Não entendi'],
+])
+
+// E o que é escolha continua sendo escolha, escrito como as pessoas escrevem.
+for (const [frase, esperado] of [
+  ['2', 'Em qual unidade'],
+  [' 2 ', 'Em qual unidade'],
+  ['opção 2', 'Em qual unidade'],
+  ['2.', 'Em qual unidade'],
+  ['*2*', 'Em qual unidade'],
+]) {
+  await caso(`Escolha escrita como "${frase}"`, [
+    ['Oi', 'Como podemos ajudar'],
+    [frase, esperado],
+  ])
+}
+
+// A função sobe antes das migrations - é a ordem normal do projeto. Sem plano
+// B, um 'insurance' que o banco ainda não tem faz o Postgres recusar o INSERT
+// inteiro, e TODO agendamento pelo WhatsApp passa a responder "não consegui
+// concluir agora". Perder o convênio é arranhão; perder o horário é a família
+// sem consulta.
+await caso('Coluna nova ausente em appointments não impede o agendamento', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'está guardado'],
+], {
+  colunasAusentes: ['insurance'],
+  verificar: ({ marcadas, titulo }) => {
+    if (!marcadas.length) falhas.push(`${titulo} | não marcou nada`)
+    else passou++
+    if (marcadas.at(-1) && 'insurance' in marcadas.at(-1)) {
+      falhas.push(`${titulo} | insistiu na coluna que o banco não tem`)
+    } else passou++
+  },
+})
+
+// ---------------------------------------------------------------
+// O robô fecha o que ele mesmo resolveu
+// ---------------------------------------------------------------
+
+// Cadastro completo e consulta marcada: não sobrou nada para a equipe. Antes a
+// conversa não ganhava marca nenhuma - "Respondida" é sobre gente da equipe, e
+// "Resolvida" só vinha de alguém clicar em Concluir -, então o cartão ficava
+// com cara de pendente sem ter pendência, e a recepção abria um por um.
+await caso('Fim da ficha marca o atendimento como concluído', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'nome completo do paciente'],
+  ['Tomás Oliveira Prado', 'data de nascimento'],
+  ['14/03/2021', 'nome do acompanhante ou cuidador'],
+  ['Renata Oliveira Prado', 'CPF'],
+  ['39053344705', 'e-mail'],
+  ['pular', ['Tudo certo', 'Consulta marcada']],
+], {
+  verificar: ({ ultimoToque, titulo }) => {
+    if (!ultimoToque.concluida) {
+      falhas.push(`${titulo} | terminou sem marcar a conversa como concluída`)
+    } else passou++
+  },
+})
+
+// Pular o e-mail não deixa pendência: é campo opcional, e o robô já disse isso
+// a quem respondeu PULAR. Foi o caso real de 18/09/2026.
+await caso('Pular campo opcional ainda conclui o atendimento', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'nome completo do paciente'],
+  ['Tomás Oliveira', 'data de nascimento'],
+  ['14/03/2021', 'nome do acompanhante ou cuidador'],
+  ['Renata Oliveira', 'CPF'],
+  ['pular', 'e-mail'],
+  ['pular', 'Tudo certo'],
+], {
+  verificar: ({ ultimoToque, titulo }) => {
+    if (!ultimoToque.concluida) falhas.push(`${titulo} | não marcou como concluída`)
+    else passou++
+  },
+})
+
+// No meio do caminho, não. Conversa em andamento não é conversa resolvida.
+await caso('Meio da ficha não é conclusão', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'nome completo do paciente'],
+  ['Tomás Oliveira', 'data de nascimento'],
+], {
+  verificar: ({ ultimoToque, titulo }) => {
+    if (ultimoToque.concluida) falhas.push(`${titulo} | fechou uma conversa que ainda estava andando`)
+    else passou++
+  },
+})
+
+// Quem pediu a equipe continua pedindo. A bandeira vence a conclusão, ou o
+// robô fecharia a conversa de quem está esperando uma pessoa.
+await caso('Pedido de atendente não é fechado pelo robô', [
+  ['Oi', 'Como podemos ajudar'],
+  ['3', 'direcionando você para um atendente'],
+], {
+  verificar: ({ ultimoToque, titulo }) => {
+    if (ultimoToque.concluida) falhas.push(`${titulo} | fechou a conversa de quem pediu gente`)
+    else passou++
+  },
+})
+
+// ---------------------------------------------------------------
+// A tela de configuracao nao pode mentir sobre o menu
+// ---------------------------------------------------------------
+
+// A previa "Como a mensagem chega", em Respostas, desenha o menu a mao: e uma
+// COPIA da lista que o robo envia. Nao da para a tela buscar a lista do robo em
+// tempo de execucao - cada numero esta amarrado a uma funcao no codigo, entao
+// acrescentar ou tirar item e programacao, e a chamada de rede seria paga a
+// cada abertura de tela para saber algo que so muda em deploy.
+//
+// O que faltava era alguem avisar quando as duas listas desencontram. Em
+// 20/09/2026 a previa passou semanas mostrando TRES opcoes enquanto o robo ja
+// mandava cinco - e era justamente a tela onde a clinica ia conferir o menu.
+// Este teste quebra a publicacao quando uma muda sem a outra.
+await caso('Menu da tela de configuração bate com o que o robô envia', [
+  ['Oi', 'Como podemos ajudar'],
+], {
+  verificar: ({ ultimoToque, titulo }) => {
+    const tela = readFileSync('src/sections/Conversations.tsx', 'utf8')
+    const bloco = tela.match(/const MENU_DO_ROBO = \[([\s\S]*?)\]/)
+    if (!bloco) {
+      falhas.push(`${titulo} | não achei MENU_DO_ROBO em Conversations.tsx`)
+      return
+    }
+    const daTela = [...bloco[1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+    const doRobo = ultimoToque.resposta
+      .split('\n')
+      .filter((linha) => /^\*\d\*/.test(linha.trim()))
+      .map((linha) => linha.trim())
+
+    if (daTela.length !== doRobo.length) {
+      falhas.push(
+        `${titulo} | a tela mostra ${daTela.length} opções e o robô manda ${doRobo.length}`,
+      )
+    } else passou++
+
+    for (let i = 0; i < Math.max(daTela.length, doRobo.length); i += 1) {
+      if (daTela[i] !== doRobo[i]) {
+        falhas.push(`${titulo} | linha ${i + 1}\n     tela: ${daTela[i]}\n     robô: ${doRobo[i]}`)
+      } else passou++
+    }
+  },
+})
+
+
+// ---------------------------------------------------------------
+// Registro dos eventos (numeros do WhatsApp)
+// ---------------------------------------------------------------
+//
+// O painel da Visao geral conta em cima destes eventos. Se o robo deixar de
+// registrar, a tela nao quebra: ela passa a mentir, mostrando zero onde houve
+// movimento. Mentira silenciosa e o defeito que este projeto mais paga caro,
+// entao ela precisa falhar aqui.
+//
+// PARA PROVAR QUE ESTE TESTE PEGA O DEFEITO: comente a linha `registrar(...)`
+// correspondente em atendimento.ts e rode de novo. Cada caso abaixo aponta
+// qual linha derruba ele.
+
+// Esvazia o que sobrou dos casos anteriores: os eventos se acumulam por
+// conversa ate alguem colher, e todos os casos usam 'conv1'.
+colherEventos('conv1')
+
+async function eventosDe(titulo, passos, opcoes = {}) {
+  colherEventos('conv1')
+  await caso(titulo, passos, opcoes)
+  return colherEventos('conv1')
+}
+
+function exigirEvento(lista, evento, titulo, detalhe = undefined) {
+  const achado = lista.find(
+    (e) => e.evento === evento && (detalhe === undefined || e.detalhe === detalhe),
+  )
+  if (achado) passou++
+  else {
+    const vistos = lista.map((e) => e.evento + (e.detalhe ? `:${e.detalhe}` : '')).join(', ') || '(nenhum)'
+    falhas.push(
+      `${titulo} | faltou o evento "${evento}"${detalhe !== undefined ? ` com detalhe "${detalhe}"` : ''}\n     registrados: ${vistos}`,
+    )
+  }
+}
+
+// mostrarMenu -> registrar('menu_enviado')
+{
+  const eventos = await eventosDe('Evento: o menu aparecendo fica registrado', [
+    ['Oi', 'Como podemos ajudar'],
+  ])
+  exigirEvento(eventos, 'menu_enviado', 'Evento do menu')
+}
+
+// tratarConversa, bloco do menu -> registrar('opcao_escolhida', ...)
+// Este e o que responde "o que as pessoas mais pedem".
+{
+  const eventos = await eventosDe('Evento: a opção escolhida no menu fica registrada', [
+    ['Oi', 'Como podemos ajudar'],
+    ['3', 'direcionando você para um atendente'],
+  ])
+  exigirEvento(eventos, 'opcao_escolhida', 'Evento da opção', '3')
+}
+
+// A opcao escrita por extenso tambem conta, porque escolha() ja aceita.
+{
+  const eventos = await eventosDe('Evento: "opção 2" por extenso também é registrada', [
+    ['Oi', 'Como podemos ajudar'],
+    ['opção 2', 'Em qual unidade'],
+  ])
+  exigirEvento(eventos, 'opcao_escolhida', 'Evento da opção por extenso', '2')
+}
+
+// Frase solta NAO pode virar opcao escolhida: era o defeito que fazia
+// "meu filho de 2 anos" abrir o agendamento. Se voltar, o painel passa a
+// contar escolhas que ninguem fez.
+{
+  const eventos = await eventosDe('Evento: frase com número não vira opção escolhida', [
+    ['Oi', 'Como podemos ajudar'],
+    ['meu pai de 82 anos está com dor de barriga', 'Dra. Patrícia'],
+  ])
+  const inventado = eventos.find((e) => e.evento === 'opcao_escolhida')
+  if (inventado) {
+    falhas.push(
+      `Evento inventado | uma frase virou "opção ${inventado.detalhe}" no painel`,
+    )
+  } else passou++
+  // Sintoma tem nome proprio: o robo entendeu e escolheu nao opinar. Contar
+  // como "nao entendi" misturaria limite nosso com menu confuso.
+  exigirEvento(eventos, 'assunto_clinico', 'Evento do assunto clínico')
+}
+
+// mostrarMenu com aviso de "Nao entendi" -> registrar('nao_entendi').
+// Este e o alarme de menu incompleto, e e o caminho por onde mais gente passa.
+{
+  const eventos = await eventosDe('Evento: o "não entendi" do menu fica registrado', [
+    ['Oi', 'Como podemos ajudar'],
+    ['blablabla', 'Não entendi'],
+  ])
+  exigirEvento(eventos, 'nao_entendi', 'Evento do não entendi no menu')
+}
+
+// A funcao naoEntendi(), que e OUTRO ponto: vale para quem ja esta dentro de
+// um fluxo - escolhendo unidade, dia ou horario - e escreve qualquer coisa.
+//
+// Este caso nasceu da propria prova: desliguei o registrar() de dentro de
+// naoEntendi() e nenhum teste caiu, porque so o caminho do menu estava coberto.
+// Linha de instrumentacao sem teste e linha que morre calada na proxima
+// refatoracao, e o painel nunca conta que parou.
+{
+  const eventos = await eventosDe('Evento: o "não entendi" dentro do fluxo fica registrado', [
+    ['Oi', 'Como podemos ajudar'],
+    ['2', 'Em qual unidade'],
+    ['xyz nada a ver', 'Não entendi'],
+  ])
+  exigirEvento(eventos, 'nao_entendi', 'Evento do não entendi no fluxo')
+}
+
+// marcar() -> registrar('agendou'), so depois do INSERT dar certo.
+{
+  const eventos = await eventosDe('Evento: consulta marcada fica registrada', [
+    ['Oi', 'Olá, Ana!'],
+    ['2', 'Em qual unidade'],
+    ['1', 'Datas disponíveis'],
+    ['1', 'Horários de'],
+    ['1', 'Consulta marcada!'],
+  ], { pacientes: [ANA] })
+  exigirEvento(eventos, 'agendou', 'Evento do agendamento')
+}
+
+// ... e NAO pode registrar quando o banco recusa: o painel diria que o robo
+// marcou mais consultas do que existem na agenda.
+{
+  const eventos = await eventosDe('Evento: agendamento que falhou não conta como marcado', [
+    ['Oi', 'Olá, Ana!'],
+    ['2', 'Em qual unidade'],
+    ['1', 'Datas disponíveis'],
+    ['1', 'Horários de'],
+    ['1', 'Não consegui concluir'],
+  ], { pacientes: [ANA], erroInsert: { code: '23503', message: 'falhou' } })
+  if (eventos.some((e) => e.evento === 'agendou')) {
+    falhas.push('Evento do agendamento que falhou | contou como consulta marcada')
+  } else passou++
+}
+
+
+// ---------------------------------------------------------------
+// Trocar de dia estando na lista de horarios
+// ---------------------------------------------------------------
+//
+// Caso real de 22/09/2026: a mae via os horarios de um dia, mudou de ideia e
+// tocou no item de OUTRO dia, na lista de datas da mensagem anterior. O robo
+// marcou um horario que ela nunca escolheu. O webhook agora passa o texto do
+// item ("terça, 01/09") quando o toque e numa lista antiga - e o robo precisa
+// entender esse texto como troca de dia, nunca como horario.
+//
+// PARA PROVAR: apague o bloco "Mudou de ideia sobre o DIA" em
+// aguardando_horario. O primeiro caso cai.
+await caso(
+  'Real 22/09: data digitada na lista de horários mostra os horários daquele dia',
+  [
+    ['Oi', 'Olá, Ana!'],
+    ['2', 'Em qual unidade'],
+    ['1', 'Datas disponíveis'],
+    ['1', 'Horários de'],
+    ['terça, 01/09', ['Horários de', '01/09']],
+  ],
+  {
+    pacientes: [ANA],
+    verificar: ({ marcadas, titulo }) => {
+      if (marcadas.length !== 0) {
+        falhas.push(`${titulo} | marcou ${marcadas.length} consulta(s) sem a pessoa escolher horário`)
+      } else passou++
+    },
+  },
+)
+
+await caso(
+  'Data sem vaga na lista de horários avisa e não marca nada',
+  [
+    ['Oi', 'Olá, Ana!'],
+    ['2', 'Em qual unidade'],
+    ['1', 'Datas disponíveis'],
+    ['1', 'Horários de'],
+    ['25/12', 'Não há horários livres em 25/12'],
+  ],
+  {
+    pacientes: [ANA],
+    verificar: ({ marcadas, titulo }) => {
+      if (marcadas.length !== 0) falhas.push(`${titulo} | marcou sem escolha`)
+      else passou++
+    },
+  },
+)
+
+// ...e o numero continua valendo como sempre: "4" e o quarto horario.
+await caso(
+  'Número na lista de horários continua marcando aquele horário',
+  [
+    ['Oi', 'Olá, Ana!'],
+    ['2', 'Em qual unidade'],
+    ['1', 'Datas disponíveis'],
+    ['1', 'Horários de'],
+    ['4', 'Consulta marcada!'],
+  ],
+  { pacientes: [ANA] },
+)
+
+
+// ---------------------------------------------------------------
+// Pedido de nota fiscal (22/09/2026)
+// ---------------------------------------------------------------
+//
+// Uma mae pediu a NF de uma consulta na primeira mensagem e recebeu o menu
+// inteiro, como se nao tivesse dito nada. O pedido e administrativo: o robo
+// entende, pede o que falta e chama a equipe.
+//
+// PARA PROVAR: comente as duas linhas `if (pediuNotaFiscal(texto))` em
+// atendimento.ts. Os dois primeiros casos caem.
+await caso(
+  'NF pedida na primeira mensagem vira pedido para a equipe, sem menu',
+  [['Boa tarde, estive com meu filho em consulta com o dr. e foi solicitado a nf', ['Anotei o pedido de *nota fiscal', 'nome do paciente']]],
+  {
+    primeiraMensagem: true,
+    verificar: ({ conversa, ultimoToque, titulo }) => {
+      if (ultimoToque.atencao !== 'documento') falhas.push(`${titulo} | atenção ${ultimoToque.atencao}`)
+      else passou++
+      if (conversa.booking_state !== 'atendente') falhas.push(`${titulo} | estado ${conversa.booking_state}`)
+      else passou++
+      if (ultimoToque.resposta.includes('Como podemos ajudar')) falhas.push(`${titulo} | mandou o menu`)
+      else passou++
+    },
+  },
+)
+
+await caso('NF escrita com o menu na tela também é entendida', [
+  ['Oi', 'Como podemos ajudar'],
+  ['preciso da nota fiscal da consulta de agosto', 'Anotei o pedido de *nota fiscal'],
+])
+
+await caso('"preciso do recibo da consulta" também é pedido', [
+  ['Oi', 'Como podemos ajudar'],
+  ['preciso do recibo da consulta para o reembolso', 'Anotei o pedido'],
+])
+
+// Pergunta sobre a clinica nao e pedido: quem so quer saber se ha recibo nao
+// pode ir para a fila da equipe.
+{
+  const { transcricao } = await caso('"vocês emitem recibo?" não vira pedido', [
+    ['Oi', 'Como podemos ajudar'],
+    ['vocês emitem recibo?', ''],
+  ])
+  const ultima = transcricao.at(-1) ?? ''
+  if (ultima.includes('Anotei o pedido')) falhas.push('"vocês emitem recibo?" virou pedido de nota')
+  else passou++
+}
+
+// Palavras que contem "nf" nao podem disparar.
+{
+  const { transcricao } = await caso('"confirmar" não é nota fiscal', [
+    ['Oi', 'Como podemos ajudar'],
+    ['quero confirmar uma informação', ''],
+  ])
+  if ((transcricao.at(-1) ?? '').includes('Anotei o pedido')) falhas.push('"confirmar" virou pedido de nota')
+  else passou++
+}
 
 console.log('\n============================================')
 console.log(`VERIFICAÇÕES QUE PASSARAM: ${passou}`)

@@ -16,9 +16,16 @@ import type { Consultation, Patient } from '@/types/patient'
 
 const URL_SCRIPT_HOMOLOGACAO =
   'https://integrations.memed.com.br/modulos/plataforma.sinapse-prescricao/build/sinapse-prescricao.min.js'
-// Em producao a Memed serve o script por outro endereco (documentacao de
-// boas praticas, 2026). O de homologacao e o "sinapse-prescricao.min.js".
-const URL_SCRIPT_PRODUCAO = 'https://partners.memed.com.br/integration.js'
+// Producao: MESMO caminho da homologacao, so muda o dominio.
+//
+// Ate 16/09/2026 aqui estava 'https://partners.memed.com.br/integration.js',
+// tirado de um guia de boas praticas. Esse arquivo nao existe: no primeiro
+// teste com as chaves de producao o script falhou em silencio, e o botao
+// "Prescrever" ficou girando para sempre esperando algo que nunca chegava.
+// Conferido no ar: este endereco responde 200 com a versao 3.25.0; o outro
+// nao responde.
+const URL_SCRIPT_PRODUCAO =
+  'https://partners.memed.com.br/modulos/plataforma.sinapse-prescricao/build/sinapse-prescricao.min.js'
 // Id fixo exigido pela homologacao da Memed: e por ele que se garante que o
 // script entrou uma unica vez na pagina.
 const ID_SCRIPT = 'memed-prescricao-script'
@@ -54,6 +61,61 @@ let carregando: Promise<void> | null = null
 const ouvintes: Ouvintes = {}
 
 /**
+ * Devolve a rolagem da pagina depois que a Memed fecha.
+ *
+ * Relatado em 21/09/2026: prescrever e voltar para a lista de pacientes
+ * deixava a tela travada - a roda do mouse nao descia mais, e so recarregando
+ * voltava ao normal. Conferido no navegador do consultorio: o <body> ficava
+ * com style="overflow: hidden" inline, e todos os iframes da Memed ja estavam
+ * display:none. Ou seja, nada estava aberto; so a trava tinha ficado.
+ *
+ * E a trava que qualquer modal poe para a pagina de tras nao rolar junto. A
+ * Memed poe ao abrir e nao tira em todos os caminhos de saida.
+ *
+ * Limpar aqui e seguro porque ESTE sistema nunca mexe em body.style.overflow -
+ * conferido no codigo inteiro. Qualquer valor inline ali e da Memed.
+ */
+function destravarRolagem() {
+  document.body.style.removeProperty('overflow')
+  document.body.style.removeProperty('overflow-y')
+  document.body.style.removeProperty('position')
+  document.documentElement.style.removeProperty('overflow')
+  document.documentElement.style.removeProperty('overflow-y')
+}
+
+/** Algum modulo da Memed esta aberto na tela neste momento? */
+function memedNaTela(): boolean {
+  return [...document.querySelectorAll('iframe[id^="mdhub-module-"]')].some(
+    (quadro) => getComputedStyle(quadro).display !== 'none',
+  )
+}
+
+/**
+ * Rede de seguranca para a trava de rolagem.
+ *
+ * Os dois ganchos de evento cobrem os caminhos de saida que a Memed anuncia.
+ * Este observador cobre os que ela nao anuncia: se o <body> ganhar overflow
+ * escondido SEM nenhum modulo visivel, a trava e resto de algo que ja fechou, e
+ * cai fora na hora.
+ *
+ * So dispara quando o atributo style do body muda, entao nao custa nada
+ * enquanto ninguem prescreve. E a checagem de modulo visivel e o que impede
+ * este codigo de brigar com uma trava legitima: com a Memed aberta na frente,
+ * a pagina de tras DEVE ficar presa.
+ */
+let vigia: MutationObserver | null = null
+
+function vigiarTravaDeRolagem() {
+  if (vigia) return
+  vigia = new MutationObserver(() => {
+    if (!document.body.style.overflow) return
+    if (memedNaTela()) return
+    destravarRolagem()
+  })
+  vigia.observe(document.body, { attributes: true, attributeFilter: ['style'] })
+}
+
+/**
  * Carrega o script uma unica vez.
  *
  * A promessa fica guardada para que dois cliques seguidos no botao nao
@@ -67,6 +129,38 @@ async function carregarScript(token: string, producao: boolean) {
   if (document.getElementById(ID_SCRIPT) && janela().MdHub) return Promise.resolve()
 
   carregando = new Promise<void>((resolve, reject) => {
+    // Guardado fora dos dois fechamentos para o prazo tambem conseguir parar a
+    // espera: sem isso, um carregamento que falhou continuaria perguntando pelo
+    // MdHub a cada 200ms para sempre.
+    let espera = 0
+    // Prazo para o script se anunciar.
+    //
+    // A promessa só termina dentro do evento 'core:moduleInit' da Memed. Se
+    // esse evento não vier - script inexistente, rede caída, mudança do lado
+    // deles -, o botão gira para sempre e ninguém sabe por quê. Foi o que
+    // aconteceu em 16/09/2026, com o endereço errado do script de produção.
+    // Quarenta segundos, e não vinte: desde 21/09/2026 a espera inclui os
+    // módulos da Memed, não só o script dela. Medido a frio, script e módulos
+    // levaram uns 16 s juntos; vinte ficava perto demais do limite num dia de
+    // rede lenta. Como isto roda no login, e não no clique, o prazo maior não
+    // custa espera para ninguém - só evita desistir de um carregamento que ia
+    // terminar.
+    const prazo = window.setTimeout(() => {
+      window.clearInterval(espera)
+      carregando = null
+      reject(new Error('A Memed não respondeu a tempo. Tente de novo em instantes.'))
+    }, 40_000)
+    const pronto = () => {
+      window.clearTimeout(prazo)
+      resolve()
+    }
+    const falhou = (causa: Error) => {
+      window.clearTimeout(prazo)
+      window.clearInterval(espera)
+      carregando = null
+      reject(causa)
+    }
+
     const script = document.createElement('script')
     script.id = ID_SCRIPT
     script.src = producao ? URL_SCRIPT_PRODUCAO : URL_SCRIPT_HOMOLOGACAO
@@ -76,41 +170,89 @@ async function carregarScript(token: string, producao: boolean) {
     script.onload = () => {
       const memed = janela()
       if (!memed.MdSinapsePrescricao) {
-        reject(new Error('A Memed carregou mas não se anunciou.'))
+        falhou(new Error('A Memed carregou mas não se anunciou.'))
         return
       }
-
-      // Os ouvintes sao registrados uma vez so, na inicializacao do modulo, e
-      // repassam para quem estiver na tela naquele momento. Registrar a cada
-      // abertura acumularia callbacks e salvaria a mesma receita varias vezes.
-      memed.MdSinapsePrescricao.event.add('core:moduleInit', (modulo) => {
-        const dados = modulo as { name?: string }
-        if (dados?.name !== 'plataforma.prescricao') return
-
-        const hub = janela().MdHub
-        if (!hub) return
-
-        hub.event.add('prescricaoImpressa', (receita) => ouvintes.onReceita?.(receita))
-        hub.event.add('prescricaoExcluida', (dados) => {
-          const excluida = dados as { id?: string | number }
-          if (excluida?.id !== undefined) ouvintes.onExcluida?.(String(excluida.id))
-        })
-
-        resolve()
-      })
 
       // Fechamento do modulo e evento do MdSinapsePrescricao, nao do MdHub.
       memed.MdSinapsePrescricao.event.add('core:moduleHide', (modulo) => {
         const dados = modulo as { moduleName?: string; name?: string }
         const nome = dados?.moduleName ?? dados?.name
+
+        // A rolagem volta a QUALQUER modulo que feche, e nao so ao da
+        // prescricao. A Memed tem dezesseis modulos (preview, assinatura,
+        // alerta, medicamento...) e qualquer um deles pode ter sido o ultimo a
+        // sair; se a gente so destravasse no nome certo, bastaria o medico
+        // fechar pela previa para a tela continuar presa. Destravar duas vezes
+        // nao custa nada; deixar preso custa uma recarga.
+        destravarRolagem()
+
         if (nome && nome !== 'plataforma.prescricao') return
         ouvintes.onFechar?.()
       })
+
+      // Espera o MdHub existir, e nao um evento com um nome especifico.
+      //
+      // Ate 16/09/2026 a promessa so terminava dentro do evento
+      // 'core:moduleInit' quando o modulo se chamasse 'plataforma.prescricao'.
+      // Isso funcionava em homologacao e travou no primeiro teste em producao:
+      // o console mostrava "Todos os modulos da plataforma foram carregados com
+      // sucesso", o MdHub existia, a prescricao abria quando chamada a mao - e
+      // o botao girava para sempre, porque o evento nunca casou com a condicao.
+      //
+      // Perguntar "o MdHub ja existe?" nao depende do nome nem do formato do
+      // evento, que sao deles e mudam sem aviso. O que a gente precisa saber e
+      // exatamente isso: da para mandar comando.
+      //
+      // Os ouvintes de receita sao registrados aqui, uma vez so. Registrar a
+      // cada abertura acumularia callbacks e salvaria a mesma receita varias
+      // vezes.
+      // 60ms, e não 200: como isto agora roda antes do clique, o custo de
+      // perguntar com mais frequência é invisível, e a diferença aparece
+      // inteira no caso em que o médico clica logo que abre o prontuário.
+      let ouvintesRegistrados = false
+      espera = window.setInterval(() => {
+        const hub = janela().MdHub
+        if (!hub) return
+
+        if (!ouvintesRegistrados) {
+          ouvintesRegistrados = true
+          // Destrava tambem ao emitir: em alguns caminhos a Memed fecha sozinha
+          // depois de imprimir, e o moduleHide correspondente nem sempre chega.
+          hub.event.add('prescricaoImpressa', (receita) => {
+            destravarRolagem()
+            ouvintes.onReceita?.(receita)
+          })
+
+          // Liga a rede de seguranca so depois que a Memed existe: antes disso
+          // nao ha o que vigiar.
+          vigiarTravaDeRolagem()
+          hub.event.add('prescricaoExcluida', (dados) => {
+            const excluida = dados as { id?: string | number }
+            if (excluida?.id !== undefined) ouvintes.onExcluida?.(String(excluida.id))
+          })
+        }
+
+        // O MdHub existir NAO quer dizer que da para mandar comando.
+        //
+        // Medido em 21/09/2026, primeira abertura do dia: o hub apareceu, o
+        // setFeatureToggle foi mandado na hora, e esperou 8 segundos ate
+        // desistir - o modulo da prescricao ainda estava baixando. A linha
+        // "Todos os modulos foram carregados" so apareceu no console DEPOIS
+        // do comando falhar. Oito segundos de espera por perguntar cedo.
+        //
+        // O sinal certo e o iframe do modulo estar na pagina: e o proprio
+        // MdHub que o cria, quando o modulo termina de carregar. DOM, e nao
+        // nome de evento - pelo mesmo motivo da espera pelo hub, logo acima.
+        if (!document.getElementById('mdhub-module-plataforma.prescricao')) return
+
+        window.clearInterval(espera)
+        pronto()
+      }, 60)
     }
 
     script.onerror = () => {
-      carregando = null
-      reject(new Error('Não foi possível carregar a prescrição da Memed.'))
+      falhou(new Error('Não foi possível carregar a prescrição da Memed.'))
     }
 
     document.body.appendChild(script)
@@ -180,6 +322,119 @@ export type LocalDeAtendimento = {
   nome: string
   endereco?: string
   telefone?: string
+  cidade?: string
+  /** Cadastro Nacional de Estabelecimentos de Saúde desta unidade. */
+  cnes?: string
+}
+
+/**
+ * A cidade dentro do nome da unidade.
+ *
+ * As unidades são cadastradas como "Liferty · Santos" e "Livance Ibirapuera ·
+ * São Paulo": o que vem depois do separador é a cidade. Só aceita "·" e " - "
+ * com espaços dos dois lados, para não partir um nome como "Santa-Cecília" no
+ * meio. Sem separador, devolve nada e a Memed usa a cidade do cadastro.
+ */
+function cidadeDoNome(nome: string): string | undefined {
+  const separador = nome.includes('·') ? '·' : nome.includes(' - ') ? ' - ' : null
+  if (!separador) return undefined
+  return nome.split(separador).pop()?.trim() || undefined
+}
+
+/**
+ * Manda um comando para a Memed sem deixar a tela presa nele.
+ *
+ * Os comandos devolvem promessa, e promessa que nunca termina trava o botao
+ * para sempre - foi o que aconteceu nos testes de producao de 16/09/2026, com
+ * a Memed carregada e visivel no console, e o "Prescrever" girando. Oito
+ * segundos e muito mais do que qualquer um deles leva.
+ *
+ * Nunca lanca: um comando recusado vira aviso no console e a prescricao segue.
+ * Preferir abrir a tela com um campo em branco a nao abrir tela nenhuma.
+ */
+async function comando(
+  hub: NonNullable<MemedGlobal['MdHub']>,
+  passo: string,
+  dados: unknown,
+  prazo = 8000,
+) {
+  const inicio = performance.now()
+  try {
+    await Promise.race([
+      hub.command.send('plataforma.prescricao', passo, dados),
+      new Promise((_, rejeitar) =>
+        window.setTimeout(() => rejeitar(new Error('sem resposta')), prazo),
+      ),
+    ])
+    medir(passo, inicio)
+    return true
+  } catch (causa) {
+    medir(`${passo} (falhou)`, inicio)
+    console.warn(`[Memed] ${passo} não respondeu`, causa)
+    return false
+  }
+}
+
+/**
+ * Quanto cada etapa do clique em Prescrever demora, no console.
+ *
+ * Existe para responder a uma pergunta feita em 21/09/2026: "da para abrir
+ * mais rapido?". A resposta honesta era "nao sei onde o tempo vai". O script
+ * ja carrega antes do clique; o que sobra sao tres comandos e o show da tela,
+ * e sem numero nao da para saber se vale mexer nos comandos ou se e tudo o
+ * show, que e da Memed e nao temos como acelerar.
+ *
+ * Fica no console, e nao numa tela, porque e para o desenvolvedor ler uma
+ * vez e decidir. Quando a decisao estiver tomada, isto pode sair.
+ */
+function medir(etapa: string, inicio: number) {
+  console.info(`[Memed] ${etapa}: ${Math.round(performance.now() - inicio)} ms`)
+}
+
+/**
+ * O trabalho pesado, feito ANTES de alguém clicar em Prescrever.
+ *
+ * Abrir a prescrição custava a soma de três esperas em série, todas depois do
+ * clique: a função do servidor buscando o token (que por sua vez consulta a
+ * Memed), o download do script deles, e o módulo subindo até aceitar comando.
+ * O médico ficava olhando o botão girar por isso.
+ *
+ * Nada disso depende do paciente, e nada disso precisa acontecer naquele
+ * momento. Chamando esta função quando o prontuário abre, a espera acontece
+ * enquanto ele lê a ficha - e o clique fica só com o que é do paciente.
+ *
+ * Roda UMA VEZ por sessão. O script da Memed é global e carrega uma vez só de
+ * qualquer jeito, e o token vai grudado nele; então preparar no primeiro
+ * prontuário do dia serve para todos os outros, sem repetir chamada à Memed.
+ *
+ * Falha não incomoda ninguém: a promessa é descartada e a próxima tentativa
+ * acontece no clique, do jeito antigo, com o erro aparecendo aí sim na tela.
+ */
+let preparacao: Promise<{ token: string; producao: boolean; cadastro?: { feito: boolean; detalhe?: string } }> | null = null
+
+export function prepararPrescricao() {
+  if (!preparacao) {
+    preparacao = (async () => {
+      const dados = await tokenDoPrescritor()
+      await carregarScript(dados.token, dados.producao)
+
+      // So o VIDaaS na lista de certificadoras: e o certificado que o medico
+      // ja usa para assinar o prontuario. Sem isto a Memed oferece sete opcoes
+      // e a pessoa tem de saber qual e a sua.
+      //
+      // Fica aqui, e nao no clique, porque nao depende de paciente nem de
+      // unidade - e uma vez por sessao basta. Ate 21/09/2026 era o primeiro
+      // comando do clique, e a frio custou 8 segundos (ver carregarScript).
+      const hub = janela().MdHub
+      if (hub) await comando(hub, 'setFeatureToggle', { setAllowedSignatureProviders: ['vidaas'] })
+
+      return dados
+    })()
+    preparacao.catch(() => {
+      preparacao = null
+    })
+  }
+  return preparacao
 }
 
 export async function abrirPrescricao(
@@ -188,9 +443,14 @@ export async function abrirPrescricao(
   ouvir: Ouvintes,
   local?: LocalDeAtendimento | null,
 ) {
-  const { token, producao, cadastro } = await tokenDoPrescritor()
+  const inicioDoClique = performance.now()
+
+  // Se o prontuário já preparou, isto retorna na hora.
+  const { cadastro } = await prepararPrescricao()
   ultimoCadastro = cadastro
-  await carregarScript(token, producao)
+  // Se isto der mais que uns poucos ms, o aquecimento do prontuario nao
+  // aconteceu, e o medico esperou o download do script no clique.
+  medir('preparação (token + script)', inicioDoClique)
 
   ouvintes.onReceita = ouvir.onReceita
   ouvintes.onExcluida = ouvir.onExcluida
@@ -199,45 +459,40 @@ export async function abrirPrescricao(
   const hub = janela().MdHub
   if (!hub) throw new Error('A prescrição da Memed não está pronta.')
 
-  // So o VIDaaS na lista de certificadoras: e o certificado que o medico ja
-  // usa para assinar o prontuario. Sem isto a Memed oferece sete opcoes e a
-  // pessoa tem de saber qual e a sua. O resto fica no padrao da Memed.
-  try {
-    await hub.command.send('plataforma.prescricao', 'setFeatureToggle', {
-      setAllowedSignatureProviders: ['vidaas'],
-    })
-  } catch {
-    // Preferencia de tela: se a Memed recusar, a prescricao segue igual.
-  }
+  // setFeatureToggle ja foi no aquecimento (prepararPrescricao). Daqui para
+  // baixo so o que depende deste paciente e desta unidade.
 
   const primeiroNome = patient.nome.trim().split(/\s+/)[0] ?? patient.nome
 
-  // O local de atendimento sai impresso no rodape da receita, e a Memed passou
-  // a exigir endereco e telefone do local na identificacao. Vai ANTES do
-  // paciente, na ordem que a Memed documenta: depois, o modulo ignorava e a
-  // receita saia sem endereco nem telefone. Vai o endereco da
-  // unidade cadastrada na Agenda; sem ele o medico teria de digitar a cada
-  // receita.
+  // O local de atendimento: endereco, cidade e telefone que a Memed imprime na
+  // receita e cobra na tela de Identificacao desde que a Anvisa passou a exigi-los.
+  //
+  // OS NOMES DOS CAMPOS SAO DELES, EM INGLES, E NAO PODEM SER TRADUZIDOS.
+  // Ate 16/09/2026 mandavamos id/nome/endereco/telefone/cidade/uf. A Memed nao
+  // reclama de campo que nao conhece - ela ignora. Resultado: mandavamos tudo
+  // certo e chegava nada, a tela de Identificacao abria com endereco, cidade e
+  // telefone em branco, e o medico preenchia a mao a cada receita. Os nomes
+  // certos, documentados em setWorkplace, sao: city, state, cnes, local_name,
+  // address, phone.
+  //
+  // Vai ANTES do paciente, na ordem que a Memed documenta. Se ela recusar, a
+  // receita ainda sai - local e cabecalho, nao e a prescricao.
   const nomeDoLocal = local?.nome ?? consultation?.unidade
   if (nomeDoLocal) {
-    try {
-      await hub.command.send('plataforma.prescricao', 'setWorkplace', {
-        id: `central-de-cuidado-${nomeDoLocal}`,
-        nome: nomeDoLocal,
-        endereco: local?.endereco || undefined,
-        telefone: local?.telefone || undefined,
-        cidade: nomeDoLocal.split('·').pop()?.trim() || undefined,
-        uf: 'SP',
-      })
-    } catch (causa) {
-      // Local e detalhe do rodape: se a Memed recusar, a receita ainda sai.
-      // Mas fica registrado, porque "endereco em branco" sem pista custou
-      // uma tarde de teste.
-      console.warn('[Memed] setWorkplace recusado', causa)
-    }
+    await comando(hub, 'setWorkplace', {
+      local_name: nomeDoLocal,
+      address: local?.endereco || undefined,
+      city: local?.cidade || cidadeDoNome(nomeDoLocal),
+      state: 'SP',
+      phone: local?.telefone || undefined,
+      // Obrigatorio para quem integra a partir de agora, e a clinica ainda vai
+      // levantar o numero de cada unidade. Enquanto nao houver, nao se manda o
+      // campo vazio: valor em branco e pior do que ausencia.
+      ...(local?.cnes ? { cnes: local.cnes } : {}),
+    })
   }
 
-  await hub.command.send('plataforma.prescricao', 'setPaciente', {
+  await comando(hub, 'setPaciente', {
     // Prefixo do parceiro, como a Memed pede: o id sozinho colidiria com o
     // de outros sistemas no ambiente compartilhado de homologacao.
     idExterno: `central-de-cuidado-${patient.id}`,
@@ -255,7 +510,16 @@ export async function abrirPrescricao(
     cidade: patient.cidade || undefined,
   })
 
-  await hub.module.show('plataforma.prescricao')
+  // A tela abre mesmo que algum comando acima tenha falhado: com o paciente em
+  // branco o medico digita o nome e prescreve; com o botao girando, ele nao faz
+  // nada.
+  const inicioDoShow = performance.now()
+  await Promise.race([
+    hub.module.show('plataforma.prescricao'),
+    new Promise((resolver) => window.setTimeout(resolver, 8000)),
+  ])
+  medir('show da tela', inicioDoShow)
+  medir('TOTAL do clique ao abrir', inicioDoClique)
   return primeiroNome
 }
 

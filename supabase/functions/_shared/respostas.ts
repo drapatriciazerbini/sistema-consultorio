@@ -76,6 +76,52 @@ export function assuntoClinico(texto: string): boolean {
 }
 
 /**
+ * Medicamento que a 2ª via automática não alcança.
+ *
+ * Controlado da Portaria 344 não se resolve por WhatsApp. A receita sai em
+ * receituário próprio - notificação amarela, azul ou branca em duas vias -, a
+ * farmácia RETÉM a via original e o número dela é escriturado. Reenviar um PDF
+ * não substitui papel que ficou no balcão, e prometer isso ao pai faria a
+ * família voltar na farmácia para ouvir não.
+ *
+ * A lista é curta e grosseira, como a de assunto clínico, e pelo mesmo motivo:
+ * errar para o lado de chamar a equipe não custa nada. Quem cai aqui por engano
+ * fala com gente; quem passaria batido receberia uma promessa que a lei não
+ * deixa cumprir.
+ *
+ * O que está aqui: o que uma criança em acompanhamento gastro pode estar
+ * usando por outro médico - neuro, psiquiatria, dor - e chegar pedindo 2ª via
+ * por ser o WhatsApp que ela tem na mão.
+ */
+const CONTROLADO = [
+  // Como a família costuma dizer, sem saber o nome da regra.
+  'controlado', 'controlada', 'controlados', 'tarja', 'preta', 'azul', 'amarela',
+  'notificacao', 'especial', 'retencao', 'reteve', 'retido',
+  // Psicotrópicos e afins.
+  'ritalina', 'metilfenidato', 'concerta', 'venvanse', 'lisdexanfetamina',
+  'rivotril', 'clonazepam', 'diazepam', 'valium', 'bromazepam', 'lexotan',
+  'alprazolam', 'frontal', 'fenobarbital', 'gardenal', 'fenitoina',
+  'carbamazepina', 'tegretol', 'depakene', 'valproato', 'topiramato',
+  'risperidona', 'risperdal', 'quetiapina', 'aripiprazol', 'haloperidol',
+  'fluoxetina', 'sertralina', 'escitalopram', 'amitriptilina', 'imipramina',
+  // Opioides e derivados.
+  'codeina', 'tramadol', 'morfina', 'metadona', 'petidina', 'tylex',
+  'clonidina', 'melatonina',
+]
+
+/**
+ * A pessoa está pedindo 2ª via de algo que exige receituário especial?
+ *
+ * Só olha para o nome que ela escreveu. Não tenta ler prontuário: a 2ª via é
+ * pedida por quem pode não ser paciente do Dr. Marcello para aquele remédio, e
+ * a pergunta aqui é sobre a receita, não sobre o tratamento.
+ */
+export function medicamentoControlado(texto: string): boolean {
+  const palavras = new Set(palavrasDe(texto))
+  return CONTROLADO.some((termo) => palavras.has(termo))
+}
+
+/**
  * Quantas palavras do assunto aparecem na mensagem.
  *
  * Palavra com cinco letras ou mais também vale por começo ("convenio" acha
@@ -109,9 +155,23 @@ function pontos(palavras: string[], daMensagem: Set<string>): number {
  * As respostas chegam na ordem de exibição, então empate de pontuação fica com
  * a que a clínica colocou primeiro - que é o que ela considera mais provável.
  */
+/**
+ * A resposta pronta que melhor casa com a mensagem.
+ *
+ * `minimoDePontos` e quantas palavras do assunto precisam aparecer. Uma basta
+ * na conversa comum: quem escreve "convenio?" quer a resposta de convenio.
+ *
+ * Na fila da equipe o robo pede duas, e a diferenca importa. "Quero marcar
+ * retorno para o Anthony" casa com UMA palavra ("retorno", do assunto de
+ * documentos) e nao e pergunta nenhuma - responder ali seria falar do que
+ * ninguem perguntou. Ja "ele aceita AMIL? Qual o valor da consulta particular e
+ * as formas de pagamento?" casa com quatro, e e exatamente a duvida que a
+ * clinica responde vinte vezes por dia. Duas palavras separam as duas coisas.
+ */
 export function acharResposta(
   texto: string,
   respostas: RespostaPronta[],
+  minimoDePontos = 1,
 ): RespostaPronta | null {
   if (!texto.trim() || respostas.length === 0) return null
   if (assuntoClinico(texto)) return null
@@ -128,7 +188,7 @@ export function acharResposta(
       melhorPonto = ponto
     }
   }
-  return melhor
+  return melhorPonto >= minimoDePontos ? melhor : null
 }
 
 type Admin = {

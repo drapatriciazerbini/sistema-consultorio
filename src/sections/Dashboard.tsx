@@ -9,12 +9,14 @@ import {
   MapPinned,
   Stethoscope,
   Building2,
+  MessageCircle,
   UsersRound,
 } from 'lucide-react'
 import type { Patient } from '@/types/patient'
 import type { PendingRequest } from '@/lib/repository'
 import { dueCount, idadeAnos, pendingFollowups } from '@/lib/followup'
 import { nomeDoCid } from '@/lib/cid'
+import NumerosDoWhatsApp from '@/sections/NumerosDoWhatsApp'
 
 const NAVY = '#193d36'
 // Azul de destaque do sistema (proposta 3, aprovada em 08/09/2026). O nome
@@ -23,6 +25,20 @@ const AZUL = '#2f7f74'
 const SAGE = '#6f9d91'
 
 const cardClass = 'surface-card rounded-[24px]'
+
+/**
+ * As duas leituras da Visão geral.
+ *
+ * "Base clínica" descreve quem já é paciente: perfil, CID, convênio, ritmo de
+ * consultas. "WhatsApp" descreve quem está chegando e o que o robô fez com
+ * isso. São perguntas diferentes, feitas por gente em momentos diferentes -
+ * misturar as duas numa rolagem só foi o erro da primeira versão.
+ */
+const ABAS = [
+  { chave: 'clinica' as const, rotulo: 'Base clínica', icone: Stethoscope },
+  { chave: 'whatsapp' as const, rotulo: 'WhatsApp', icone: MessageCircle },
+]
+type Aba = (typeof ABAS)[number]['chave']
 
 function Kpi({
   label,
@@ -172,17 +188,25 @@ function Ranking({
   title,
   items,
   color,
+  maiusculo = false,
 }: {
   title: string
   items: [string, number][]
   color: string
+  /**
+   * Nome do CID, cidade, bairro e convênio vêm digitados de mil jeitos
+   * ("santos", "Santos", "SANTOS"). Em caixa alta as três viram a mesma coisa
+   * aos olhos de quem lê o painel, e a coluna para de parecer bagunçada.
+   * Só a aparência muda: o que está gravado continua como foi escrito.
+   */
+  maiusculo?: boolean
 }) {
   const max = Math.max(...items.map((item) => item[1]), 1)
   return (
     <div>
       <p className="mb-3 text-[10px] font-extrabold uppercase tracking-[0.15em] text-slate-400">{title}</p>
       {items.length ? (
-        <div className="space-y-3">
+        <div className={`space-y-3 ${maiusculo ? 'uppercase' : ''}`}>
           {items.map(([label, value]) => (
             <DataBar key={label} label={label} value={value} max={max} color={color} />
           ))}
@@ -283,6 +307,10 @@ export default function Dashboard({
   solicitacoes?: PendingRequest[]
   onAbrirAgenda?: () => void
 }) {
+  // Abre na base clínica: é o que a Visão geral sempre foi, e quem entra aqui
+  // de manhã está olhando os pacientes do dia, não a fatura da Meta.
+  const [aba, setAba] = useState<Aba>('clinica')
+
   const currentMonth = new Date().toISOString().slice(0, 7)
   const appointmentsThisMonth = patients.filter((patient) => patient.dataConsulta.startsWith(currentMonth)).length
   const due = dueCount(patients)
@@ -316,7 +344,12 @@ export default function Dashboard({
   // sido lidos. Nao precisou de nada no banco.
   const neighborhoods = topN(countBy(patients, (patient) => patient.bairro), 5)
   const units = topN(countBy(patients, (patient) => patient.unidade), 5)
-  const healthPlans = topN(countBy(patients, (patient) => patient.convenio), 5)
+  // Normaliza antes de contar, senão o mesmo plano vira duas barras por causa
+  // de quem digitou com outra caixa.
+  const healthPlans = topN(
+    countBy(patients, (patient) => patient.convenio.trim().toUpperCase()),
+    5,
+  )
 
   const months: { label: string; value: number }[] = []
   const now = new Date()
@@ -334,6 +367,35 @@ export default function Dashboard({
     <div className="space-y-5">
       <AvisoSolicitacoes solicitacoes={solicitacoes} onAbrirAgenda={onAbrirAgenda} />
 
+      {/* Duas leituras que não se misturam (21/09/2026).
+          Na primeira versão os números do WhatsApp entraram empilhados no meio
+          dos gráficos da base clínica, e virou uma rolagem só: "23 pacientes"
+          logo acima de "24 contatos", dois 'vinte e poucos' que não têm relação
+          nenhuma - um é quem já é paciente, o outro é quem está chegando.
+          Separar em abas resolve sem esconder nada: cada aba responde uma
+          pergunta, e quem está olhando sabe qual. */}
+      <div className="flex items-center gap-1 rounded-2xl bg-slate-100 p-1">
+        {ABAS.map((item) => (
+          <button
+            key={item.chave}
+            type="button"
+            onClick={() => setAba(item.chave)}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[11px] font-extrabold transition ${
+              aba === item.chave
+                ? 'bg-white text-[#193d36] shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            <item.icone className="h-4 w-4" />
+            {item.rotulo}
+          </button>
+        ))}
+      </div>
+
+      {aba === 'whatsapp' ? (
+        <NumerosDoWhatsApp />
+      ) : (
+        <>
       <section className="soft-grid relative overflow-hidden rounded-[28px] bg-[#193d36] p-5 text-white shadow-[0_20px_45px_rgba(25,61,54,.16)] sm:p-7">
         <div className="absolute -right-16 -top-24 h-72 w-72 rounded-full bg-[#2f7f74]/20 blur-3xl" />
         <div className="absolute bottom-0 right-[28%] h-28 w-28 rounded-full bg-[#6f9d91]/15 blur-2xl" />
@@ -431,12 +493,12 @@ export default function Dashboard({
             <div className="grid gap-7 lg:grid-cols-3 lg:divide-x lg:divide-[#193d36]/[0.07]">
               {/* "do paciente" no rotulo de proposito: sem isso, cidade e
                   bairro se confundem com o endereco da unidade. */}
-              <Ranking title="Cidade do paciente" items={cities} color={SAGE} />
+              <Ranking title="Cidade do paciente" items={cities} color={SAGE} maiusculo />
               <div className="lg:pl-7">
-                <Ranking title="Bairro / região do paciente" items={neighborhoods} color={AZUL} />
+                <Ranking title="Bairro / região do paciente" items={neighborhoods} color={AZUL} maiusculo />
               </div>
               <div className="lg:pl-7">
-                <Ranking title="Unidade de atendimento" items={units} color={NAVY} />
+                <Ranking title="Unidade de atendimento" items={units} color={NAVY} maiusculo />
               </div>
             </div>
             <div className="mt-6 flex items-center gap-2 border-t border-[#193d36]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
@@ -447,9 +509,12 @@ export default function Dashboard({
 
           <Panel title="Leitura da base clínica" subtitle="Principais recortes para apoiar decisões da rotina" icon={Stethoscope}>
             <div className="grid gap-7 lg:grid-cols-2 lg:divide-x lg:divide-[#193d36]/[0.07]">
-              <Ranking title="CID-10 mais frequentes" items={cids} color={AZUL} />
+              <Ranking title="CID-10 mais frequentes" items={cids} color={AZUL} maiusculo />
               <div className="lg:pl-7">
-                <Ranking title="Convênios" items={healthPlans} color={NAVY} />
+                {/* Maiúsculo como o CID: o convênio é digitado à mão em cada
+                    cadastro, e vinha "TRASMONTANO" de um e "Trasmontano" de
+                    outro - duas linhas no gráfico para o mesmo plano. */}
+                <Ranking title="Convênios" items={healthPlans} color={NAVY} maiusculo />
               </div>
             </div>
             <div className="mt-6 flex items-center gap-2 border-t border-[#193d36]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
@@ -457,6 +522,8 @@ export default function Dashboard({
               Os indicadores refletem os campos preenchidos no cadastro de cada atendimento.
             </div>
           </Panel>
+        </>
+      )}
         </>
       )}
     </div>

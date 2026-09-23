@@ -907,10 +907,10 @@ export default function Patients({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Nome do paciente" required className="sm:col-span-2">
-                <input className={inputClass} value={form.nome} onChange={(event) => set('nome', event.target.value)} placeholder="Nome completo da criança" />
+                <input className={inputClass} value={form.nome} onChange={(event) => set('nome', event.target.value)} placeholder="Nome completo do paciente" />
               </Field>
               <Field label="Acompanhante">
-                <input className={inputClass} value={form.responsavel} onChange={(event) => set('responsavel', event.target.value)} placeholder="Nome do pai, mãe ou tutor" />
+                <input className={inputClass} value={form.responsavel} onChange={(event) => set('responsavel', event.target.value)} placeholder="Acompanhante ou cuidador, se houver" />
               </Field>
               <Field label="WhatsApp com DDD" required>
                 <input className={inputClass} value={form.telefone} onChange={(event) => set('telefone', event.target.value)} placeholder="(13) 99999-9999" inputMode="tel" />

@@ -25,6 +25,7 @@ import {
   createAvailabilityRule,
   createScheduleException,
   createUnit,
+  saveUnitCnes,
   deleteAvailabilityRule,
   deleteScheduleException,
   getCurrentMembership,
@@ -32,6 +33,10 @@ import {
   confirmAppointment,
   notifyAppointmentConfirmed,
   listAppointments,
+  listAppointmentHistory,
+  listVagasDeCancelamento,
+  type VagaDeCancelamento,
+  marcarPresenca,
   listAvailabilityRules,
   listAvailableSlots,
   listScheduleExceptions,
@@ -54,7 +59,7 @@ import {
 } from '@/components/ui/sheet'
 import type { Patient } from '@/types/patient'
 
-type Aba = 'calendario' | 'configuracao'
+type Aba = 'calendario' | 'historico' | 'configuracao'
 
 /**
  * Sugestoes de paciente mostradas de uma vez ao vincular uma consulta.
@@ -77,6 +82,13 @@ function hora(iso: string) {
   return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(
     new Date(iso),
   )
+}
+
+/** "22/09 às 14:30". Usado para dizer quando o paciente desistiu do horario. */
+function diaEHora(iso: string) {
+  const data = new Date(iso)
+  const dia = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(data)
+  return `${dia} às ${hora(iso)}`
 }
 
 /**
@@ -123,6 +135,174 @@ function agruparPorDia(slots: string[], appointments: Appointment[], bloqueios: 
   for (const item of appointments) garantir(item.startsAt.slice(0, 10)).marcados.push(item)
   for (const bloqueio of bloqueios) garantir(bloqueio.date).bloqueio = bloqueio
   return [...dias.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+}
+
+/**
+ * O que já aconteceu, dia a dia, do mais recente para trás.
+ *
+ * Existe por um pedido simples que não tinha resposta: "quero ver em formato de
+ * agenda os atendimentos realizados". A agenda só carregava daqui para a
+ * frente, então o dia anterior desaparecia sem deixar rastro na tela.
+ *
+ * Mostra também os cancelados, de propósito. Histórico que esconde cancelamento
+ * conta uma versão otimista do mês e some justamente com o número que a clínica
+ * precisa olhar.
+ */
+function HistoricoDaAgenda({
+  itens,
+  marcando,
+  onMarcar,
+}: {
+  itens: Appointment[]
+  marcando: string | null
+  onMarcar: (id: string, presenca: 'attended' | 'no_show' | 'scheduled') => void
+}) {
+  const dias = new Map<string, Appointment[]>()
+  for (const item of itens) {
+    const chave = item.startsAt.slice(0, 10)
+    if (!dias.has(chave)) dias.set(chave, [])
+    dias.get(chave)!.push(item)
+  }
+
+  const compareceu = itens.filter((i) => i.status === 'attended').length
+  const faltou = itens.filter((i) => i.status === 'no_show').length
+  const cancelou = itens.filter((i) => i.status === 'cancelled').length
+  // Só conta onde alguém registrou o que houve. Misturar as consultas ainda não
+  // marcadas no denominador inventaria uma taxa de falta menor do que a real.
+  const registradas = compareceu + faltou
+  const taxa = registradas > 0 ? Math.round((faltou / registradas) * 100) : null
+
+  if (itens.length === 0) {
+    return (
+      <div className="surface-card rounded-[22px] p-8 text-center text-xs font-semibold text-slate-500">
+        Nenhuma consulta nos últimos 90 dias nesta unidade.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="surface-card flex flex-wrap items-center gap-4 rounded-[20px] px-4 py-3">
+        <Resumo rotulo="Compareceram" valor={compareceu} cor="#3fa88a" />
+        <Resumo rotulo="Faltaram" valor={faltou} cor="#b42318" />
+        <Resumo rotulo="Canceladas" valor={cancelou} cor="#94a3b8" />
+        {taxa !== null && (
+          <div className="ml-auto text-right">
+            <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
+              Taxa de falta
+            </p>
+            <p className="text-lg font-extrabold leading-none text-[#193d36]">{taxa}%</p>
+          </div>
+        )}
+      </div>
+
+      {[...dias.entries()].map(([dia, consultas]) => (
+        <div key={dia} className="surface-card rounded-[20px] p-4">
+          <p className="text-xs font-extrabold capitalize text-[#193d36]">
+            {diaLegivel(dia + 'T12:00:00')}
+          </p>
+          <div className="mt-3 space-y-1.5">
+            {consultas.map((item) => (
+              <div
+                key={item.id}
+                className={`flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 ${
+                  item.status === 'cancelled' ? 'bg-[#faf9f4]' : 'bg-[#193d36]'
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={`truncate text-[11px] font-extrabold ${
+                      item.status === 'cancelled' ? 'text-slate-400 line-through' : 'text-white'
+                    }`}
+                  >
+                    {hora(item.startsAt)} · {item.patientName}
+                  </p>
+                  <p
+                    className={`truncate text-[10px] font-semibold ${
+                      item.status === 'cancelled' ? 'text-slate-400' : 'text-white/60'
+                    }`}
+                  >
+                    {item.source === 'whatsapp' ? 'marcado pelo paciente no WhatsApp' : 'marcado pela equipe'}
+                    {item.contactPhone ? ` · ${item.contactPhone}` : ''}
+                  </p>
+                </div>
+
+                {item.status === 'cancelled' ? (
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[9px] font-extrabold text-slate-500">
+                    Cancelada
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <BotaoPresenca
+                      ativo={item.status === 'attended'}
+                      corAtiva="#3fa88a"
+                      rotulo="Compareceu"
+                      ocupado={marcando === item.id}
+                      onClick={() =>
+                        onMarcar(item.id, item.status === 'attended' ? 'scheduled' : 'attended')
+                      }
+                    />
+                    <BotaoPresenca
+                      ativo={item.status === 'no_show'}
+                      corAtiva="#b42318"
+                      rotulo="Faltou"
+                      ocupado={marcando === item.id}
+                      onClick={() =>
+                        onMarcar(item.id, item.status === 'no_show' ? 'scheduled' : 'no_show')
+                      }
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Resumo({ rotulo, valor, cor }: { rotulo: string; valor: number; cor: string }) {
+  return (
+    <div>
+      <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{rotulo}</p>
+      <p className="text-lg font-extrabold leading-none" style={{ color: cor }}>
+        {valor}
+      </p>
+    </div>
+  )
+}
+
+/** Clicar de novo desfaz: registro de presença errado é pior do que nenhum. */
+function BotaoPresenca({
+  ativo,
+  corAtiva,
+  rotulo,
+  ocupado,
+  onClick,
+}: {
+  ativo: boolean
+  corAtiva: string
+  rotulo: string
+  ocupado: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={ocupado}
+      onClick={onClick}
+      title={ativo ? `Clique para desfazer "${rotulo}"` : rotulo}
+      className="rounded-lg px-2 py-1 text-[9px] font-extrabold transition disabled:opacity-40"
+      style={
+        ativo
+          ? { backgroundColor: corAtiva, color: '#fff' }
+          : { backgroundColor: 'rgba(255,255,255,.12)', color: 'rgba(255,255,255,.7)' }
+      }
+    >
+      {rotulo}
+    </button>
+  )
 }
 
 /**
@@ -335,6 +515,11 @@ export default function Agenda({
   }) => void
 }) {
   const [aba, setAba] = useState<Aba>('calendario')
+  // Os dias que já passaram. Carregados junto com a agenda, e não só quando a
+  // aba abre: são poucas linhas, e assim trocar de aba é instantâneo.
+  const [historico, setHistorico] = useState<Appointment[]>([])
+  const [vagas, setVagas] = useState<VagaDeCancelamento[]>([])
+  const [marcando, setMarcando] = useState<string | null>(null)
   const [clinicId, setClinicId] = useState<string | null>(null)
   const [units, setUnits] = useState<Unit[]>([])
   const [unitId, setUnitId] = useState<string | null>(null)
@@ -400,17 +585,23 @@ export default function Agenda({
       setRules([])
       setSlots([])
       setAppointments([])
+      setHistorico([])
+      setVagas([])
       return
     }
     try {
-      const [regras, livres, marcados] = await Promise.all([
+      const [regras, livres, marcados, passadas, vagasCanceladas] = await Promise.all([
         listAvailabilityRules(unitId),
         listAvailableSlots(unitId),
         listAppointments(clinicId, unitId),
+        listAppointmentHistory(clinicId, unitId),
+        listVagasDeCancelamento(clinicId, unitId),
       ])
       setRules(regras)
       setSlots(livres)
       setAppointments(marcados)
+      setHistorico(passadas)
+      setVagas(vagasCanceladas)
     } catch (causa) {
       setError(causa instanceof Error ? causa.message : 'Não foi possível carregar os horários.')
     }
@@ -431,6 +622,23 @@ export default function Agenda({
     )
     return agruparPorDia(slots, appointments, bloqueios)
   }, [slots, appointments, exceptions, unitId, prefs.horizonDays])
+
+  /**
+   * De quais horarios livres alguem desistiu.
+   *
+   * Chaveado pelo INSTANTE, e nao pelo texto da data: o horario livre vem da
+   * funcao available_slots e a consulta cancelada vem da tabela, e os dois
+   * podem escrever o mesmo momento de formas diferentes ("+00:00" e "Z", com
+   * e sem milissegundos). Comparar texto perderia a marca sem ninguem notar.
+   */
+  const vagaPorInstante = useMemo(() => {
+    const mapa = new Map<number, VagaDeCancelamento>()
+    for (const vaga of vagas) {
+      const instante = new Date(vaga.quando).getTime()
+      if (!Number.isNaN(instante)) mapa.set(instante, vaga)
+    }
+    return mapa
+  }, [vagas])
   const unidadeAtual = units.find((u) => u.id === unitId) ?? null
 
   // ---- Painel de edicao de uma consulta ----
@@ -500,6 +708,16 @@ export default function Agenda({
    * segue confirmada do mesmo jeito e a tela diz que o aviso nao saiu. Deixar
    * a confirmacao presa a um envio seria pior.
    */
+  /** "20/08" - a data da consulta anterior cabe na etiqueta assim. */
+  function fmtDiaMes(data: string) {
+    // Meio-dia para a data nao andar um dia por causa de fuso: "2026-08-20"
+    // lido como meia-noite UTC vira 19/08 no horario de Brasilia.
+    const d = new Date(`${data}T12:00:00`)
+    return Number.isNaN(d.getTime())
+      ? data
+      : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+  }
+
   async function confirmarEAvisar(appointmentId: string) {
     if (!clinicId) return
     await acao(
@@ -644,7 +862,7 @@ export default function Agenda({
                 ))}
               </select>
               <div className="flex rounded-xl bg-[#eef3f2] p-0.5">
-                {(['calendario', 'configuracao'] as Aba[]).map((chave) => (
+                {(['calendario', 'historico', 'configuracao'] as Aba[]).map((chave) => (
                   <button
                     key={chave}
                     type="button"
@@ -653,7 +871,11 @@ export default function Agenda({
                       aba === chave ? 'bg-white text-[#193d36] shadow-sm' : 'text-[#557f75]'
                     }`}
                   >
-                    {chave === 'calendario' ? 'Calendário' : 'Configuração'}
+                    {chave === 'calendario'
+                      ? 'Calendário'
+                      : chave === 'historico'
+                        ? 'Histórico'
+                        : 'Configuração'}
                   </button>
                 ))}
               </div>
@@ -668,7 +890,26 @@ export default function Agenda({
             </button>
           </div>
 
-          {aba === 'calendario' ? (
+          {aba === 'historico' ? (
+            <HistoricoDaAgenda
+              itens={historico}
+              marcando={marcando}
+              onMarcar={async (id, presenca) => {
+                setMarcando(id)
+                setError('')
+                try {
+                  await marcarPresenca(id, presenca)
+                  await carregarUnidade()
+                } catch (causa) {
+                  setError(
+                    causa instanceof Error ? causa.message : 'Não foi possível registrar a presença.',
+                  )
+                } finally {
+                  setMarcando(null)
+                }
+              }}
+            />
+          ) : aba === 'calendario' ? (
             <div className="space-y-3">
               {rules.length === 0 && (
                 <div className="flex items-start gap-2 rounded-[16px] border border-[#2f7f74]/40 bg-[#f2ece0] p-3 text-[11px] font-bold text-[#17564d]">
@@ -817,6 +1058,20 @@ export default function Agenda({
                                 Lembrete enviado, sem resposta
                               </span>
                             )}
+                            {/* A tela dizia quando o lembrete saiu e calava
+                                quando a Meta recusou - e recusa é exatamente a
+                                hora em que alguém precisa saber, porque dá
+                                tempo de ligar. O motivo vai no title: é técnico
+                                demais para a etiqueta e necessário demais para
+                                ficar só no banco. */}
+                            {!item.reminderSentAt && item.reminderFailedAt && (
+                              <span
+                                title={item.reminderFailureReason ?? 'A Meta recusou o envio.'}
+                                className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#b42318] px-2 py-0.5 text-[9px] font-extrabold text-white"
+                              >
+                                Lembrete falhou
+                              </span>
+                            )}
                             {/* Marcada pela equipe sem telefone nenhum: o
                                 lembrete da vespera nao tem para onde ir. Dito
                                 agora, da tempo de completar o cadastro. */}
@@ -829,6 +1084,18 @@ export default function Agenda({
                                 padrao merece ser visto antes da consulta e nao
                                 depois da falta. Por isso a partir da segunda a
                                 etiqueta acende, em vez de sempre sussurrar. */}
+                            {/* Convênio à vista, e não escondido no detalhe.
+                                A recepção precisa saber ANTES da pessoa chegar
+                                se fatura pelo plano ou cobra particular - do
+                                contrário descobre com a família na frente,
+                                sem tempo de conferir elegibilidade.
+                                Particular não ganha etiqueta: é a maioria, e
+                                etiquetar o normal só faz barulho. */}
+                            {item.insurance && (
+                              <span className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full bg-[#2f7f74] px-2 py-0.5 text-[9px] font-extrabold text-white">
+                                💳 {item.insurance}
+                              </span>
+                            )}
                             {item.rescheduleCount > 0 && (
                               <span
                                 className={`mt-1 ml-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-extrabold ${
@@ -848,6 +1115,24 @@ export default function Agenda({
                               <span className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full bg-[#7aead0] px-2 py-0.5 text-[9px] font-extrabold text-[#193d36]">
                                 <Video className="h-2.5 w-2.5" strokeWidth={3} />
                                 Telemedicina
+                              </span>
+                            )}
+                            {/* Retorno dentro dos 30 dias: esta incluido no valor
+                                da consulta anterior, e quem olha a agenda nao
+                                tinha como saber - "retorno" so existia dentro do
+                                prontuario. Leva a data junto porque e ela que
+                                decide, e evita abrir a ficha para conferir.
+
+                                Avisa, nao manda: o valor nao muda, nada e
+                                bloqueado, e a regra dos 30 dias e do consultorio,
+                                que abre excecao quando quer. */}
+                            {item.retornoDe && (
+                              <span
+                                className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full bg-[#3fa88a] px-2 py-0.5 text-[9px] font-extrabold text-white"
+                                title="O paciente se consultou há menos de 30 dias. O retorno costuma estar incluído no valor da consulta anterior."
+                              >
+                                <RotateCcw className="h-2.5 w-2.5" strokeWidth={3} />
+                                Retorno · consulta em {fmtDiaMes(item.retornoDe)}
                               </span>
                             )}
                             <p className="text-[9px] font-bold text-white/60">
@@ -913,17 +1198,41 @@ export default function Agenda({
                   )}
 
                   {livres.length > 0 && (
-                    <div className="mt-2.5 flex flex-wrap gap-1.5">
-                      {livres.map((slot) => (
-                        <button
-                          key={slot}
-                          type="button"
-                          onClick={() => setSlotEscolhido(slot)}
-                          className="rounded-lg border border-[#193d36]/10 bg-[#faf9f4] px-2.5 py-1.5 text-[10px] font-bold text-[#193d36] transition hover:border-[#2f7f74] hover:bg-white"
-                        >
-                          {hora(slot)}
-                        </button>
-                      ))}
+                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                      {livres.map((slot) => {
+                        /* Horario que vagou porque o paciente cancelou sozinho.
+                           Ambar, e nao verde nem vermelho: nao e problema nem
+                           conquista, e uma vaga de ultima hora que alguem pode
+                           querer. Quem esta na fila de espera cabe aqui. */
+                        const vaga = vagaPorInstante.get(new Date(slot).getTime())
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            onClick={() => setSlotEscolhido(slot)}
+                            title={
+                              vaga
+                                ? `${vaga.paciente} cancelou${
+                                    vaga.canceladoEm ? ` em ${diaEHora(vaga.canceladoEm)}` : ''
+                                  }. O horário está livre.`
+                                : undefined
+                            }
+                            className={`rounded-lg border px-2.5 py-1.5 text-[10px] font-bold transition ${
+                              vaga
+                                ? 'border-[#c98a2b]/45 bg-[#fdf4e3] text-[#8a5a12] hover:border-[#c98a2b] hover:bg-[#fbecd2]'
+                                : 'border-[#193d36]/10 bg-[#faf9f4] text-[#193d36] hover:border-[#2f7f74] hover:bg-white'
+                            }`}
+                          >
+                            {vaga && <span aria-hidden="true">↩ </span>}
+                            {hora(slot)}
+                          </button>
+                        )
+                      })}
+                      {livres.some((slot) => vagaPorInstante.has(new Date(slot).getTime())) && (
+                        <span className="ml-1 text-[10px] font-semibold text-[#8a5a12]">
+                          ↩ vagou por cancelamento
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1181,9 +1490,14 @@ export default function Agenda({
                           : 'dias antes da consulta'}
                     </span>
                   </div>
+                  {/* Dizia "sai todo dia às 10h", que deixou de ser verdade em
+                      31/08/2026, quando a passada única virou uma varredura de
+                      hora em hora. Quem marcava às 11h e lia isto concluía que
+                      o paciente ficaria sem lembrete - e não fica. */}
                   <p className="mt-2 text-[10px] text-slate-500">
-                    Sai todo dia às 10h. O paciente responde CONFIRMAR ou REAGENDAR; quem pede para
-                    remarcar aparece marcado em Respostas.
+                    O sistema confere de hora em hora e envia entre 8h e 20h, uma vez por consulta.
+                    O paciente responde CONFIRMAR ou REAGENDAR; quem pede para remarcar aparece
+                    marcado em Respostas.
                   </p>
                 </div>
 
@@ -1219,6 +1533,25 @@ export default function Agenda({
                           <span className="font-normal text-slate-500"> · {u.address}</span>
                         )}
                       </span>
+                      {/* CNES: o número do estabelecimento de saúde, que a Memed
+                          passou a exigir de quem integra agora. É de cada
+                          unidade - a sala de Santos e a de São Paulo são
+                          estabelecimentos diferentes. Enquanto estiver vazio, a
+                          receita sai sem ele. */}
+                      <input
+                        defaultValue={u.cnes}
+                        onBlur={(e) => {
+                          const novo = e.target.value.replace(/\D/g, '')
+                          if (novo === u.cnes) return
+                          void acao(async () => {
+                            await saveUnitCnes(u.id, novo)
+                          }, 'CNES guardado.')
+                        }}
+                        placeholder="CNES"
+                        inputMode="numeric"
+                        title="Cadastro Nacional de Estabelecimentos de Saúde desta unidade. Sai impresso na receita."
+                        className="w-[88px] shrink-0 rounded-lg border border-[#193d36]/10 bg-white px-2 py-1 text-[10px] font-semibold text-[#193d36] outline-none focus:border-[#2f7f74]"
+                      />
                       {units.length > 1 && (
                         <button
                           type="button"
