@@ -435,6 +435,28 @@ Deno.serve(async (req) => {
             respondendoEnvioNosso = dentroDaJanelaDeResposta(ultimoNossoResult.data)
             ultimoEnvioId = (ultimoNossoResult.data as { external_message_id?: string | null } | null)?.external_message_id ?? null
             equipeFalouRecentemente = equipeFalouHaPouco(ultimoHumanoResult.data)
+
+            // A equipe pode devolver a conversa ao robo pela tela (botao
+            // "Devolver ao robo", 23/09/2026). Mensagem manual anterior a
+            // devolucao nao cala mais o robo. Pedido separado e em try/catch:
+            // se a coluna ainda nao existir, perde-se so a devolucao, e nao a
+            // conversa inteira.
+            if (equipeFalouRecentemente) {
+              try {
+                const { data: devolucao } = await admin
+                  .from('whatsapp_conversations')
+                  .select('bot_released_at')
+                  .eq('id', conversaAnterior.id)
+                  .maybeSingle()
+                const devolvidaEm = (devolucao as { bot_released_at?: string | null } | null)?.bot_released_at
+                const ultimaHumana = (ultimoHumanoResult.data as { created_at?: string | null } | null)?.created_at
+                if (devolvidaEm && ultimaHumana && new Date(devolvidaEm).getTime() >= new Date(ultimaHumana).getTime()) {
+                  equipeFalouRecentemente = false
+                }
+              } catch (erro) {
+                console.warn('Nao consegui ler bot_released_at; mantendo o silencio da conversa humana', erro)
+              }
+            }
           }
 
           const body = messageBody(message)

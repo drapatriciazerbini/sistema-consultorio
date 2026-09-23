@@ -1694,6 +1694,16 @@ export async function resetConversationBot(conversationId: string) {
     })
     .eq('id', conversationId)
   if (error) fail(error)
+
+  // Devolve a conversa ao robo mesmo que alguem da equipe tenha escrito ha
+  // pouco (23/09/2026). Pedido separado: se a coluna ainda nao existir no
+  // banco, o destravar acima continua valendo.
+  const { error: erroDaDevolucao } = await supabase
+    .from('whatsapp_conversations')
+    // 'as never': a coluna e mais nova que os tipos gerados do banco.
+    .update({ bot_released_at: new Date().toISOString() } as never)
+    .eq('id', conversationId)
+  if (erroDaDevolucao) console.warn('Nao consegui marcar a devolucao ao robo', erroDaDevolucao)
 }
 
 export interface AutoReplySettings {

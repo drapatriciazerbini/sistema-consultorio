@@ -1438,18 +1438,24 @@ export default function Conversations({
                   </div>
                   </button>
 
-                  {/* Etapa do robo + botao de soltar. Aparece so quando ha
-                      algo preso: sem etapa aberta, nao ha o que destravar. */}
-                  {conversation.bookingState && (
+                  {/* Etapa do robo + botao de soltar. Aparece quando ha etapa
+                      presa, e tambem quando a conversa esta com a equipe: ai o
+                      robo esta calado porque alguem respondeu pela tela, e sem
+                      o botao so voltava a falar 12 horas depois (23/09/2026). */}
+                  {(conversation.bookingState ||
+                    (conversation.needsAttention && conversation.attentionReason === 'atendente')) && (
                     <div className="mt-2 flex items-center justify-between gap-2 rounded-[12px] bg-[#f6f4f1] px-2.5 py-1.5">
                       <span className="truncate text-[9px] font-bold text-slate-500">
-                        Robô: {ETAPA_DO_ROBO[conversation.bookingState] ?? conversation.bookingState}
+                        Robô:{' '}
+                        {conversation.bookingState
+                          ? ETAPA_DO_ROBO[conversation.bookingState] ?? conversation.bookingState
+                          : 'em pausa, com a equipe'}
                       </span>
                       <button
                         type="button"
                         onClick={() => void destravar(conversation.id)}
                         disabled={destravando === conversation.id}
-                        title="Zera a etapa do robô. Não apaga mensagens nem consultas."
+                        title="Devolve a conversa ao robô: a próxima mensagem do paciente recebe o menu. Não apaga mensagens nem consultas."
                         className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white px-2 py-1 text-[9px] font-extrabold text-[#193d36] transition hover:bg-[#193d36] hover:text-white disabled:opacity-40"
                       >
                         <RotateCcw className="h-3 w-3" />
