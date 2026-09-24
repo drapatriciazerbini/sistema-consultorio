@@ -649,24 +649,14 @@ export default function Conversations({
       ])
       setMessages(historico)
       setJanelaAte(janela)
-      if (conversation.unreadCount > 0 || conversation.needsAttention) {
+      if (conversation.unreadCount > 0) {
         await markConversationSeen(conversation.id)
-        // Pedido de 2ª via, de farmácia e de visita continuam marcados depois de lidos:
-        // eles só terminam quando o documento sai. O servidor decide isso; a
-        // tela repete a mesma regra para não piscar a etiqueta e trazê-la de
-        // volta no recarregamento seguinte.
-        const pendente =
-          conversation.attentionReason === 'documento' ||
-          conversation.attentionReason === 'farmacia' ||
-          conversation.attentionReason === 'visita'
+        // Abrir so zera as novas. A etiqueta de atencao ("Quer falar com a
+        // equipe", pedido de visita e as outras) fica ate alguem responder,
+        // concluir ou destravar: ler para acompanhar nao e atender (ver
+        // markConversationSeen).
         setConversations((current) =>
-          current.map((item) =>
-            item.id === conversation.id
-              ? pendente
-                ? { ...item, unreadCount: 0 }
-                : { ...item, unreadCount: 0, needsAttention: false, attentionReason: null }
-              : item,
-          ),
+          current.map((item) => (item.id === conversation.id ? { ...item, unreadCount: 0 } : item)),
         )
       }
     } catch (cause) {
@@ -802,7 +792,15 @@ export default function Conversations({
       setConversations((current) =>
         current.map((item) =>
           item.id === conversationId
-            ? { ...item, status: 'resolved', needsAttention: false, attentionReason: null, unreadCount: 0 }
+            ? {
+                ...item,
+                status: 'resolved',
+                needsAttention: false,
+                attentionReason: null,
+                unreadCount: 0,
+                // Concluir solta o robo (ver resolveConversation).
+                bookingState: null,
+              }
             : item,
         ),
       )
@@ -822,7 +820,7 @@ export default function Conversations({
     // dia 15 inteiro.
     const fim = ate ? new Date(`${ate}T23:59:59.999`).getTime() : null
 
-    return conversations.filter((item) => {
+    const filtradas = conversations.filter((item) => {
       // A conversa aberta continua na lista mesmo escondida: some-la debaixo do
       // proprio leitor, no instante em que a resposta sai, seria tirar a
       // conversa da tela de quem ainda esta nela.
@@ -839,6 +837,14 @@ export default function Conversations({
       if (digitosBusca && item.phoneDigits.includes(digitosBusca)) return true
       return item.textoBusca.includes(termo)
     })
+
+    // Pendentes primeiro, concluidas depois; dentro de cada grupo, a ordem de
+    // sempre (a mais recente em cima). Pedido em 23/09/2026: uma familia
+    // esperando a nota fiscal desde a vespera ficava abaixo de oito conversas
+    // concluidas so porque elas tinham mensagem mais nova. A lista existe para
+    // mostrar o que falta fazer. O sort do JS e estavel, entao a ordem por
+    // horario dentro de cada grupo se mantem.
+    return [...filtradas].sort((a, b) => Number(estaConcluida(a)) - Number(estaConcluida(b)))
   }, [conversations, busca, de, ate, esconderConcluidas, selectedId])
 
   const concluidas = useMemo(() => conversations.filter(estaConcluida).length, [conversations])
@@ -1814,6 +1820,14 @@ export default function Conversations({
                         A Meta só permite texto livre nas 24 horas seguintes à mensagem do paciente.
                         Fora delas você tem dois caminhos: responder agora dentro de um modelo
                         aprovado, ou convidar a família a escrever para a conversa reabrir.
+                      </p>
+                      {/* Perguntado em 23/09/2026: "por que o menu do robo nao
+                          fica disponivel?". O menu tem botoes, e mensagem com
+                          botao a Meta so aceita com a janela aberta. Dizer aqui
+                          evita a equipe achar que o botao sumiu por defeito. */}
+                      <p className="mt-1 text-[10px] font-semibold text-[#17564d]/80">
+                        O menu do robô só pode ser enviado com a janela aberta. Quando a família
+                        responder o convite, a janela reabre e o botão "Enviar menu de opções" volta.
                       </p>
 
                       {/* Caminho 1: a resposta sai agora, dentro do modelo. */}

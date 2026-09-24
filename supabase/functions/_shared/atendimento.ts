@@ -3685,6 +3685,17 @@ export async function tratarConversa(opcoes: {
     }
 
     const plano = (escolhida.accepts_insurance ?? '').trim()
+
+    // A unidade deixou de aceitar convenio enquanto a pessoa estava nesta
+    // pergunta. Aconteceu em 23/09/2026 no sistema de origem: o convenio foi encerrado
+    // com uma familia parada aqui. Sem esta saida, qualquer texto dela recebia
+    // "Responda *1* para  ou *2* para particular" - com o nome do plano em
+    // branco. Sem plano, a resposta so pode ser particular: segue para as datas.
+    if (!plano) {
+      await salvarEstado(admin, conversationId, { booking_insurance: '' })
+      return await perguntarDia(admin, clinicId, conversationId, escolhida)
+    }
+
     const indice = escolha(texto, 2)
     const escrito = texto.trim().toLowerCase()
     // Aceita o numero, o nome do plano digitado e a palavra "particular": quem

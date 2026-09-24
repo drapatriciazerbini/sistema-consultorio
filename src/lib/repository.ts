@@ -1490,7 +1490,7 @@ export async function listConversations(clinicId: string): Promise<Conversation[
       : Promise.resolve({ data: [], error: null }),
     supabase
       .from('whatsapp_messages')
-      .select('conversation_id,body,created_at,direction,automatic')
+      .select('conversation_id,body,created_at,direction,automatic,status')
       .eq('clinic_id', clinicId)
       .order('created_at', { ascending: false }),
   ])
@@ -1510,7 +1510,16 @@ export async function listConversations(clinicId: string): Promise<Conversation[
     }
     if (!respondidaPorConversa.has(message.conversation_id)) {
       const doPaciente = message.direction === 'inbound'
-      const daEquipe = message.direction === 'outbound' && message.automatic === false
+      // Nao conta como resposta (23/09/2026): mensagem que falhou, porque nao
+      // chegou; e o convite para retomar, porque ele nao responde nada - a
+      // equipe esta esperando a familia, e a conversa nao pode encolher como
+      // se estivesse encerrada.
+      const convite = String(message.body ?? '').startsWith('Mensagem enviada para retomar o atendimento')
+      const daEquipe =
+        message.direction === 'outbound' &&
+        message.automatic === false &&
+        message.status !== 'failed' &&
+        !convite
       if (doPaciente) respondidaPorConversa.set(message.conversation_id, false)
       else if (daEquipe) respondidaPorConversa.set(message.conversation_id, true)
     }
@@ -1626,41 +1635,24 @@ async function anexosDasMensagens(conversationId: string) {
   return vazio
 }
 
-/** Zera o contador de nao lidas e tira o destaque de atencao. */
 /**
- * Motivos que sobrevivem a alguem abrir a conversa.
+ * Zera o contador de nao lidas. So isso: a bandeira de atencao fica.
  *
- * Abrir e LER. Para quase tudo, ler resolve - a conversa deixa de precisar de
- * atencao porque a pessoa ja sabe do que se trata. Mas um pedido de 2a via ou
- * de exame so termina quando o documento sai, e o robo prometeu um dia util em
- * nome da clinica. Se a bandeira caisse na leitura, a recepcao abriria para
- * saber o que era e, com isso, tiraria o pedido da lista de pendencias antes
- * de ele ter sido atendido - um pedido esquecido ficaria indistinguivel de um
- * resolvido.
+ * Abrir e LER, e ler nao e atender. Ate 23/09/2026 abrir a conversa baixava a
+ * bandeira de quase todos os motivos (so 2a via, farmacia e visita
+ * sobreviviam). O problema apareceu com "Quer falar com a equipe": quem
+ * administra o sistema abria a conversa para acompanhar o robo, a etiqueta
+ * vermelha sumia, e a recepcao - que e quem responde de verdade - nunca via o
+ * pedido. A familia ficava esperando uma pessoa que nao sabia que era esperada.
  *
- * O que baixa a bandeira desses e responder: a etiqueta "Respondida" aparece
- * quando alguem da equipe escreve depois do paciente, e concluir a conversa
- * limpa tudo.
+ * Agora nenhum motivo cai na leitura. A bandeira baixa quando alguem da equipe
+ * responde pela tela (whatsapp-reply), quando concluem a conversa ou quando
+ * destravam o robo. Cada um desses e uma decisao; abrir para olhar nao e.
  */
-const ATENCAO_QUE_NAO_CAI_NA_LEITURA = ['documento', 'farmacia', 'visita']
-
 export async function markConversationSeen(conversationId: string) {
-  const { data: atual } = await supabase
-    .from('whatsapp_conversations')
-    .select('attention_reason')
-    .eq('id', conversationId)
-    .maybeSingle()
-
-  const motivo = String(atual?.attention_reason ?? '')
-  const pendente = ATENCAO_QUE_NAO_CAI_NA_LEITURA.includes(motivo)
-
   const { error } = await supabase
     .from('whatsapp_conversations')
-    .update(
-      pendente
-        ? { unread_count: 0 }
-        : { unread_count: 0, needs_attention: false, attention_reason: null },
-    )
+    .update({ unread_count: 0 })
     .eq('id', conversationId)
   if (error) fail(error)
 }
@@ -1847,8 +1839,20 @@ export async function sendConversationReply(
   }
 }
 
-/** Marca a conversa como resolvida sem apagar o historico. */
+/**
+ * Marca a conversa como resolvida sem apagar o historico.
+ *
+ * Solta o robo junto. Ate 23/09/2026 concluir so mudava o status, e uma
+ * conversa com o robo parado no meio de uma etapa ("aguardando_convenio",
+ * depois que o Trasmontano saiu) continuava com o cartao aberto e o botao
+ * Destravar - a tela nao encolhe conversa com robo preso, de proposito. Quem
+ * conclui esta dizendo que nada ali espera a clinica; o rascunho do
+ * agendamento vai junto, e a proxima mensagem da familia comeca do menu.
+ */
 export async function resolveConversation(conversationId: string) {
+  // Primeiro o robo: se isto falhar, a conversa nao fica "concluida" com o
+  // robo ainda preso, que e o estado que gerou a pergunta.
+  await resetConversationBot(conversationId)
   const { error } = await supabase
     .from('whatsapp_conversations')
     .update({ status: 'resolved', needs_attention: false, attention_reason: null, unread_count: 0 })
@@ -2405,6 +2409,10 @@ export interface ItemDaReceita {
   posologia: string
   quantidade: number | null
   unidade: string | null
+  /** 'alopático', 'exame', 'custom' (atestado)... Ver categoria-da-receita.ts. */
+  tipo?: string | null
+  /** 'Simples' ou o talao especial ('Especial-2 vias (C1)' etc.). */
+  receituario?: string | null
 }
 
 export interface Receita {

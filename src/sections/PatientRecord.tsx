@@ -23,8 +23,10 @@ import {
   MessageCircle,
   Mic,
   MicOff,
+  FlaskConical,
   Pill,
   Plus,
+  ShieldAlert,
   Printer,
   RefreshCw,
   Ruler,
@@ -51,6 +53,54 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { fmtBR, idade, todayISO } from '@/lib/followup'
+import { acrescentarReceitas, dataDaReceita } from '@/lib/receita-no-texto'
+// O build inlina a imagem como data: URL, e e isso que faz o logo aparecer na
+// janela de impressao (about:blank, sem acesso a arquivos do site).
+// Versao para papel branco: o logo do sistema e creme e dourado para fundo
+// verde, e o creme some na impressao. Nesta, o creme virou o verde da marca.
+import logoDaClinica from '@/assets/logo-impressao.webp'
+import {
+  categoriaDaReceita,
+  ORDEM_DAS_CATEGORIAS,
+  type CategoriaDaReceita,
+} from '@/lib/categoria-da-receita'
+
+/**
+ * Cor e icone de cada categoria de documento da Memed (23/09/2026). Classes
+ * completas, e nao montadas por concatenacao: o Tailwind so gera o que le
+ * escrito por inteiro no codigo.
+ */
+const ESTILO_DA_CATEGORIA: Record<
+  CategoriaDaReceita,
+  { titulo: string; icone: typeof Pill; cartao: string; texto: string }
+> = {
+  especial: {
+    titulo: 'Receita especial',
+    icone: ShieldAlert,
+    cartao: 'border-[#b42318]/25 bg-[#fef5f4]',
+    texto: 'text-[#b42318]',
+  },
+  // Medicacao no verde da marca; atestados no dourado, para nao repetir o
+  // verde (no sistema de origem o azul era da medicacao e o verde do documento).
+  medicacao: {
+    titulo: 'Medicação',
+    icone: Pill,
+    cartao: 'border-[#1f5f55]/20 bg-[#f4f8f6]',
+    texto: 'text-[#1f5f55]',
+  },
+  exame: {
+    titulo: 'Exames',
+    icone: FlaskConical,
+    cartao: 'border-[#7c3aed]/20 bg-[#f9f7fe]',
+    texto: 'text-[#6d28d9]',
+  },
+  documento: {
+    titulo: 'Atestados e documentos',
+    icone: FileText,
+    cartao: 'border-[#dfc49b]/60 bg-[#fbf8f1]',
+    texto: 'text-[#8a6a2f]',
+  },
+}
 import {
   archiveNoteTemplate,
   concluirAssinatura,
@@ -589,7 +639,9 @@ async function imprimirProntuario(
     ['Nascimento', patient.nascimento ? `${fmtBR(patient.nascimento)} (${idade(patient.nascimento)})` : ''],
     ['Acompanhante', patient.responsavel],
     ['Convênio', patient.convenio],
-    ['Cidade', [patient.cidade, patient.bairro].filter(Boolean).join(' · ')],
+    // Onde o paciente MORA (cadastro). "Cidade: Santos · Campo Grande" era lido
+    // como local do atendimento, que ja aparece em cada consulta (23/09/2026).
+    ['Reside em', [patient.bairro, patient.cidade].filter(Boolean).join(', ')],
     ['Contato', patient.telefone],
   ]
     .filter(([, valor]) => valor)
@@ -625,7 +677,9 @@ async function imprimirProntuario(
         .filter(([, chave]) => temTexto(String(consulta[chave] ?? '')))
         .map(
           ([rotulo, chave]) =>
-            `<div class="bloco"><h3>${rotulo}</h3><div class="txt">${editorValue(String(consulta[chave]))}</div></div>`,
+            `<div class="bloco${
+              textoSimples(String(consulta[chave])).length > 500 ? ' longo' : ''
+            }"><h3>${rotulo}</h3><div class="txt">${editorValue(String(consulta[chave]))}</div></div>`,
         )
         .join('')
 
@@ -706,9 +760,22 @@ async function imprimirProntuario(
     <style>
       * { box-sizing: border-box; }
       body { font-family: Georgia, 'Times New Roman', serif; color: #142c26; margin: 0; padding: 28px 32px; font-size: 12pt; line-height: 1.55; }
-      header { border-bottom: 2px solid #142c26; padding-bottom: 12px; margin-bottom: 18px; }
-      header h1 { margin: 0; font-size: 17pt; }
-      header p { margin: 2px 0 0; font-size: 10pt; color: #55606b; }
+      /* Papel timbrado (23/09/2026, trazido do sistema de origem): logo a
+         esquerda, como em receituario, e o nome do documento a direita. O logo
+         da Dra. Patricia e so o monograma, entao o nome vai escrito ao lado. */
+      header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; border-bottom: 2px solid #193d36; padding-bottom: 10px; margin-bottom: 18px; }
+      header .marca { display: flex; align-items: center; gap: 12px; }
+      header img { height: 56px; width: auto; display: block; }
+      header .nome { margin: 0; font-size: 15pt; color: #193d36; }
+      header .esp { margin: 1px 0 0; font-family: Arial, Helvetica, sans-serif; font-size: 8pt; letter-spacing: .06em; color: #55606b; }
+      header .doc { text-align: right; }
+      header .doc .t { margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; font-weight: bold; letter-spacing: .16em; text-transform: uppercase; color: #193d36; }
+      header .doc .s { margin: 2px 0 0; font-size: 9pt; color: #55606b; }
+      /* Campo longo (prescricao com varias receitas, historia extensa) pode
+         quebrar entre paginas. Com "nao quebra" ele pulava inteiro para a folha
+         seguinte e a primeira saia com uma linha so (23/09/2026). */
+      .bloco.longo { break-inside: auto; page-break-inside: auto; }
+      .txt { orphans: 3; widows: 3; }
       .paciente { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; margin-bottom: 22px; font-size: 11pt; }
       .paciente .r { display: inline-block; min-width: 105px; color: #55606b; }
       .paciente .v { font-weight: bold; }
@@ -747,8 +814,17 @@ async function imprimirProntuario(
       @page { margin: 16mm; }
     </style></head><body>
     <header>
-      <h1>Consultório Dra. Patrícia Zerbini</h1>
-      <p>Prontuário clínico</p>
+      <div class="marca">
+        <img src="${logoDaClinica}" alt="">
+        <div>
+          <p class="nome">Dra. Patrícia Zerbini</p>
+          <p class="esp">Clínica médica · CRM 90998</p>
+        </div>
+      </div>
+      <div class="doc">
+        <p class="t">Prontuário clínico</p>
+        <p class="s">Documento sigiloso</p>
+      </div>
     </header>
     <div class="paciente">${cabecalhoPaciente}</div>
     ${corpo || '<p>Nenhuma consulta registrada.</p>'}
@@ -1803,20 +1879,34 @@ function ConsultationCard({
               <p className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-slate-500">
                 Receitas emitidas
               </p>
-              <div className="mt-2 space-y-2">
-                {receitas.map((receita) => (
+              {/* Separadas por categoria, cada uma com sua cor (23/09/2026).
+                  Dentro de cada grupo, a ordem de sempre: a mais nova em cima. */}
+              {ORDEM_DAS_CATEGORIAS.map((categoria) => {
+                const doGrupo = receitas.filter((r) => categoriaDaReceita(r.itens) === categoria)
+                if (doGrupo.length === 0) return null
+                const estilo = ESTILO_DA_CATEGORIA[categoria]
+                const Icone = estilo.icone
+                return (
+              <div key={categoria} className="mt-2">
+                <p className={`mb-1.5 inline-flex items-center gap-1.5 text-[10px] font-extrabold ${estilo.texto}`}>
+                  <Icone className="h-3.5 w-3.5" />
+                  {estilo.titulo}
+                </p>
+              <div className="space-y-2">
+                {doGrupo.map((receita) => (
                   <div
                     key={receita.id}
                     className={`rounded-[14px] border px-4 py-3 ${
-                      receita.excluidaEm
-                        ? 'border-[#193d36]/10 bg-[#faf9f4]'
-                        : 'border-[#2563eb]/20 bg-[#fcfbf9]'
+                      receita.excluidaEm ? 'border-[#193d36]/10 bg-[#faf9f4]' : estilo.cartao
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-[#1f5f55]">
-                        <Pill className="h-3.5 w-3.5" />
-                        {fmtBR(receita.emitidaEm.slice(0, 10))}
+                      <span className={`inline-flex items-center gap-1.5 text-[11px] font-extrabold ${estilo.texto}`}>
+                        <Icone className="h-3.5 w-3.5" />
+                        {dataDaReceita(receita.emitidaEm)}
+                        {categoria === 'especial' && receita.itens[0]?.receituario && (
+                          <span className="font-bold opacity-80">· {receita.itens[0].receituario}</span>
+                        )}
                       </span>
                       {receita.excluidaEm ? (
                         <span className="text-[10px] font-bold text-slate-400">
@@ -1828,7 +1918,7 @@ function ConsultationCard({
                             href={receita.link}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-[10px] font-extrabold text-[#1f5f55] underline underline-offset-2"
+                            className={`text-[10px] font-extrabold underline underline-offset-2 ${estilo.texto}`}
                           >
                             Abrir receita
                           </a>
@@ -1850,6 +1940,9 @@ function ConsultationCard({
                   </div>
                 ))}
               </div>
+              </div>
+                )
+              })}
             </div>
           )}
           <Detail label="Retorno" value={consultation.retorno} />
@@ -2285,32 +2378,38 @@ export default function PatientRecord({
    * que prescreveu no proprio texto do atendimento, e e esse texto que sai na
    * impressao e vai para a assinatura. Copia so o que ainda nao esta la, e
    * nunca mexe em consulta assinada: o PDF assinado e o que vale.
+   *
+   * Esta funcao roda dentro do evento da Memed, que guarda a tela do momento
+   * em que a prescricao abriu. Por isso nada aqui confia no que veio junto:
+   * a consulta e relida do banco e o formulario e lido pelos refs. Ate
+   * 23/09/2026 a segunda receita da mesma consulta partia do texto antigo e
+   * apagava a primeira (ver receita-no-texto.ts).
    */
-  async function copiarReceitaParaPrescricao(consultation: Consultation | null, lista: Receita[]) {
-    if (!patient || !consultation || consultation.assinadoEm) return
-    const receita = lista.find((r) => r.consultationId === consultation.id && !r.excluidaEm)
-    if (!receita || receita.itens.length === 0) return
+  function copiarReceitaParaPrescricao(consultation: Consultation | null, lista: Receita[]) {
+    // Em fila: duas receitas emitidas em sequencia nao podem ler o mesmo texto
+    // de partida e gravar uma por cima da outra.
+    filaDaReceita.current = filaDaReceita.current
+      .catch(() => undefined)
+      .then(() => copiarReceitaAgora(consultation, lista))
+    return filaDaReceita.current
+  }
 
-    const atual = editingConsultationId === consultation.id ? form.prescricao : consultation.prescricao
-    // O campo guarda HTML quando foi escrito no editor e texto puro quando
-    // veio de fora; a comparacao e o acrescimo respeitam o formato que ja esta.
-    const emHtml = /[<>]|&[a-z]+;|&#\d+;/i.test(atual)
-    const textoAtual = emHtml ? atual.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ') : atual
-    const linhas = receita.itens
-      .map((item) => (item.posologia ? `${item.nome}: ${item.posologia}` : item.nome))
-      .filter((linha) => !textoAtual.includes(linha))
-    if (linhas.length === 0) return
+  async function copiarReceitaAgora(consultation: Consultation | null, lista: Receita[]) {
+    if (!patient || !consultation) return
+    const daConsulta = lista.filter((r) => r.consultationId === consultation.id && !r.excluidaEm)
+    if (daConsulta.length === 0) return
 
-    const titulo = `Receita Memed de ${fmtBR(receita.emitidaEm.slice(0, 10))}`
-    const texto = emHtml
-      ? `${atual}<p><strong>${escapeHtml(titulo)}</strong><br>${linhas.map(escapeHtml).join('<br>')}</p>`
-      : [atual.trim(), `${titulo}\n${linhas.join('\n')}`].filter(Boolean).join('\n\n')
+    const fresca = (await listConsultations(patient.id)).find((c) => c.id === consultation.id)
+    if (!fresca || fresca.assinadoEm) return
 
-    if (editingConsultationId === consultation.id) {
-      set('prescricao', texto)
-    }
+    const editando = editandoRef.current === consultation.id
+    const atual = editando ? formRef.current.prescricao : fresca.prescricao
+    const texto = acrescentarReceitas(atual, daConsulta)
+    if (texto === null) return
+
+    if (editando) set('prescricao', texto)
     await updateConsultation(patient.id, consultation.id, {
-      ...consultationToDraft(consultation),
+      ...consultationToDraft(fresca),
       prescricao: texto,
     })
     await load(patient.id)
@@ -2486,6 +2585,15 @@ export default function PatientRecord({
   })()
   const [form, setForm] = useState<ConsultationDraft>(() => emptyConsultation(patient, unidadesDaClinica[0]))
   const [editingConsultationId, setEditingConsultationId] = useState<string | null>(null)
+  // Copias sempre atuais do formulario, para o evento da Memed (que guarda a
+  // tela do momento em que abriu) ler o que esta na tela AGORA.
+  const formRef = useRef(form)
+  const editandoRef = useRef(editingConsultationId)
+  const filaDaReceita = useRef<Promise<void>>(Promise.resolve())
+  useEffect(() => {
+    formRef.current = form
+    editandoRef.current = editingConsultationId
+  }, [form, editingConsultationId])
   const consultaEmEdicaoAssinada = Boolean(
     editingConsultationId &&
       consultations.find((item) => item.id === editingConsultationId)?.assinadoEm,
@@ -2779,8 +2887,8 @@ export default function PatientRecord({
                       { rotulo: 'Convênio', valor: patient.convenio },
                       { rotulo: 'Unidade', valor: patient.unidade },
                       {
-                        rotulo: 'Cidade',
-                        valor: [patient.cidade, patient.bairro].filter(Boolean).join(' · '),
+                        rotulo: 'Reside em',
+                        valor: [patient.bairro, patient.cidade].filter(Boolean).join(', '),
                       },
                       { rotulo: 'CID-10', valor: patient.cid },
                     ]
