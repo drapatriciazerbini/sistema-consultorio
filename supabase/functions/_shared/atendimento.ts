@@ -266,6 +266,26 @@ function pediuMenu(texto: string) {
 }
 
 /** Um passo atras, nao ate o inicio. */
+/**
+ * Cumprimento ou pedido generico de informacao, sem escolher opcao.
+ *
+ * Existe por causa do botao do site (24/09/2026): ele abre o WhatsApp com
+ * "Ola! Gostaria de informacoes sobre uma consulta..." ja escrito. Para quem
+ * nunca falou com o robo, isso cai na apresentacao. Mas quem ja tinha visto o
+ * menu antes recebia "Nao entendi. Responda com o numero da opcao" - bronca
+ * para quem so disse ola. Cumprimento com o menu na tela merece o menu inteiro,
+ * com a saudacao, como se fosse a primeira vez.
+ *
+ * Frase curta de proposito: "oi, preciso remarcar a consulta do meu pai" e um
+ * pedido, e quem decide o que fazer com ele e o resto do fluxo.
+ */
+function cumprimentou(texto: string) {
+  const t = normalizar(texto).replace(/[!.,?]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!t || t.length > 120) return false
+  if (/^(oi+|ola|opa|e ai|bom dia|boa tarde|boa noite|tudo bem|tudo bom)( [a-z]+)?( tudo bem| tudo bom)?$/.test(t)) return true
+  return /^(ola |oi |bom dia |boa tarde |boa noite )?(vim pelo site|gostaria de (mais )?informac|quero (mais )?informac|queria (mais )?informac|preciso de (mais )?informac|informac)/.test(t)
+}
+
 function pediuVoltar(texto: string) {
   const t = normalizar(texto)
   return t === 'voltar' || t === 'anterior'
@@ -3130,6 +3150,9 @@ export async function tratarConversa(opcoes: {
     // entao precisa do proprio registro. Sem esta linha o painel contaria so
     // os "nao entendi" de dentro dos fluxos, que sao a minoria, e diria que o
     // menu esta claro quando nao esta.
+    // Cumprimento nao e erro de quem escreveu: ver cumprimentou().
+    if (cumprimentou(texto)) return await mostrarMenu(admin, conversationId, saudacao)
+
     registrar('nao_entendi')
     return await mostrarMenu(
       admin,

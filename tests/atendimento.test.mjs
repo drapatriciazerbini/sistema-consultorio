@@ -2608,6 +2608,31 @@ await caso('"preciso do recibo da consulta" também é pedido', [
 }
 
 // ---------------------------------------------------------------
+// Mensagem pronta do botao do site (24/09/2026)
+// ---------------------------------------------------------------
+
+await caso('Mensagem do site, pessoa nova, recebe a apresentação', [
+  ['Olá! Gostaria de informações sobre uma consulta com a Dra. Patrícia Zerbini.', ['Aqui é o consultório', 'Como podemos ajudar']],
+], { primeiraMensagem: true })
+
+{
+  const { transcricao } = await caso('Mensagem do site com o menu já visto recebe o menu, sem "não entendi"', [
+    ['Oi', 'Como podemos ajudar'],
+    ['Olá! Gostaria de informações sobre uma consulta com a Dra. Patrícia Zerbini.', ['Aqui é o consultório', 'Como podemos ajudar']],
+    ['Bom dia!', 'Como podemos ajudar'],
+    ['oi tudo bem?', 'Como podemos ajudar'],
+  ])
+  if (transcricao.some((l) => l.includes('Não entendi'))) falhas.push('cumprimento recebeu "Não entendi"')
+  else passou++
+}
+
+// O que nao e cumprimento nem pergunta continua recebendo "Nao entendi".
+await caso('Texto sem sentido continua em "Não entendi"', [
+  ['Oi', 'Como podemos ajudar'],
+  ['blablabla xyz', 'Não entendi'],
+])
+
+// ---------------------------------------------------------------
 // Visita em casa (24/09/2026)
 // ---------------------------------------------------------------
 //
