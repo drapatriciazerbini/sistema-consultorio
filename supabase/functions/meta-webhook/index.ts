@@ -28,6 +28,8 @@ type WebhookMessage = {
   sticker?: Midia
   voice?: Midia
   button?: { text?: string; payload?: string }
+  /** Localizacao mandada pelo clipe do WhatsApp. */
+  location?: { latitude?: number; longitude?: number; name?: string; address?: string }
   interactive?: {
     button_reply?: { id?: string; title?: string }
     list_reply?: { id?: string; title?: string }
@@ -144,6 +146,19 @@ function messageBody(message: WebhookMessage) {
   if (message.type === 'button') return message.button?.text ?? message.button?.payload ?? ''
   if (message.type === 'interactive') {
     return message.interactive?.button_reply?.title ?? message.interactive?.list_reply?.title ?? ''
+  }
+  // Localizacao vira texto legivel com link de mapa. Era "[location]" no
+  // historico, e desde 24/09/2026 o robo pede o endereco da visita em casa
+  // aceitando a localizacao: a equipe precisa abrir o mapa, e o robo precisa
+  // de algo que nao comece com "[" para seguir em frente.
+  if (message.type === 'location' && message.location) {
+    const { latitude, longitude, name, address } = message.location
+    const nome = [name, address].filter(Boolean).join(', ')
+    const mapa =
+      latitude != null && longitude != null
+        ? `https://maps.google.com/?q=${latitude},${longitude}`
+        : ''
+    if (nome || mapa) return `📍 Localização: ${[nome, mapa].filter(Boolean).join(' ')}`
   }
   // A legenda da foto e a mensagem de verdade: "olha o exame dele" diz mais
   // do que "[image]", e antes ela era jogada fora.
@@ -371,7 +386,7 @@ Deno.serve(async (req) => {
           // robo respondia com a saudacao inteira como se nada estivesse
           // pendente. Exatamente o que a migration dizia estar evitando.
           const motivoDaEspera = String(linhaAnterior?.attention_reason ?? '')
-          const ESPERA_LONGA = ['anexo', 'ajuda', 'documento', 'farmacia']
+          const ESPERA_LONGA = ['anexo', 'ajuda', 'documento', 'farmacia', 'visita']
           const horasDeEspera = ESPERA_LONGA.includes(motivoDaEspera) ? 48 : 24
           const etapaVenceu = Boolean(
             linhaAnterior?.booking_state &&

@@ -78,6 +78,10 @@ export type Estado =
   | 'documento_item'
   | 'documento_exigencia'
   | 'documento_farmacia'
+  | 'visita_endereco'
+  | 'visita_restricao'
+  | 'visita_nome'
+  | 'visita_nascimento'
 export type MotivoAtencao =
   | 'atendente'
   | 'falha'
@@ -86,6 +90,7 @@ export type MotivoAtencao =
   | 'anexo'
   | 'documento'
   | 'farmacia'
+  | 'visita'
 
 /**
  * A telemedicina como "unidade" do fluxo.
@@ -192,6 +197,11 @@ type Unidade = {
   info_text?: string | null
   /** Convenio aceito nesta unidade. Vazio = so particular, e o robo nao pergunta. */
   accepts_insurance?: string | null
+  /**
+   * Atendimento na casa do paciente. Nao tem horario na agenda: o robo anota
+   * endereco e restricoes e a equipe confirma dia, horario e valor.
+   */
+  is_home_visit?: boolean | null
 }
 type Paciente = {
   id: string
@@ -624,7 +634,7 @@ async function telemedicinaDaClinica(
  * refaz sem. A unidade volta sem convenio - que e o mesmo que "so particular",
  * o estado anterior do mundo - e o atendimento segue de pe.
  */
-const COLUNAS_DA_UNIDADE = 'id,name,address,info_text,accepts_insurance'
+const COLUNAS_DA_UNIDADE = 'id,name,address,info_text,accepts_insurance,is_home_visit'
 const COLUNAS_ANTIGAS_DA_UNIDADE = 'id,name,address,info_text'
 
 async function unidadePorId(admin: Admin, id: string): Promise<Unidade | null> {
@@ -653,7 +663,7 @@ async function unidadesAtivas(admin: Admin, clinicId: string) {
     .order('name')
   if (!error && data) return data as Unidade[]
 
-  console.warn('clinic_units sem accepts_insurance; seguindo so com particular', error)
+  console.warn('clinic_units sem accepts_insurance ou is_home_visit; seguindo so com o basico', error)
   const { data: basico } = await admin
     .from('clinic_units')
     .select(COLUNAS_ANTIGAS_DA_UNIDADE)
@@ -695,7 +705,9 @@ async function horariosLivres(
   // Telemedicina: os horarios de todas as unidades fisicas, juntos e em ordem.
   // Cada um lembra de onde veio, porque e la que a consulta vai ser gravada.
   if (unitId === TELE_ID) {
-    const fisicas = await unidadesAtivas(admin, clinicId)
+    // A visita em casa nao tem agenda: se entrasse aqui, a telemedicina
+    // perguntaria a agenda de uma unidade que nunca tem horario.
+    const fisicas = (await unidadesAtivas(admin, clinicId)).filter((u) => !u.is_home_visit)
     const partes = await Promise.all(fisicas.map((u) => horariosLivres(admin, clinicId, u.id)))
     if (partes.length > 0 && partes.every((p) => p.falhou)) return { horarios: [], falhou: true }
     const juntos = partes
@@ -1287,6 +1299,7 @@ async function perguntarUnidade(
   // Uma unidade so: nao faz sentido perguntar qual, mas o convenio continua
   // valendo - e ele e justamente o caso de uma clinica com unidade unica.
   if (unidades.length === 1) {
+    if (unidades[0].is_home_visit) return await iniciarVisita(admin, conversationId, unidades[0])
     const plano = (unidades[0].accepts_insurance ?? '').trim()
     if (plano) return await perguntarConvenioOuDia(admin, clinicId, conversationId, unidades[0])
     return await perguntarDia(admin, clinicId, conversationId, unidades[0], false)
@@ -1295,8 +1308,16 @@ async function perguntarUnidade(
   // Consulta a agenda de cada unidade antes de listar. Custa uma chamada por
   // unidade, mas evita o pior roteiro possivel: a pessoa escolhe, espera, e
   // descobre que ali nao tinha nada.
+  //
+  // A visita em casa fica de fora da consulta a agenda: ela nao tem horario
+  // cadastrado de proposito, e contar isso como "sem horarios" esconderia a
+  // opcao que a pessoa talvez mais precise.
   const comAgenda = await Promise.all(
-    unidades.map(async (u) => ({ unidade: u, ...(await horariosLivres(admin, clinicId, u.id)) })),
+    unidades.map(async (u) =>
+      u.is_home_visit
+        ? { unidade: u, horarios: [] as Horario[], falhou: false, visita: true }
+        : { unidade: u, ...(await horariosLivres(admin, clinicId, u.id)), visita: false },
+    ),
   )
 
   if (comAgenda.every((u) => u.falhou)) {
@@ -1304,7 +1325,7 @@ async function perguntarUnidade(
     return { resposta: AVISO_FALHA, atencao: 'falha' }
   }
 
-  const abertas = comAgenda.filter((u) => u.horarios.length > 0)
+  const abertas = comAgenda.filter((u) => u.visita || u.horarios.length > 0)
 
   if (abertas.length === 0) {
     await limparEstado(admin, conversationId)
@@ -1320,8 +1341,10 @@ async function perguntarUnidade(
   // de Santos pode estar cheia de vagas, o RPC ter falhado, e a família ler que
   // Santos não tem nada - escolhe São Paulo, ou desiste. horariosLivres separa
   // os dois casos justamente para isso; era aqui que a distinção se perdia.
-  const rotuloDaAgenda = (u: { horarios: Horario[]; falhou?: boolean }) =>
-    u.horarios.length > 0
+  const rotuloDaAgenda = (u: { horarios: Horario[]; falhou?: boolean; visita?: boolean }) =>
+    u.visita
+      ? 'a equipe confirma o dia'
+      : u.horarios.length > 0
       ? `${u.horarios.length} horário${u.horarios.length === 1 ? '' : 's'} livre${u.horarios.length === 1 ? '' : 's'}`
       : u.falhou
         ? 'não consegui ver a agenda agora'
@@ -1350,7 +1373,11 @@ async function perguntarUnidade(
 
   return {
     resposta:
-      `📍 *Vamos agendar!* Em qual unidade você prefere ser atendido?\n\n${linhas}\n\n` +
+      `📍 *Vamos agendar!* ${
+        comAgenda.some((u) => u.visita)
+          ? 'Onde vai ser a consulta?'
+          : 'Em qual unidade você prefere ser atendido?'
+      }\n\n${linhas}\n\n` +
       `Responda com o número. ${SAIDAS}`,
     lista: {
       rotulo: 'Escolher unidade',
@@ -2453,6 +2480,152 @@ async function iniciarDocumento(
 }
 
 // ---------------------------------------------------------------
+// Visita em casa: pedido para a equipe confirmar
+// ---------------------------------------------------------------
+
+/**
+ * O pedido de visita sendo montado, guardado em booking_options entre uma
+ * pergunta e a seguinte.
+ *
+ * Por que a visita nao marca horario como o consultorio (24/09/2026): a
+ * Dra. Patricia vai de carro ate a casa, e o que decide se da e quanto custa
+ * e ONDE e QUANDO. Ela atende ate Sao Vicente; mais longe, o valor sobe. E a
+ * familia de uma pessoa idosa costuma ter dia que nao serve (dialise,
+ * fisioterapia, o filho que so pode receber de tarde). Um horario escolhido
+ * numa lista antes de alguem olhar o endereco viraria remarcacao na certa.
+ *
+ * Entao o robo faz o que ele faz bem, perguntar sem cansar, e a equipe faz o
+ * que so gente decide: dia, horario e valor.
+ */
+type PedidoDeVisita = {
+  endereco?: string
+  restricao?: string
+  nome?: string
+  nascimento?: string
+}
+
+function visitaEmAndamento(opcoes: unknown): PedidoDeVisita {
+  const bruto = opcoes as { visita?: PedidoDeVisita } | null
+  return bruto?.visita ?? {}
+}
+
+/** Entrada: a pessoa escolheu a visita em casa na lista de atendimentos. */
+async function iniciarVisita(
+  admin: Admin,
+  conversationId: string,
+  unidade: Unidade,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'visita_endereco',
+    booking_unit_id: unidade.id,
+    booking_modality: 'presencial',
+    booking_options: { visita: {} },
+  })
+  return {
+    resposta:
+      '🏠 *Consulta em casa*\n\n' +
+      'A Dra. Patrícia atende em casa em *Santos e São Vicente*. Em outras cidades também é ' +
+      'possível, com acréscimo no valor, informado antes de marcar.\n\n' +
+      'Qual é o *endereço* do paciente? Escreva a rua, o número, o *bairro* e a *cidade*.\n\n' +
+      '📍 Se preferir, mande a localização pelo WhatsApp.\n\n' +
+      SAIDAS,
+  }
+}
+
+async function perguntarRestricaoDaVisita(
+  admin: Admin,
+  conversationId: string,
+  visita: PedidoDeVisita,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'visita_restricao',
+    booking_options: { visita },
+  })
+  return {
+    resposta:
+      '🗓️ Tem algum *dia ou horário* em que a visita *não* pode acontecer? ' +
+      'Ou um período que é melhor, de manhã ou à tarde?\n\n' +
+      'Se tanto faz, toque em *Tanto faz*.',
+    botoes: [{ id: 'tanto faz', titulo: 'Tanto faz' }],
+  }
+}
+
+async function perguntarNomeDaVisita(
+  admin: Admin,
+  conversationId: string,
+  visita: PedidoDeVisita,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'visita_nome',
+    booking_options: { visita },
+  })
+  return { resposta: '📝 Qual é o *nome completo do paciente*?' }
+}
+
+async function perguntarNascimentoDaVisita(
+  admin: Admin,
+  conversationId: string,
+  visita: PedidoDeVisita,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'visita_nascimento',
+    booking_options: { visita },
+  })
+  return { resposta: '🎂 Qual é a *data de nascimento* dele(a)? (dia/mês/ano)' }
+}
+
+/**
+ * O fim do caminho automatico: o pedido vai para a equipe.
+ *
+ * A mensagem repete tudo de proposito, como no pedido de 2a via. Para a
+ * familia e a prova de que foi entendido; para a equipe, ESTA mensagem e o
+ * pedido: fica como ultima da conversa, aparece na previa da lista, e quem
+ * abrir nao precisa subir o historico para achar o endereco.
+ *
+ * CPF e e-mail ficam para depois de marcar, como no consultorio: quando a
+ * equipe marcar a visita, o botao Questionario pede o que faltar.
+ */
+async function registrarVisita(
+  admin: Admin,
+  conversationId: string,
+  visita: PedidoDeVisita,
+  /** A pessoa veio de "remarcar": a equipe precisa saber que ha outra consulta. */
+  substitui: boolean,
+): Promise<Resultado> {
+  registrar('pedido_visita')
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'atendente',
+    booking_options: null,
+    booking_unit_id: null,
+    booking_modality: null,
+    booking_replaces_id: null,
+    auto_replies_while_waiting: 0,
+  })
+
+  const linhas: string[] = []
+  if (visita.nome) {
+    linhas.push(`👤 ${visita.nome}${visita.nascimento ? ` (nasc. ${visita.nascimento})` : ''}`)
+  }
+  if (visita.endereco) linhas.push(`📍 ${visita.endereco}`)
+  linhas.push(
+    visita.restricao
+      ? `🗓️ Dias e horários: ${visita.restricao}`
+      : '🗓️ Sem restrição de dia ou horário',
+  )
+  if (substitui) linhas.push('🔄 No lugar da consulta que já estava marcada')
+
+  return {
+    resposta:
+      '✅ *Pedido de visita registrado.*\n\n' +
+      linhas.join('\n') +
+      '\n\nA equipe confirma por aqui o *dia*, o *horário* e o *valor* da visita.\n\n' +
+      'Atendemos de segunda a sexta, das 8h às 18h. Fora desse horário, respondemos no próximo dia útil.\n\n' +
+      VOLTA,
+    atencao: 'visita',
+  }
+}
+
+// ---------------------------------------------------------------
 // Entrada
 // ---------------------------------------------------------------
 
@@ -3193,6 +3366,77 @@ export async function tratarConversa(opcoes: {
     )
   }
 
+  // ---- Visita em casa ----
+  //
+  // Texto livre nas quatro etapas: endereco, dia e nome ninguem escolhe de
+  // lista. A trava e so contra resposta vazia ou que nao da para usar, e na
+  // duvida o robo pergunta de novo em vez de seguir com o buraco.
+  if (estadoAtual === 'visita_endereco') {
+    const visita = visitaEmAndamento(opcoes.opcoesAtuais)
+    const endereco = texto.trim()
+    // "[sticker]" e parecidos: tipo de mensagem que o robo nao le.
+    if (endereco.length < 6 || endereco.startsWith('[')) {
+      return {
+        resposta:
+          'Pode escrever o endereço do paciente, com a rua, o número, o *bairro* e a *cidade*?\n\n' +
+          SAIDAS,
+      }
+    }
+    return await perguntarRestricaoDaVisita(admin, conversationId, {
+      ...visita,
+      endereco: endereco.slice(0, 300),
+    })
+  }
+
+  if (estadoAtual === 'visita_restricao') {
+    const visita = visitaEmAndamento(opcoes.opcoesAtuais)
+    const resposta = texto.trim()
+    if (!resposta || resposta.startsWith('[')) {
+      return await perguntarRestricaoDaVisita(admin, conversationId, visita)
+    }
+    // "Tanto faz" e "nao" sao resposta completa: nenhum dia esta fora. A
+    // frase inteira precisa ser so isso: "nao pode as segundas" comeca com
+    // "nao" e e justamente a restricao que a Dra. Patricia pediu para saber.
+    const livre = /^(tanto faz|qualquer( dia| horario| um)?|nao|nao tem|nenhum|nenhuma|sem restricao|livre|pode ser qualquer( dia| horario)?)[.!]*$/
+      .test(normalizar(resposta))
+    const pronto = { ...visita, restricao: livre ? '' : resposta.slice(0, 300) }
+    if (pacienteDaConsulta) {
+      return await registrarVisita(
+        admin,
+        conversationId,
+        { ...pronto, nome: pacienteDaConsulta.name },
+        Boolean(opcoes.consultaASubstituir),
+      )
+    }
+    return await perguntarNomeDaVisita(admin, conversationId, pronto)
+  }
+
+  if (estadoAtual === 'visita_nome') {
+    const visita = visitaEmAndamento(opcoes.opcoesAtuais)
+    const nome = texto.trim()
+    if (nome.length < 2 || nome.startsWith('[')) {
+      return { resposta: 'Não consegui ler o nome. Pode escrever o nome completo do paciente?' }
+    }
+    return await perguntarNascimentoDaVisita(admin, conversationId, {
+      ...visita,
+      nome: nome.slice(0, 160),
+    })
+  }
+
+  if (estadoAtual === 'visita_nascimento') {
+    const visita = visitaEmAndamento(opcoes.opcoesAtuais)
+    const nascimento = texto.trim()
+    if (nascimento.length < 3 || nascimento.startsWith('[')) {
+      return { resposta: 'Não consegui ler a data. Pode escrever assim: 12/03/1945?' }
+    }
+    return await registrarVisita(
+      admin,
+      conversationId,
+      { ...visita, nascimento: nascimento.slice(0, 60) },
+      Boolean(opcoes.consultaASubstituir),
+    )
+  }
+
   // ---- Informacoes: de qual unidade? ----
   if (estadoAtual === 'informacoes_unidade') {
     const ids = Array.isArray(opcoes.opcoesAtuais) ? (opcoes.opcoesAtuais as string[]) : []
@@ -3417,6 +3661,7 @@ export async function tratarConversa(opcoes: {
         'Essa unidade não está mais disponível. Vamos recomeçar:',
       )
     }
+    if (escolhida.is_home_visit) return await iniciarVisita(admin, conversationId, escolhida)
     return await perguntarConvenioOuDia(admin, clinicId, conversationId, escolhida)
   }
 

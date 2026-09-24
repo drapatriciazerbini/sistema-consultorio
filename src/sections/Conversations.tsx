@@ -202,6 +202,14 @@ const MOTIVO_ATENCAO: Record<
     classe: 'bg-[#b42318] text-white',
     borda: 'border-[#b42318] ring-2 ring-[#b42318]/40',
   },
+  // Pedido de visita em casa, com endereco e dias ja anotados pelo robo. Ambar
+  // como a 2a via: ninguem esta parado na linha, mas a familia espera a equipe
+  // confirmar dia e valor, e so a equipe pode fazer isso.
+  visita: {
+    rotulo: '🏠 Pediu visita em casa',
+    classe: 'bg-[#fef3c7] text-[#92400e]',
+    borda: 'border-[#f59e0b]',
+  },
 }
 
 /**
@@ -643,13 +651,14 @@ export default function Conversations({
       setJanelaAte(janela)
       if (conversation.unreadCount > 0 || conversation.needsAttention) {
         await markConversationSeen(conversation.id)
-        // Pedido de 2ª via e de farmácia continuam marcados depois de lidos:
+        // Pedido de 2ª via, de farmácia e de visita continuam marcados depois de lidos:
         // eles só terminam quando o documento sai. O servidor decide isso; a
         // tela repete a mesma regra para não piscar a etiqueta e trazê-la de
         // volta no recarregamento seguinte.
         const pendente =
           conversation.attentionReason === 'documento' ||
-          conversation.attentionReason === 'farmacia'
+          conversation.attentionReason === 'farmacia' ||
+          conversation.attentionReason === 'visita'
         setConversations((current) =>
           current.map((item) =>
             item.id === conversation.id

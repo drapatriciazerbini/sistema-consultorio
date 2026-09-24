@@ -1424,6 +1424,7 @@ export interface Conversation {
     | 'urgencia'
     | 'documento'
     | 'farmacia'
+    | 'visita'
     | null
   /** Etapa em que o robo parou nesta conversa. Nulo quando nao ha nada aberto. */
   bookingState: string | null
@@ -1641,7 +1642,7 @@ async function anexosDasMensagens(conversationId: string) {
  * quando alguem da equipe escreve depois do paciente, e concluir a conversa
  * limpa tudo.
  */
-const ATENCAO_QUE_NAO_CAI_NA_LEITURA = ['documento', 'farmacia']
+const ATENCAO_QUE_NAO_CAI_NA_LEITURA = ['documento', 'farmacia', 'visita']
 
 export async function markConversationSeen(conversationId: string) {
   const { data: atual } = await supabase

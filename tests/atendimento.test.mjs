@@ -2593,6 +2593,121 @@ await caso('"preciso do recibo da consulta" também é pedido', [
   else passou++
 }
 
+// ---------------------------------------------------------------
+// Visita em casa (24/09/2026)
+// ---------------------------------------------------------------
+//
+// A visita nao tem horario na agenda: o robo anota endereco, dias que nao
+// servem e quem e o paciente, e passa para a equipe confirmar dia e valor.
+// Os nomes e o endereco aqui sao ficticios.
+
+const CONSULTORIO_E_CASA = [
+  { id: 'u-cons', name: 'Consultório (Gonzaga)', address: 'Rua Fictícia, 1' },
+  { id: 'u-casa', name: 'Visita domiciliar', address: '', is_home_visit: true },
+]
+const SLOTS_CONSULTORIO = {
+  'u-cons': SLOTS_CHEIOS['u-santos'],
+  'u-casa': [],
+}
+
+await caso('Visita em casa: pessoa nova passa endereço, dias, nome e nascimento', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', ['Onde vai ser a consulta', 'Visita domiciliar (a equipe confirma o dia)']],
+  ['2', ['Consulta em casa', 'Santos e São Vicente', 'endereço']],
+  ['Rua das Flores, 100, Gonzaga, Santos', ['dia ou horário', 'Tanto faz']],
+  ['não pode às segundas, melhor de tarde', 'nome completo do paciente'],
+  ['Maria Teste da Silva', 'data de nascimento'],
+  ['01/02/1940', [
+    'Pedido de visita registrado',
+    'Maria Teste da Silva (nasc. 01/02/1940)',
+    'Rua das Flores, 100, Gonzaga, Santos',
+    'não pode às segundas, melhor de tarde',
+    'confirma por aqui o *dia*',
+  ]],
+  // Depois do pedido a conversa e da equipe: o robo nao fala por cima.
+  ['obrigada', null],
+], {
+  unidades: CONSULTORIO_E_CASA,
+  slots: SLOTS_CONSULTORIO,
+  verificar: ({ ultimoToque, conversa, titulo }) => {
+    if (conversa.booking_state !== 'atendente') falhas.push(`${titulo} | estado ${conversa.booking_state}`)
+    else passou++
+  },
+})
+
+{
+  const { conversa } = await caso('Visita em casa: o pedido sobe como motivo "visita"', [
+    ['Oi', 'Como podemos ajudar'],
+    ['2', 'Onde vai ser a consulta'],
+    ['2', 'endereço'],
+    ['Av. Fictícia, 50, Itararé, São Vicente', 'dia ou horário'],
+    ['tanto faz', 'nome completo'],
+    ['José Teste', 'nascimento'],
+    ['1938', 'Sem restrição de dia ou horário'],
+  ], {
+    unidades: CONSULTORIO_E_CASA,
+    slots: SLOTS_CONSULTORIO,
+    verificar: ({ ultimoToque, titulo }) => {
+      if (ultimoToque.atencao !== 'visita') falhas.push(`${titulo} | atenção ${ultimoToque.atencao}`)
+      else passou++
+    },
+  })
+  if (conversa.booking_options !== null) falhas.push('visita: booking_options não foi limpo')
+  else passou++
+}
+
+await caso('Visita em casa: paciente cadastrado não repete nome nem nascimento', [
+  ['Oi', 'Olá, Ana!'],
+  ['2', 'Onde vai ser a consulta'],
+  ['2', 'endereço'],
+  ['Rua das Flores, 100, Gonzaga, Santos', 'dia ou horário'],
+  ['Tanto faz', ['Pedido de visita registrado', 'Ana Paula Souza', 'Sem restrição']],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, pacientes: [ANA] })
+
+await caso('Visita em casa: localização do WhatsApp serve de endereço', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['2', 'endereço'],
+  ['📍 Localização: https://maps.google.com/?q=-23.97,-46.33', 'dia ou horário'],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO })
+
+await caso('Visita em casa: resposta vazia ou curta pede o endereço de novo', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['2', 'endereço'],
+  ['ok', 'Pode escrever o endereço'],
+  ['[sticker]', 'Pode escrever o endereço'],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO })
+
+await caso('Visita em casa: 0 no meio volta ao menu', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['2', 'endereço'],
+  ['0', 'Como podemos ajudar'],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO })
+
+// A visita aparece mesmo quando o consultorio ainda nao tem horario: sem
+// isso, a Dra. Patricia sem agenda cadastrada deixava o robo dizendo "nao
+// temos horarios" para quem so queria a visita.
+await caso('Visita em casa aparece mesmo sem horário no consultório', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', ['Onde vai ser a consulta', 'sem horários no momento', 'a equipe confirma o dia']],
+  ['2', 'endereço'],
+], { unidades: CONSULTORIO_E_CASA, slots: { 'u-cons': [], 'u-casa': [] } })
+
+// Quem escolhe o consultorio segue o caminho de sempre, com datas.
+await caso('Consultório continua marcando pela agenda', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'Datas disponíveis em Consultório (Gonzaga)'],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO })
+
+// So a visita cadastrada: vai direto para o endereco, sem lista de uma linha.
+await caso('Só a visita cadastrada vai direto para o endereço', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', ['Consulta em casa', 'endereço']],
+], { unidades: [CONSULTORIO_E_CASA[1]], slots: { 'u-casa': [] } })
+
 console.log('\n============================================')
 console.log(`VERIFICAÇÕES QUE PASSARAM: ${passou}`)
 console.log(`FALHAS: ${falhas.length}`)

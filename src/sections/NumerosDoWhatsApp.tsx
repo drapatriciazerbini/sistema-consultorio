@@ -44,6 +44,7 @@ const NOME_DO_MOTIVO: Record<string, string> = {
   // Desde 22/09/2026 o pedido de nota fiscal tambem entra como 'documento'.
   documento: '2ª via, exame ou nota fiscal',
   farmacia: 'Correção pedida pela farmácia',
+  visita: 'Pediu visita em casa',
   falha: 'O robô não conseguiu concluir',
   cancelou_sozinho: 'Cancelou a consulta',
   'sem motivo': 'Sem motivo registrado',
