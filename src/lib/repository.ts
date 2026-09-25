@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { invokeWithFormData, supabase } from '@/lib/supabase'
 import type {
   Consultation,
   ConsultationDraft,
@@ -10,6 +10,7 @@ import type {
 } from '@/types/patient'
 import type { PatientDraft } from '@/lib/store'
 import type { Database } from '@/types/database'
+import { buscarTodas } from '@/lib/paginar'
 
 type PatientInsert = Database['public']['Tables']['patients']['Insert']
 type PatientUpdate = Database['public']['Tables']['patients']['Update']
@@ -317,6 +318,9 @@ export async function getCurrentMembership(): Promise<CurrentMembership | null> 
   const { data: membership, error: membershipError } = await supabase
     .from('clinic_memberships')
     .select('clinic_id,role')
+    // Suspenso nao entra (24/09/2026): sem este filtro a tela abria como se o
+    // acesso existisse e cada consulta voltava vazia, sem explicar por que.
+    .eq('status', 'active')
     .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle()
@@ -358,6 +362,68 @@ export async function approveAccessRequest(requestId: string, role: Exclude<Clin
   const { error } = await supabase.rpc('approve_access_request', {
     request_id: requestId,
     assigned_role: role,
+  })
+  if (error) fail(error)
+}
+
+export interface AcessoDaClinica {
+  userId: string
+  nome: string
+  email: string
+  papel: ClinicRole
+  situacao: 'active' | 'suspended'
+  desde: string
+  /** Responsavel pelo sistema: ninguem altera este acesso pela tela. */
+  protegido: boolean
+}
+
+/** Quem tem vinculo com a clinica. So o dono enxerga (ver migration 20260924150000). */
+export async function listarAcessos(clinicId: string): Promise<AcessoDaClinica[]> {
+  const { data, error } = await (supabase.rpc as unknown as (
+    nome: string,
+    args: Record<string, unknown>,
+  ) => PromiseLike<{ data: unknown; error: { message: string } | null }>)('listar_acessos_da_clinica', {
+    p_clinic: clinicId,
+  })
+  if (error) fail(error)
+  type Linha = {
+    user_id: string
+    nome: string
+    email: string
+    papel: ClinicRole
+    situacao: 'active' | 'suspended'
+    desde: string
+    protegido?: boolean
+  }
+  return ((data ?? []) as Linha[]).map((l) => ({
+    userId: l.user_id,
+    nome: l.nome,
+    email: l.email,
+    papel: l.papel,
+    situacao: l.situacao,
+    desde: l.desde,
+    protegido: Boolean(l.protegido),
+  }))
+}
+
+/**
+ * Muda perfil e/ou suspende. O banco recusa mexer no proprio acesso, no do
+ * responsavel pelo sistema, e so deixa o responsavel promover administrador.
+ */
+export async function alterarAcesso(
+  clinicId: string,
+  userId: string,
+  papel: ClinicRole,
+  situacao: 'active' | 'suspended',
+) {
+  const { error } = await (supabase.rpc as unknown as (
+    nome: string,
+    args: Record<string, unknown>,
+  ) => PromiseLike<{ error: { message: string } | null }>)('alterar_acesso', {
+    p_clinic: clinicId,
+    p_user: userId,
+    p_papel: papel,
+    p_situacao: situacao,
   })
   if (error) fail(error)
 }
@@ -965,18 +1031,39 @@ async function marcarPresencaPeloProntuario(
     // Vírgula e parênteses quebram a sintaxe do filtro "ou" do PostgREST.
     const nome = (ficha?.name ?? '').trim().replace(/[(),]/g, ' ')
 
-    const alternativas = [`patient_id.eq.${patientId}`]
-    if (finalDoTelefone) alternativas.push(`contact_phone.like.*${finalDoTelefone}`)
-    if (nome) alternativas.push(`contact_name.ilike.${nome}`)
-
-    await supabase
+    // Irmaos (24/09/2026). Numa gastropediatria a mae marca os dois filhos com
+    // o proprio celular. Casar por telefone com "ou" marcava presenca no irmao
+    // que faltou quando o medico salvava a evolucao do outro. Agora:
+    //  - consulta ligada a uma ficha so casa pela ficha;
+    //  - consulta sem ficha casa pelo nome; pelo telefone, so se for a UNICA
+    //    consulta sem ficha daquele telefone no dia. Havendo duas, o telefone
+    //    nao diz qual e qual, e marcar nenhuma e melhor que marcar a errada.
+    const ids = new Set<string>()
+    const { data: doDia } = await supabase
       .from('appointments')
-      .update({ status: 'attended' })
+      .select('id,patient_id,contact_name,contact_phone')
       .eq('clinic_id', clinicId)
       .eq('status', 'scheduled')
       .gte('starts_at', inicio.toISOString())
       .lte('starts_at', fim.toISOString())
-      .or(alternativas.join(','))
+
+    const semFicha = (doDia ?? []).filter((a) => !a.patient_id)
+    const mesmoNome = (a: { contact_name: string | null }) =>
+      Boolean(nome) && (a.contact_name ?? '').trim().toLowerCase() === nome.toLowerCase()
+    const mesmoTelefone = (a: { contact_phone: string | null }) =>
+      Boolean(finalDoTelefone) && (a.contact_phone ?? '').replace(/\D/g, '').endsWith(finalDoTelefone)
+
+    for (const a of doDia ?? []) if (a.patient_id === patientId) ids.add(a.id)
+    for (const a of semFicha) if (mesmoNome(a)) ids.add(a.id)
+    const peloTelefone = semFicha.filter(mesmoTelefone)
+    if (peloTelefone.length === 1) ids.add(peloTelefone[0].id)
+
+    if (ids.size === 0) return
+    await supabase
+      .from('appointments')
+      .update({ status: 'attended' })
+      .in('id', [...ids])
+      .eq('status', 'scheduled')
   } catch (causa) {
     console.warn('Não consegui marcar presença a partir do prontuário', causa)
   }
@@ -1005,6 +1092,86 @@ function dataDoRetorno(ultimaConsulta: string | null, inicioDaMarcacao: string):
 
   const dias = Math.floor((marcada.getTime() - anterior.getTime()) / 86_400_000)
   return dias > 0 && dias <= 30 ? ultimaConsulta : null
+}
+
+export type MotivoDeLigar = 'remarcar' | 'lembrete_falhou' | 'sem_resposta' | 'sem_telefone'
+
+export interface PendenciaDeLigar {
+  id: string
+  unitId: string
+  unitName: string
+  nome: string
+  telefone: string
+  startsAt: string
+  motivo: MotivoDeLigar
+  detalhe: string | null
+}
+
+/**
+ * "Ligar hoje": consultas de agora ate o fim de amanha que pedem uma ligacao
+ * da recepcao, na clinica inteira (24/09/2026).
+ *
+ * As mesmas etiquetas ja apareciam no cartao da Agenda, mas so na unidade
+ * selecionada: quem trabalhava em Santos nao via o "pediu para remarcar" de
+ * Sao Paulo. Aqui vem tudo junto, em ordem de horario, com o motivo.
+ *
+ * Mesmas regras das etiquetas, na mesma prioridade: pediu para remarcar >
+ * lembrete falhou > lembrete sem resposta > sem telefone. Uma linha por
+ * consulta, com o motivo mais forte.
+ */
+export async function listLigarHoje(clinicId: string): Promise<PendenciaDeLigar[]> {
+  const agora = new Date()
+  const fimDeAmanha = new Date(agora)
+  fimDeAmanha.setDate(fimDeAmanha.getDate() + 1)
+  fimDeAmanha.setHours(23, 59, 59, 999)
+
+  const { data, error } = await supabase
+    .from('appointments')
+    .select(
+      'id,unit_id,patient_id,contact_name,contact_phone,starts_at,confirmed_at,reschedule_requested_at,reminder_sent_at,reminder_failed_at,reminder_failure_reason',
+    )
+    .eq('clinic_id', clinicId)
+    .eq('status', 'scheduled')
+    .eq('confirmed_by_clinic', true)
+    .gte('starts_at', agora.toISOString())
+    .lte('starts_at', fimDeAmanha.toISOString())
+    .order('starts_at', { ascending: true })
+  if (error) fail(error)
+  const rows = data ?? []
+  if (rows.length === 0) return []
+
+  const patientIds = [...new Set(rows.map((r) => r.patient_id).filter(Boolean))] as string[]
+  const [{ data: pacientes }, { data: units }] = await Promise.all([
+    patientIds.length
+      ? supabase.from('patients').select('id,name,phone').in('id', patientIds)
+      : Promise.resolve({ data: [] as { id: string; name: string; phone: string | null }[] }),
+    supabase.from('clinic_units').select('id,name').eq('clinic_id', clinicId),
+  ])
+  const pacientePorId = new Map((pacientes ?? []).map((p) => [p.id, p]))
+  const nomePorUnidade = new Map((units ?? []).map((u) => [u.id, u.name]))
+
+  const lista: PendenciaDeLigar[] = []
+  for (const row of rows) {
+    const paciente = row.patient_id ? pacientePorId.get(row.patient_id) : undefined
+    const telefone = (paciente?.phone || row.contact_phone || '').trim()
+    let motivo: MotivoDeLigar | null = null
+    if (row.reschedule_requested_at && !row.confirmed_at) motivo = 'remarcar'
+    else if (!row.reminder_sent_at && row.reminder_failed_at) motivo = 'lembrete_falhou'
+    else if (row.reminder_sent_at && !row.confirmed_at) motivo = 'sem_resposta'
+    else if (!row.reminder_sent_at && telefone.replace(/\D/g, '').length < 10) motivo = 'sem_telefone'
+    if (!motivo) continue
+    lista.push({
+      id: row.id,
+      unitId: row.unit_id,
+      unitName: nomePorUnidade.get(row.unit_id) ?? 'Unidade',
+      nome: paciente?.name || row.contact_name || 'Sem nome',
+      telefone: formatarTelefone(telefone),
+      startsAt: row.starts_at,
+      motivo,
+      detalhe: motivo === 'lembrete_falhou' ? row.reminder_failure_reason ?? null : null,
+    })
+  }
+  return lista
 }
 
 export interface PendingRequest {
@@ -1468,17 +1635,26 @@ export interface ConversationMessage {
 }
 
 export async function listConversations(clinicId: string): Promise<Conversation[]> {
-  const { data, error } = await supabase
-    .from('whatsapp_conversations')
-    // Uma linha so, por mais longa que fique: o supabase-js le esta string em
-    // tempo de compilacao para saber o tipo do resultado, e concatenar com +
-    // faz ele desistir e devolver GenericStringError em todos os campos.
-    .select('id,patient_id,display_phone,wa_id,profile_name,status,needs_attention,attention_reason,booking_state,unread_count,last_message_at')
-    .eq('clinic_id', clinicId)
-    .order('last_message_at', { ascending: false, nullsFirst: false })
+  // Paginado, e nao uma consulta so: ver paginar.ts - o corte de 1.000 linhas
+  // fez conversas antigas "abrirem sozinhas" em 24/09/2026.
+  const { data, error } = await buscarTodas((de, ate) =>
+    supabase
+      .from('whatsapp_conversations')
+      // Uma linha so, por mais longa que fique: o supabase-js le esta string em
+      // tempo de compilacao para saber o tipo do resultado, e concatenar com +
+      // faz ele desistir e devolver GenericStringError em todos os campos.
+      .select('id,patient_id,display_phone,wa_id,profile_name,status,needs_attention,attention_reason,booking_state,unread_count,last_message_at')
+      .eq('clinic_id', clinicId)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .order('id')
+      .range(de, ate),
+  )
 
   if (error) fail(error)
-  const rows = data ?? []
+  // Uma conversa que muda de posicao entre uma pagina e outra pode vir duas
+  // vezes; a lista nao pode mostrar o mesmo cartao duplicado.
+  const vistas = new Set<string>()
+  const rows = data.filter((row) => !vistas.has(row.id) && vistas.add(row.id))
   if (rows.length === 0) return []
 
   // Nomes dos pacientes e ultima mensagem de cada conversa, em duas consultas
@@ -1488,11 +1664,19 @@ export async function listConversations(clinicId: string): Promise<Conversation[
     patientIds.length
       ? supabase.from('patients').select('id,name').in('id', patientIds)
       : Promise.resolve({ data: [], error: null }),
-    supabase
-      .from('whatsapp_messages')
-      .select('conversation_id,body,created_at,direction,automatic,status')
-      .eq('clinic_id', clinicId)
-      .order('created_at', { ascending: false }),
+    // Esta e a consulta que estourou: 1.672 mensagens em 24/09/2026, e so as
+    // 1.000 mais novas chegavam. Toda conversa sem mensagem depois de 15/09
+    // ficava sem "ultima mensagem" e sem resposta da equipe - e voltava a
+    // aparecer como pendente.
+    buscarTodas((de, ate) =>
+      supabase
+        .from('whatsapp_messages')
+        .select('conversation_id,body,created_at,direction,automatic,status')
+        .eq('clinic_id', clinicId)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(de, ate),
+    ),
   ])
   if (patientsResult.error) fail(patientsResult.error)
   if (messagesResult.error) fail(messagesResult.error)
@@ -1568,6 +1752,34 @@ export async function vincularContatoAoPaciente(patientId: string) {
     mensagens: linha?.mensagens ?? 0,
     consultas: linha?.consultas ?? 0,
   }
+}
+
+/**
+ * O que o WhatsApp disse das mensagens de cada acompanhamento: lida,
+ * entregue, enviada ou falhou (25/09/2026). A fila de acompanhamentos usa
+ * para mostrar "Lida" em vez de um generico "enviado", e para devolver aos
+ * atrasados o que falhou - enviado que nao chegou nao e enviado.
+ */
+export async function situacaoDosAcompanhamentos(followupIds: string[]): Promise<Map<string, string[]>> {
+  const porAcompanhamento = new Map<string, string[]>()
+  if (!followupIds.length) return porAcompanhamento
+  // Em lotes: centenas de ids numa URL so estouram o limite do PostgREST.
+  for (let i = 0; i < followupIds.length; i += 150) {
+    const lote = followupIds.slice(i, i + 150)
+    const { data, error } = await supabase
+      .from('whatsapp_messages')
+      .select('followup_id,status')
+      .in('followup_id', lote)
+      .eq('direction', 'outbound')
+    if (error) fail(error)
+    for (const linha of data ?? []) {
+      if (!linha.followup_id) continue
+      const lista = porAcompanhamento.get(linha.followup_id)
+      if (lista) lista.push(linha.status)
+      else porAcompanhamento.set(linha.followup_id, [linha.status])
+    }
+  }
+  return porAcompanhamento
 }
 
 export async function listConversationMessages(conversationId: string): Promise<ConversationMessage[]> {
@@ -1819,6 +2031,19 @@ export async function sendConversationQuestionnaire(conversationId: string) {
   }
 }
 
+/**
+ * Envia um arquivo da equipe (PDF, imagem, Word, Excel), com o texto como
+ * legenda. Mesma funcao do texto, em formulario: o servidor revalida a janela
+ * de 24h, guarda o arquivo no acervo e manda pela Meta (24/09/2026).
+ */
+export async function sendConversationFile(conversationId: string, arquivo: File, legenda: string) {
+  const corpo = new FormData()
+  corpo.append('conversationId', conversationId)
+  corpo.append('text', legenda)
+  corpo.append('arquivo', arquivo)
+  await invokeWithFormData('whatsapp-reply', corpo)
+}
+
 /** Envia uma resposta escrita pela equipe. O servidor revalida a janela de 24h. */
 export async function sendConversationReply(
   conversationId: string,
@@ -1883,18 +2108,30 @@ export async function fetchDb(
   clinicId: string,
   defaults: Record<FollowupKey, string>,
 ): Promise<Db> {
+  // Pacientes e acompanhamentos paginados pelo mesmo motivo das mensagens (ver
+  // paginar.ts). Em 24/09/2026 eram 48 e 164, longe do corte - mas o corte e
+  // silencioso, e paciente sumindo da lista so seria notado por quem sentisse
+  // falta dele.
   const [patientsResult, followupsResult, settingsResult] = await Promise.all([
-    supabase
-      .from('patients')
-      .select('*')
-      .eq('clinic_id', clinicId)
-      .is('archived_at', null)
-      .order('created_at', { ascending: false }),
-    supabase
-      .from('followups')
-      .select('id,patient_id,followup_key,status,opened_at')
-      .eq('clinic_id', clinicId)
-      .is('archived_at', null),
+    buscarTodas((de, ate) =>
+      supabase
+        .from('patients')
+        .select('*')
+        .eq('clinic_id', clinicId)
+        .is('archived_at', null)
+        .order('created_at', { ascending: false })
+        .order('id')
+        .range(de, ate),
+    ),
+    buscarTodas((de, ate) =>
+      supabase
+        .from('followups')
+        .select('id,patient_id,followup_key,status,opened_at')
+        .eq('clinic_id', clinicId)
+        .is('archived_at', null)
+        .order('id')
+        .range(de, ate),
+    ),
     supabase
       .from('clinic_settings')
       .select('template_d30,template_m90,template_d15')

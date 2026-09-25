@@ -27,6 +27,9 @@ import {
   getAutoReply,
   getCurrentMembership,
   listConversationMessages,
+  listRespostasProntas,
+  sendConversationFile,
+  type RespostaPronta,
   listConversations,
   getReplyWindow,
   markConversationSeen,
@@ -213,6 +216,52 @@ const MOTIVO_ATENCAO: Record<
 }
 
 /**
+ * Recortes da lista (24/09/2026).
+ *
+ * Busca e datas respondem "onde esta aquela conversa?". O dia a dia pergunta
+ * outra coisa: "quem esta esperando o que?" - todas as urgencias, todos os
+ * pedidos de 2a via, quem ainda nao tem cadastro. Um recorte por vez, que
+ * soma com a busca e as datas.
+ */
+type Recorte =
+  | 'todas'
+  | 'atencao'
+  | 'novas'
+  | 'sem_cadastro'
+  | 'robo_parado'
+  | `motivo:${NonNullable<Conversation['attentionReason']>}`
+
+function passaNoRecorte(conversa: Conversation, recorte: Recorte): boolean {
+  if (recorte === 'todas') return true
+  if (recorte === 'atencao') return Boolean(conversa.needsAttention && conversa.attentionReason)
+  if (recorte === 'novas') return conversa.unreadCount > 0
+  if (recorte === 'sem_cadastro') return !conversa.patientId
+  if (recorte === 'robo_parado') {
+    // Mesma regra do estaConcluida: "menu" e "atendente" sao descanso, nao
+    // etapa. Parado e quem esta no meio de escolher dia, horario, cadastro.
+    return Boolean(
+      conversa.bookingState && conversa.bookingState !== 'menu' && conversa.bookingState !== 'atendente',
+    )
+  }
+  const motivo = recorte.slice('motivo:'.length)
+  return Boolean(conversa.needsAttention && conversa.attentionReason === motivo)
+}
+
+// A ordem e a da urgencia: o que tem gente parada esperando vem primeiro.
+const ORDEM_DOS_MOTIVOS: NonNullable<Conversation['attentionReason']>[] = [
+  'urgencia',
+  'atendente',
+  'documento',
+  'farmacia',
+  'remarcacao',
+  'cancelamento',
+  'cancelou_sozinho',
+  'anexo',
+  'ajuda',
+  'falha',
+]
+
+/**
  * O papel do WhatsApp: bege com o rabisco discreto por cima.
  *
  * O padrao vai inline como SVG porque nenhum arquivo externo carrega dentro do
@@ -347,6 +396,7 @@ export default function Conversations({
   // clinica. Esconder por conta propria seria decidir pela equipe que o dia
   // anterior nao interessa mais.
   const [esconderConcluidas, setEsconderConcluidas] = useState(false)
+  const [recorte, setRecorte] = useState<Recorte>('todas')
   // Cartoes com a previa aberta por inteiro. A previa e uma linha cortada com
   // reticencias, e mensagens como "Voce ja tem uma consulta marcada: Aline
   // Lapetina, sexta 25/09 as 10:40 em Liferty Santos" perdiam justamente a
@@ -366,6 +416,23 @@ export default function Conversations({
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [error, setError] = useState('')
   const [clinicId, setClinicId] = useState<string | null>(null)
+  const [prontas, setProntas] = useState<RespostaPronta[]>([])
+  // Arquivo escolhido para ir junto da proxima resposta (24/09/2026).
+  const [arquivo, setArquivo] = useState<File | null>(null)
+  const seletorDeArquivo = useRef<HTMLInputElement>(null)
+
+  // As respostas prontas mudam pouco: uma leitura quando a clinica e conhecida.
+  // Falhar aqui so tira o atalho; a caixa de resposta continua igual.
+  useEffect(() => {
+    if (!clinicId) return
+    let vivo = true
+    listRespostasProntas(clinicId)
+      .then((lista) => vivo && setProntas(lista.filter((p) => p.ativa && p.resposta.trim())))
+      .catch((erro) => console.warn('Nao consegui carregar as respostas prontas', erro))
+    return () => {
+      vivo = false
+    }
+  }, [clinicId])
   const [aoVivo, setAoVivo] = useState(false)
   const [resposta, setResposta] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -631,6 +698,8 @@ export default function Conversations({
 
   async function openConversation(conversation: Conversation) {
     setSelectedId(conversation.id)
+    // Arquivo escolhido numa conversa nao pode ir parar em outra.
+    setArquivo(null)
     setLoadingMessages(true)
     setResposta('')
     setJanelaAte(null)
@@ -668,12 +737,15 @@ export default function Conversations({
 
   async function enviarResposta() {
     const texto = resposta.trim()
-    if (!selectedId || !texto || enviando) return
+    if (!selectedId || (!texto && !arquivo) || enviando) return
     setEnviando(true)
     setError('')
     try {
-      await sendConversationReply(selectedId, texto)
+      // Com arquivo, o texto vira a legenda dele.
+      if (arquivo) await sendConversationFile(selectedId, arquivo, texto)
+      else await sendConversationReply(selectedId, texto)
       setResposta('')
+      setArquivo(null)
       acabamosDeEnviar.current = true
       // O tempo real ja traz a mensagem nova, mas recarregar aqui evita a
       // sensacao de "sumiu" caso a assinatura esteja fora do ar.
@@ -825,6 +897,7 @@ export default function Conversations({
       // proprio leitor, no instante em que a resposta sai, seria tirar a
       // conversa da tela de quem ainda esta nela.
       if (esconderConcluidas && estaConcluida(item) && item.id !== selectedId) return false
+      if (!passaNoRecorte(item, recorte) && item.id !== selectedId) return false
       if (inicio !== null || fim !== null) {
         const quando = item.lastMessageAt ? new Date(item.lastMessageAt).getTime() : null
         if (quando === null) return false
@@ -845,11 +918,11 @@ export default function Conversations({
     // mostrar o que falta fazer. O sort do JS e estavel, entao a ordem por
     // horario dentro de cada grupo se mantem.
     return [...filtradas].sort((a, b) => Number(estaConcluida(a)) - Number(estaConcluida(b)))
-  }, [conversations, busca, de, ate, esconderConcluidas, selectedId])
+  }, [conversations, busca, de, ate, esconderConcluidas, recorte, selectedId])
 
   const concluidas = useMemo(() => conversations.filter(estaConcluida).length, [conversations])
 
-  const filtrando = Boolean(busca.trim() || de || ate)
+  const filtrando = Boolean(busca.trim() || de || ate || recorte !== 'todas')
   /**
    * Solta o robo numa conversa travada, sem depender de ninguem mexer no banco.
    *
@@ -1112,6 +1185,7 @@ export default function Conversations({
                 setBusca('')
                 setDe('')
                 setAte('')
+                setRecorte('todas')
               }}
               className="inline-flex items-center gap-1 rounded-[12px] bg-slate-100 px-3 py-2 text-[10px] font-extrabold text-slate-600 transition hover:bg-slate-200"
             >
@@ -1160,6 +1234,7 @@ export default function Conversations({
                   setBusca('')
                   setDe('')
                   setAte('')
+                  setRecorte('todas')
                 }}
                 title="Limpar busca e datas"
                 className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
@@ -1170,7 +1245,37 @@ export default function Conversations({
           </div>
         )}
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+          {/* Fica nesta barra, e nao no cabecalho, para funcionar tambem com o
+              topo recolhido - que e como a recepcao trabalha em tela pequena. */}
+          {conversations.length > 0 && (
+            <select
+              value={recorte}
+              onChange={(e) => setRecorte(e.target.value as Recorte)}
+              title="Mostrar só um tipo de conversa"
+              className={`rounded-xl border px-2.5 py-1.5 text-[10px] font-extrabold outline-none transition ${
+                recorte === 'todas'
+                  ? 'border-[#193d36]/10 bg-white text-slate-600'
+                  : 'border-[#2f7f74] bg-[#f2ece0] text-[#17564d]'
+              }`}
+            >
+              <option value="todas">Todas as conversas</option>
+              <option value="atencao">Pedindo atenção (qualquer motivo)</option>
+              {ORDEM_DOS_MOTIVOS.map((chave) => {
+                const quantas = conversations.filter(
+                  (c) => c.needsAttention && c.attentionReason === chave,
+                ).length
+                return (
+                  <option key={chave} value={`motivo:${chave}`}>
+                    {MOTIVO_ATENCAO[chave].rotulo} ({quantas})
+                  </option>
+                )
+              })}
+              <option value="novas">Com mensagens novas</option>
+              <option value="sem_cadastro">Sem cadastro</option>
+              <option value="robo_parado">Robô parado numa etapa</option>
+            </select>
+          )}
           {onAlternarCompacto && (
             <button
               type="button"
@@ -1740,9 +1845,37 @@ export default function Conversations({
                         <p className="text-[10px] font-bold text-[#557f75]">
                           Pode responder livremente até {formatWhen(janelaAte)}
                         </p>
-                        <p className="text-[10px] font-semibold text-slate-400">
-                          {resposta.length}/4096
-                        </p>
+                        <div className="flex items-center gap-2">
+                          {/* Respostas prontas para a equipe (24/09/2026). As
+                              mesmas que o robo usa, cadastradas em Configuracoes:
+                              a recepcao escrevia de novo, a mao, os valores e
+                              enderecos que o sistema ja sabia. Entra no campo
+                              para revisar antes de enviar - nunca sai sozinha. */}
+                          {prontas.length > 0 && (
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                const escolhida = prontas.find((p) => p.id === e.target.value)
+                                if (!escolhida) return
+                                setResposta((atual) =>
+                                  atual.trim() ? `${atual.trimEnd()}\n\n${escolhida.resposta}` : escolhida.resposta,
+                                )
+                              }}
+                              title="Coloca o texto de uma resposta pronta no campo, para revisar e enviar"
+                              className="max-w-[200px] rounded-lg border border-[#193d36]/10 bg-white px-2 py-1 text-[10px] font-bold text-slate-600 outline-none"
+                            >
+                              <option value="">Resposta pronta…</option>
+                              {prontas.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.assunto}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          <p className="text-[10px] font-semibold text-slate-400">
+                            {resposta.length}/4096
+                          </p>
+                        </div>
                       </div>
                       <textarea
                         value={resposta}
@@ -1758,6 +1891,35 @@ export default function Conversations({
                         maxLength={4096}
                         placeholder="Escreva sua resposta..."
                         className="mt-2 w-full resize-y rounded-[14px] border border-[#193d36]/10 bg-white p-3 text-[12px] leading-relaxed outline-none focus:border-[#2f7f74]"
+                      />
+                      {/* Arquivo escolhido: vai junto no Enviar, com o texto
+                          acima como legenda. */}
+                      {arquivo && (
+                        <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-xl bg-[#f2ece0] px-3 py-1.5 text-[10px] font-bold text-[#17564d]">
+                          <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">{arquivo.name}</span>
+                          <span className="shrink-0 text-[#17564d]/60">
+                            {(arquivo.size / 1048576).toFixed(1).replace('.', ',')} MB
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setArquivo(null)}
+                            title="Tirar o arquivo"
+                            className="shrink-0 rounded-full p-0.5 hover:bg-white"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
+                      <input
+                        ref={seletorDeArquivo}
+                        type="file"
+                        accept="application/pdf,image/jpeg,image/png,.doc,.docx,.xls,.xlsx,.txt"
+                        className="hidden"
+                        onChange={(e) => {
+                          setArquivo(e.target.files?.[0] ?? null)
+                          e.target.value = ''
+                        }}
                       />
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                         <p className="text-[9px] font-semibold text-slate-400">
@@ -1795,7 +1957,17 @@ export default function Conversations({
                         </button>
                         <button
                           type="button"
-                          disabled={enviando || !resposta.trim()}
+                          disabled={enviando}
+                          onClick={() => seletorDeArquivo.current?.click()}
+                          title="Anexar receita, pedido de exame, recibo ou foto (PDF, JPG, PNG, Word, Excel)"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-[10px] font-extrabold text-slate-600 transition hover:border-[#193d36]/25 hover:text-[#193d36] disabled:opacity-40"
+                        >
+                          <Paperclip className="h-3.5 w-3.5" />
+                          Arquivo
+                        </button>
+                        <button
+                          type="button"
+                          disabled={enviando || (!resposta.trim() && !arquivo)}
                           onClick={() => void enviarResposta()}
                           className="inline-flex items-center gap-1.5 rounded-xl bg-[#193d36] px-4 py-2 text-[10px] font-extrabold text-white transition hover:bg-[#13453c] disabled:cursor-not-allowed disabled:opacity-40"
                         >

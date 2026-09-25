@@ -27,6 +27,8 @@ function fazerAdmin({
   // Colunas que este banco falso NÃO tem. Recusa o update inteiro quando
   // alguma aparece, que é exatamente o que o Postgres faz.
   colunasAusentes = [],
+  // Consultas com o cadastro (intake_*) como o banco devolve.
+  consultasComFicha = [],
 }) {
   const conversa = {
     booking_state: null,
@@ -47,6 +49,7 @@ function fazerAdmin({
     select: () => chain(resultado),
     eq: (_col, valor) => chain(resultado._porId ? { ...resultado, single: resultado._porId(valor) } : resultado),
     is: () => chain(resultado),
+    in: () => chain(resultado),
     order: () => chain(resultado),
     limit: () => chain(resultado),
     maybeSingle: async () => ({ data: resultado.single ?? null, error: resultado.erro ?? null }),
@@ -135,6 +138,8 @@ function fazerAdmin({
           // regra do "manual", e nao a data.
           select: () =>
             chain({
+              // Consultas lidas em lista (cadastro pela metade, 24/09/2026).
+              list: consultasComFicha,
               single: {
                 reschedule_count: remarcacoesAnteriores,
                 starts_at: '2027-09-14T18:00:00Z',
@@ -252,6 +257,7 @@ async function caso(titulo, passos, opcoes = {}) {
     respostasProntas: opcoes.respostasProntas ?? [],
     telemedicina: opcoes.telemedicina ?? { ativa: false, texto: '' },
     colunasAusentes: opcoes.colunasAusentes ?? [],
+    consultasComFicha: opcoes.fichas ?? [],
   })
 
   // A conversa começa como se o menu já tivesse aparecido alguma vez.
@@ -1199,13 +1205,23 @@ await caso('"Convênio?" na fila é respondido mesmo casando com uma palavra só
   ['convênio?', ['particular', 'continua na fila']],
 ], { respostasProntas: RESPOSTAS })
 
-// E o pedido de marcar continua em silêncio, porque "retorno" sozinho não é
-// pergunta.
-await caso('"Quero marcar retorno para o Tomás" na fila continua em silêncio', [
+// E o pedido de marcar nao recebe a lista de documentos, porque "retorno"
+// sozinho nao e pergunta. Desde 25/09/2026 ele recebe o botao de marcar - e so
+// isso: a conversa continua na fila.
+await caso('"Quero marcar retorno para o Tomás" na fila ganha o botão, não os documentos', [
   ['Oi', 'Como podemos ajudar'],
   ['3', 'direcionando você'],
-  ['quero marcar retorno para o Tomás', null],
-], { respostasProntas: [...RESPOSTAS, {
+  ['quero marcar retorno para o Tomás', ['Marcar uma consulta', 'continua na fila']],
+], {
+  verificar: ({ transcricao, titulo, ultimoToque, conversa }) => {
+    if ((transcricao.at(-1) ?? '').includes('Leve um documento')) falhas.push(`${titulo}: recebeu a lista de documentos`)
+    else passou++
+    if (ultimoToque.botoes?.[0]?.titulo === 'Marcar uma consulta') passou++
+    else falhas.push(`${titulo}: sem o botão de marcar`)
+    if (conversa.booking_state === 'atendente') passou++
+    else falhas.push(`${titulo}: saiu da fila (${conversa.booking_state})`)
+  },
+  respostasProntas: [...RESPOSTAS, {
   id: 'r4',
   subject: 'O que levar',
   keywords: ['levar', 'documento', 'retorno', 'exames'],
@@ -1720,6 +1736,144 @@ await caso('Responder o nome do plano por escrito também vale', [
   ['trasmontano', 'Datas disponíveis'],
 ], { unidades: UNIDADE_COM_CONVENIO, slots: { 'u-santos': SLOTS_CHEIOS['u-santos'] } })
 
+// ---------------------------------------------------------------
+// Cadastro que ficou pela metade (24/09/2026)
+// ---------------------------------------------------------------
+//
+// A mãe marcou, tocou em "Voltar ao menu" no meio do cadastro e depois
+// escreveu o nome da criança. Recebia "Não entendi" e a recepção tinha de
+// mandar o questionário à mão. Nomes inventados.
+
+const CONSULTA_SEM_FICHA = [
+  { id: 'c-ficha', inicio: '2027-09-14T18:00:00Z', unidade: 'Liferty · Santos', endereco: '', paciente: '', confirmada: true },
+]
+const FICHA_VAZIA = [
+  { id: 'c-ficha', starts_at: '2027-09-14T18:00:00Z', patient_id: null, intake_patient_name: null, intake_birth_date: null, intake_guardian: null, intake_cpf: null, intake_email: null },
+]
+const FICHA_COMPLETA = [
+  { ...FICHA_VAZIA[0], intake_patient_name: 'Helena Souza Lima', intake_birth_date: '01/02/2020', intake_guardian: 'Marta Souza' },
+]
+const NO_MENU = { booking_state: 'menu' }
+
+await caso('Nome escrito depois de sair do cadastro é anotado e o cadastro segue', [
+  ['Helena Souza Lima', ['Anotei o nome', 'data de nascimento']],
+], { consultas: CONSULTA_SEM_FICHA, fichas: FICHA_VAZIA, estadoInicial: NO_MENU })
+
+await caso('Texto que não é nome oferece completar o cadastro', [
+  ['tudo bem', ['ficou pela metade', 'Quer completar agora']],
+], { consultas: CONSULTA_SEM_FICHA, fichas: FICHA_VAZIA, estadoInicial: NO_MENU })
+
+await caso('Tocar em Completar cadastro retoma da primeira pergunta', [
+  ['FICHA', 'nome completo do paciente'],
+], { consultas: CONSULTA_SEM_FICHA, fichas: FICHA_VAZIA, estadoInicial: NO_MENU })
+
+// O caminho real de 24/09: saiu do cadastro, tocou em "Marcar uma consulta",
+// caiu em "você já tem uma consulta" e escreveu o nome da criança.
+await caso('Já tem consulta com cadastro pela metade: oferece completar', [
+  ['2', ['já tem uma consulta', 'Completar cadastro']],
+], { consultas: CONSULTA_SEM_FICHA, fichas: FICHA_VAZIA, estadoInicial: NO_MENU })
+
+await caso('Nome escrito em "já tem consulta" é anotado', [
+  ['2', 'já tem uma consulta'],
+  ['Helena Souza Lima', ['Anotei o nome', 'data de nascimento']],
+], { consultas: CONSULTA_SEM_FICHA, fichas: FICHA_VAZIA, estadoInicial: NO_MENU })
+
+// Na fila da equipe, com gente conversando: o toque em "Marcar uma
+// consulta" de um menu antigo abre o agendamento (24/09/2026).
+await caso('Toque em Marcar uma consulta na fila da equipe abre o agendamento', [
+  ['Marcar uma consulta', 'Em qual unidade'],
+], { estadoInicial: { booking_state: 'atendente' }, podeIniciarMenu: false })
+
+// Mas texto qualquer, na mesma situação, continua sendo da equipe.
+await caso('Texto solto na fila com equipe conversando continua sem robô', [
+  ['ok, aguardo', null],
+], { estadoInicial: { booking_state: 'atendente' }, podeIniciarMenu: false })
+
+// 24/09/2026: a atendente disse "basta escolher a opção 2"; a mãe escreveu
+// "Pode agendar" e "2" e o robô ficou mudo por 35 minutos. Agora ela recebe o
+// botão, mesmo com a equipe na conversa.
+await caso('"Pode agendar" na fila recebe o botão de marcar', [
+  ['Pode agendar', 'Marcar uma consulta'],
+  ['2', 'Marcar uma consulta'],
+  ['Marcar uma consulta', 'Em qual unidade'],
+], { estadoInicial: { booking_state: 'atendente' }, podeIniciarMenu: false })
+
+// "Marca consulta pra minha filha, e valor da consulta" (24/09/2026): recebia
+// so o valor, porque "marca" nao era "marcar".
+await caso('"Marca consulta" conta como pedido de agendamento', [
+  ['Marca consulta pra minha filha de dois anos', 'Em qual unidade'],
+], { estadoInicial: NO_MENU })
+
+await caso('"marca de fórmula" não é agendamento, e "nasceu em março" também não', [
+  ['nasceu em março do ano passado e toma leite', 'passei sua mensagem'],
+], { estadoInicial: NO_MENU })
+
+// "Aguardo retorno" casava com "retorno" e recebia os documentos para levar.
+await caso('"Aguardo retorno" na fila não recebe resposta pronta', [
+  ['Oi', 'Como podemos ajudar'],
+  ['3', 'direcionando você'],
+  ['Aguardo retorno', null],
+], { respostasProntas: [...RESPOSTAS, {
+  id: 'r4',
+  subject: 'O que levar',
+  keywords: ['levar', 'documento', 'retorno', 'exames'],
+  answer: 'Leve um documento com foto do responsável.',
+}] })
+
+// Frase que o robô não entende vai para a equipe; agradecimento não.
+await caso('"Dr está ciente." no menu vai para a equipe', [
+  ['Dr está ciente do caso', ['passei sua mensagem', 'direcionando você']],
+], {
+  estadoInicial: NO_MENU,
+  verificar: ({ conversa, titulo }) => {
+    if (conversa.booking_state === 'atendente') passou++
+    else falhas.push(`${titulo}: não entrou na fila (${conversa.booking_state})`)
+  },
+})
+await caso('"Ok, obrigada!" no menu não é "Não entendi" nem fila', [
+  ['Ok, obrigada!', 'Por nada'],
+], {
+  estadoInicial: NO_MENU,
+  verificar: ({ conversa, titulo }) => {
+    if (conversa.booking_state !== 'atendente') passou++
+    else falhas.push(`${titulo}: agradecimento foi para a fila`)
+  },
+})
+await caso('Palavra solta no menu continua recebendo o menu', [
+  ['blablabla', 'Não entendi'],
+], { estadoInicial: NO_MENU })
+
+// "Consigo para amanhã com o dr" recebia "Não entendi" (24/09/2026).
+await caso('Pedido de vaga sem o verbo marcar abre o agendamento', [
+  ['Consigo para amanhã com o dr Marcello', 'Em qual unidade'],
+], { estadoInicial: NO_MENU })
+
+await caso('"Tem vaga?" abre o agendamento', [
+  ['Tem vaga essa semana?', 'Em qual unidade'],
+], { estadoInicial: NO_MENU })
+
+// Com o cadastro completo o nome nao e ficha - e, desde 25/09/2026, frase de
+// tres palavras que o robo nao entende vai para a equipe.
+// 24/09/2026: duas famílias tocaram em "Voltar ao menu" logo na pergunta do
+// nome, com o horário já guardado, e a consulta ficou no nome da mãe.
+await caso('Ficha depois do agendamento não oferece "Voltar ao menu"', [
+  ['Oi', 'Aqui é o consultório'],
+  ['2', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', ['está guardado', 'nome completo do paciente']],
+], {
+  verificar: ({ ultimoToque, titulo }) => {
+    const botoes = (ultimoToque.botoes ?? []).map((b) => b.titulo)
+    if (botoes.includes('Voltar ao menu')) falhas.push(`${titulo}: ainda oferece "Voltar ao menu"`)
+    else passou++
+  },
+})
+
+await caso('Com o cadastro completo, nome solto não vira ficha', [
+  ['Helena Souza Lima', 'passei sua mensagem'],
+], { consultas: CONSULTA_SEM_FICHA, fichas: FICHA_COMPLETA, estadoInicial: NO_MENU })
+
 // 23/09/2026: o convênio foi encerrado com uma família parada na pergunta.
 // A unidade agora está sem plano; a próxima mensagem dela não pode receber
 // "Responda 1 para  ou 2 para particular" com o nome em branco.
@@ -2192,7 +2346,7 @@ await caso('Idade no meio da frase não escolhe opção do menu', [
 
 await caso('Pergunta com número não vira escolha de menu', [
   ['Oi', 'Como podemos ajudar'],
-  ['ele tem 5 anos, o que devo levar?', 'Não entendi'],
+  ['ele tem 5 anos, o que devo levar?', 'passei sua mensagem'],
 ])
 
 // E o que é escolha continua sendo escolha, escrito como as pessoas escrevem.
@@ -2755,3 +2909,8 @@ for (const f of falhas) console.log('\n✗ ' + f)
 
 console.log('\n\n===== PONTOS PARA OLHAR =====')
 for (const a of achados) console.log('\n' + a)
+
+// Ate 25/09/2026 este arquivo imprimia "FALHAS: 4" e saia com codigo 0 - o
+// npm run test:bot seguia verde e o PUBLICAR subiria o robo quebrado. Teste
+// que falha calado e o mesmo defeito que ele existe para pegar.
+if (falhas.length) process.exit(1)

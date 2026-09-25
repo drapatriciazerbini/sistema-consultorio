@@ -18,6 +18,7 @@
  * meta-webhook, que ja tem o token e o numero em maos.
  */
 
+import { avisoDeHorario } from './expediente.ts'
 import { dataDeNascimentoIso } from './datas.ts'
 import type { adminClient } from './whatsapp.ts'
 import { cadastrarDaFicha, type ConsultaParaCadastro } from './cadastro.ts'
@@ -249,7 +250,49 @@ export function pediuAgendamento(texto: string) {
   //
   // "consulta" sozinha fica de fora de proposito: "quanto custa a consulta?" e
   // pergunta de preco, e abriria a escolha de unidade sem ninguem pedir.
-  return /\b(marcar|marcacao|agendar|agendamento|horarios?)\b/.test(t)
+  if (/\b(marcar|marcacao|agendar|agendamento|horarios?)\b/.test(t)) return true
+
+  // Verbo conjugado (25/09/2026): "Marca consulta pra minha filha de dois
+  // anos" nao tinha "marcar" e ficou so com a resposta de valores. Remarcar e
+  // desmarcar ja sairam no primeiro teste desta funcao.
+  // "marco" fica de fora ("nasceu em marco", sem cedilha), e "marca de" e
+  // "marca da" tambem ("qual marca de formula?").
+  if (/\b(marque|marcamos|agende|agendo|agenda|agendamos)\b/.test(t)) return true
+  if (/\bmarca\b(?!\s+d[aeo]s?\b)/.test(t)) return true
+
+  // Pedido de vaga sem o verbo (24/09/2026): "Consigo para amanha com o dr
+  // Marcelo" recebeu "Nao entendi". Vaga e dia pedidos juntos sao agendamento.
+  return (
+    /\b(tem|teria|ha|existe)\s+(uma\s+)?vagas?\b/.test(t) ||
+    /\bconsigo\b.*\b(amanha|hoje|semana|segunda|terca|quarta|quinta|sexta|sabado|dia|consulta)\b/.test(t)
+  )
+}
+
+/**
+ * A frase tem cara de pergunta: ponto de interrogacao, ou uma palavra de
+ * pergunta. Serve para a fila da equipe nao responder recado ("Aguardo
+ * retorno") como se fosse duvida.
+ */
+export function parecePergunta(texto: string): boolean {
+  if (texto.includes('?')) return true
+  const t = normalizar(texto)
+  return /\b(qual|quais|quanto|quanta|quantos|como|onde|quando|aceita|aceitam|atende|atendem|tem|teria|pode|posso|faz|fazem|precisa|preciso de|e particular)\b/.test(t)
+}
+
+/**
+ * So agradecimento ou "ok" - nao e pedido, e nao merece "Nao entendi" nem
+ * fila da equipe. Toda palavra da frase precisa ser de cortesia.
+ */
+export function soAgradecimento(texto: string): boolean {
+  const t = normalizar(texto).replace(/[^a-z\s]/g, ' ').trim()
+  if (!t) return /^(?:\s|👍|🙏|😊|🙂|❤️|💙|👏|✅|!|\.)+$/u.test(texto.trim())
+  const cortesia = new Set([
+    'ok', 'okay', 'okk', 'blz', 'beleza', 'obrigado', 'obrigada', 'obg', 'brigado', 'brigada', 'valeu',
+    'grato', 'grata', 'certo', 'combinado', 'perfeito', 'entendi', 'ta', 'bom', 'otimo', 'muito',
+    'pela', 'atencao', 'sim', 'tudo', 'bem', 'ate', 'mais', 'amanha', 'boa', 'noite', 'tarde', 'dia',
+    'deus', 'abencoe', 'e', 'o', 'a', 'de', 'nada', 'show', 'maravilha', 'agradeco', 'mt', 'mto', 'td',
+  ])
+  return t.split(/\s+/).every((palavra) => cortesia.has(palavra))
 }
 
 /** A saida de emergencia. Vale em qualquer etapa, inclusive com a equipe. */
@@ -1051,8 +1094,7 @@ async function chamarEquipe(admin: Admin, conversationId: string): Promise<Resul
       'Estou direcionando você para um atendente da clínica.\n\n' +
       'Pode já escrever sua dúvida por aqui: a pessoa que assumir o atendimento ' +
       'vai ler tudo antes de responder.\n\n' +
-      'Atendemos de segunda a sexta, das 8h às 18h. Fora desse horário, ' +
-      'respondemos no próximo dia útil.\n\n' + VOLTA,
+      avisoDeHorario() + '\n\n' + VOLTA,
     atencao: 'atendente',
   }
 }
@@ -1093,8 +1135,7 @@ async function registrarPedidoDeNota(admin: Admin, conversationId: string): Prom
       '🧾 Anotei o pedido de *nota fiscal / recibo*.\n\n' +
       'Para a equipe já localizar, escreva aqui o *nome do paciente* e a *data da consulta*, ' +
       'se ainda não mandou.\n\n' +
-      'Atendemos de segunda a sexta, das 8h às 18h. Fora desse horário, ' +
-      'respondemos no próximo dia útil.',
+      avisoDeHorario(),
     atencao: 'documento',
   }
 }
@@ -1277,17 +1318,25 @@ async function iniciarAgendamento(
       booking_options: [consultas[0].id],
       booking_replaces_id: null,
     })
+    // Consulta recem-marcada com o cadastro pela metade: quem toca em "Marcar
+    // uma consulta" logo depois quase sempre esta tentando terminar o que
+    // comecou, e nao marcar outra (24/09/2026). A saida vira o terceiro botao.
+    const pendente = await fichaPendente(admin, consultas)
     return {
       resposta:
         `Você já tem uma consulta marcada:\n\n${descreverConsulta(consultas[0], timezone)}\n\n` +
+        (pendente ? '📋 O cadastro dessa consulta ainda está incompleto.\n\n' : '') +
         'O que você prefere?\n\n' +
         '1 - Remarcar (trocar por outra data)\n' +
-        '2 - Marcar mais uma consulta, além dessa\n\n' +
+        '2 - Marcar mais uma consulta, além dessa\n' +
+        (pendente ? 'Ou toque em *Completar cadastro*.\n\n' : '\n') +
         VOLTA,
       botoes: [
         { id: '1', titulo: 'Remarcar essa' },
         { id: '2', titulo: 'Marcar mais uma' },
-        { id: 'MENU', titulo: 'Voltar ao menu' },
+        pendente
+          ? { id: 'FICHA', titulo: 'Completar cadastro' }
+          : { id: 'MENU', titulo: 'Voltar ao menu' },
       ],
     }
   }
@@ -2115,6 +2164,126 @@ async function terminarDados(
   }
 }
 
+// ---------------------------------------------------------------
+// Cadastro que ficou pela metade
+// ---------------------------------------------------------------
+
+/**
+ * A consulta marcada pelo robo cujo cadastro ficou pela metade (24/09/2026).
+ *
+ * Caso real: a mae marcou, recebeu "Qual e o nome completo do paciente?",
+ * tocou em "Voltar ao menu", e depois escreveu o nome da crianca. Com o menu
+ * na tela, o nome virava "Nao entendi. Responda com o numero da opcao", e a
+ * recepcao teve de disparar o questionario a mao.
+ *
+ * Pendente = consulta futura deste telefone, sem ficha ligada, com alguma das
+ * tres perguntas obrigatorias sem resposta. Nunca lanca: sem a informacao, o
+ * robo segue como antes.
+ */
+async function fichaPendente(
+  admin: Admin,
+  consultas: ConsultaMarcada[],
+): Promise<{ id: string; inicio: string; faltam: string[] } | null> {
+  if (consultas.length === 0) return null
+  try {
+    const { data } = await admin
+      .from('appointments')
+      .select('id,starts_at,patient_id,intake_patient_name,intake_birth_date,intake_guardian,intake_cpf,intake_email')
+      .in('id', consultas.map((c) => c.id))
+    const linhas = ((data ?? []) as Record<string, unknown>[])
+      .filter((l) => !l.patient_id)
+      .sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)))
+    for (const linha of linhas) {
+      const vazia = (coluna: string) => !String(linha[coluna] ?? '').trim()
+      const faltaObrigatoria = PERGUNTAS.some((p) => p.obrigatoria && vazia(p.coluna))
+      if (!faltaObrigatoria) continue
+      return {
+        id: String(linha.id),
+        inicio: String(linha.starts_at),
+        faltam: PERGUNTAS.filter((p) => vazia(p.coluna)).map((p) => p.chave),
+      }
+    }
+  } catch (causa) {
+    console.warn('Nao consegui conferir cadastro pendente', causa)
+  }
+  return null
+}
+
+/**
+ * O texto parece um nome de gente: so letras, duas palavras ou mais, sem
+ * pergunta. "Joao Pedro Silva" passa; "qual o endereco?", "ok obrigado" e
+ * "12/03/2019" nao.
+ */
+function pareceNome(texto: string) {
+  const t = texto.trim()
+  if (t.length < 5 || t.length > 80 || /[?0-9@]/.test(t)) return false
+  if (!/^[\p{L}' .-]+$/u.test(t)) return false
+  const palavras = t.split(/\s+/).filter((p) => p.length >= 2)
+  if (palavras.length < 2) return false
+  const comuns = new Set(['ok', 'obrigado', 'obrigada', 'bom', 'boa', 'dia', 'tarde', 'noite', 'oi', 'ola', 'tudo', 'bem', 'sim', 'nao', 'quero', 'queria', 'gostaria', 'por', 'favor'])
+  return !palavras.every((p) => comuns.has(normalizar(p)))
+}
+
+/**
+ * Texto solto de quem tem cadastro pela metade (24/09/2026). Se o que falta
+ * primeiro e o nome e o texto tem cara de nome, e a resposta atrasada: anota e
+ * segue. Senao, oferece retomar em um toque. Null quando nao ha pendencia.
+ *
+ * Vale no menu e na pergunta "voce ja tem uma consulta marcada": foi ali que a
+ * familia de 24/09 escreveu o nome da crianca e recebeu "Nao entendi".
+ */
+async function tentarFichaPendente(
+  admin: Admin,
+  clinicId: string,
+  conversationId: string,
+  texto: string,
+  consultas: ConsultaMarcada[],
+): Promise<Resultado | null> {
+  const pendente = await fichaPendente(admin, consultas)
+  if (!pendente) return null
+
+  if (['ficha', 'completar cadastro', 'completar'].includes(normalizar(texto))) {
+    registrar('ficha_retomada', 'botao')
+    return await retomarFicha(admin, conversationId, pendente, '📋 Vamos completar o cadastro da consulta.')
+  }
+
+  const primeira = PERGUNTAS.find((p) => p.chave === pendente.faltam[0])
+  if (primeira?.chave === 'nome' && pareceNome(texto)) {
+    const nome = texto.trim().slice(0, 160)
+    await guardarDado(admin, pendente.id, primeira, nome, null)
+    registrar('ficha_retomada', 'nome')
+    return await retomarFicha(
+      admin,
+      conversationId,
+      { id: pendente.id, faltam: pendente.faltam.slice(1) },
+      `Anotei o nome: *${nome}*. Vamos completar o cadastro da consulta.`,
+    )
+  }
+
+  registrar('ficha_oferecida')
+  const quando = formatarData(pendente.inicio, await fusoDaClinica(admin, clinicId))
+  return {
+    resposta:
+      `📋 O cadastro da sua consulta de *${quando}* ficou pela metade. ` +
+      'São poucas perguntas, e ajudam a Dra. Patrícia a já ter os dados na hora.\n\n' +
+      'Quer completar agora?',
+    botoes: [
+      { id: 'FICHA', titulo: 'Completar cadastro' },
+      { id: '0', titulo: 'Ver o menu' },
+    ],
+  }
+}
+
+/** Retoma o cadastro pendente a partir da primeira pergunta sem resposta. */
+async function retomarFicha(
+  admin: Admin,
+  conversationId: string,
+  pendente: { id: string; faltam: string[] },
+  aviso: string,
+): Promise<Resultado> {
+  return await perguntarDados(admin, conversationId, pendente.id, pendente.faltam, aviso)
+}
+
 /**
  * Recomeça o questionário do cadastro, a pedido da equipe.
  *
@@ -2179,11 +2348,12 @@ async function perguntarDados(
   /**
    * Questionario disparado pela equipe, e nao pelo fim de um agendamento.
    *
-   * Muda os botoes: sem "Voltar ao menu". No agendamento ele faz sentido - a
-   * pessoa estava num fluxo e pode querer sair dele. Aqui ela nao estava em
-   * fluxo nenhum: a clinica pediu quatro dados, e oferecer "voltar ao menu"
-   * transforma um pedido curto numa porta de saida para o menu inteiro.
-   * Quem quiser sair mesmo assim digita MENU ou 0, como em qualquer etapa.
+   * Ja nao muda os botoes (25/09/2026): a ficha nunca mostra "Voltar ao
+   * menu", nem a que vem depois do agendamento. Em 24/09 duas familias
+   * tocaram nele logo na pergunta do nome da crianca - o horario ja estava
+   * guardado, o botao parecia o proximo passo, e a consulta ficou no nome da
+   * mae, com o lembrete chegando para "Yasmin" e nao para a crianca. Quem
+   * quiser sair mesmo assim digita MENU ou 0, como em qualquer etapa.
    */
   manual = false,
 ): Promise<Resultado> {
@@ -2205,16 +2375,7 @@ async function perguntarDados(
       (pergunta.obrigatoria || pergunta.jaExplicaOPular
         ? ''
         : '\n\n_Se preferir não responder agora, digite PULAR._'),
-    botoes: pergunta.obrigatoria
-      ? manual
-        ? undefined
-        : [{ id: 'MENU', titulo: 'Voltar ao menu' }]
-      : manual
-        ? [{ id: 'PULAR', titulo: 'Pular' }]
-        : [
-            { id: 'PULAR', titulo: 'Pular' },
-            { id: 'MENU', titulo: 'Voltar ao menu' },
-          ],
+    botoes: pergunta.obrigatoria ? undefined : [{ id: 'PULAR', titulo: 'Pular' }],
   }
 }
 
@@ -2639,7 +2800,7 @@ async function registrarVisita(
       '✅ *Pedido de visita registrado.*\n\n' +
       linhas.join('\n') +
       '\n\nA equipe confirma por aqui o *dia*, o *horário* e o *valor* da visita.\n\n' +
-      'Atendemos de segunda a sexta, das 8h às 18h. Fora desse horário, respondemos no próximo dia útil.\n\n' +
+      avisoDeHorario() + '\n\n' +
       VOLTA,
     atencao: 'visita',
   }
@@ -2780,7 +2941,7 @@ export async function tratarConversa(opcoes: {
       resposta:
         '📎 Recebi o que você enviou e já avisei a nossa equipe: alguém do consultório vai olhar e responder por aqui.\n\n' +
         'Se quiser, escreva junto o que é e o que você gostaria de saber. Isso ajuda quem for responder.\n\n' +
-        'Atendemos de segunda a sexta, das 8h às 18h. Fora desse horário, respondemos no próximo dia útil.\n\n' +
+        avisoDeHorario() + '\n\n' +
         VOLTA,
       atencao: 'anexo',
     }
@@ -2795,6 +2956,19 @@ export async function tratarConversa(opcoes: {
   // possivel - a filha avisando que o pai esta mal, e a tela sem sinal
   // nenhum de que aquilo era diferente das outras conversas em espera.
   if (estadoAtual === 'atendente') {
+    // Toque em "Marcar uma consulta" de um menu antigo, na fila da equipe
+    // (24/09/2026). A atendente respondeu "selecione Agendar e marque direto";
+    // a mae tocou - e o robo, calado porque havia gente na conversa, ignorou.
+    // Ela escreveu "nao estou conseguindo marcar" e esperou 35 minutos. O
+    // titulo exato do item so chega por toque (quem digita escreve outra
+    // coisa), entao isto nao atropela conversa nenhuma: e pedido explicito.
+    if (normalizar(texto) === 'marcar uma consulta') {
+      registrar('opcao_escolhida', '2')
+      return await iniciarAgendamento(
+        admin, clinicId, conversationId, opcoes.pacientes, opcoes.consultas,
+      )
+    }
+
     if (pediuUrgencia(texto)) {
       return {
         resposta:
@@ -2827,6 +3001,35 @@ export async function tratarConversa(opcoes: {
     // pergunta (AMIL, valor, formas de pagamento) ficou sem resposta. O peso do
     // casamento resolve os dois casos sem precisar adivinhar a intencao.
     const jaRespondidas = opcoes.respostasNaEspera ?? 0
+
+    // Quer marcar, estando na fila (25/09/2026). Em 24/09 a atendente
+    // respondeu "basta escolher a opcao 2"; a mae digitou "Pode agendar", "2",
+    // e o robo, calado na fila, nao fez nada - 35 minutos ate ela escrever
+    // "nao estou conseguindo marcar". O robo nao abre a agenda sozinho (pode
+    // haver conversa humana em andamento); ele OFERECE um botao. Tocar nele
+    // manda "Marcar uma consulta", que o bloco acima ja atende.
+    //
+    // Vale mesmo com gente conversando: e so um botao, e em geral e a propria
+    // atendente que mandou a familia marcar pelo menu. O limite de respostas na
+    // espera continua valendo, para nao virar eco.
+    const querMarcar = pediuAgendamento(texto) || texto.trim() === '2'
+    if (querMarcar && jaRespondidas < LIMITE_NA_ESPERA) {
+      const lista = await carregarRespostas(admin, clinicId)
+      // "Marca consulta pra minha filha, e valor da consulta": as duas coisas.
+      const junto = acharResposta(texto, lista, 2)
+      await admin
+        .from('whatsapp_conversations')
+        .update({ auto_replies_while_waiting: jaRespondidas + 1 })
+        .eq('id', conversationId)
+      return {
+        resposta:
+          (junto ? `${junto.resposta}\n\n` : '') +
+          '📅 Para ver os horários livres e marcar agora, toque em *Marcar uma consulta*. ' +
+          'Sua conversa continua na fila da equipe.',
+        botoes: [{ id: '2', titulo: 'Marcar uma consulta' }],
+      }
+    }
+
     if (opcoes.podeIniciarMenu && jaRespondidas < LIMITE_NA_ESPERA) {
       const lista = await carregarRespostas(admin, clinicId)
       // Casamento forte (duas palavras do assunto) responde sempre, mesmo que a
@@ -2838,9 +3041,13 @@ export async function tratarConversa(opcoes: {
       // Anthony" casava com "retorno" e recebia a lista de documentos. Mas
       // "convenio?" solto, que tambem casa com uma palavra e e pergunta de
       // verdade, continua respondido.
+      //
+      // E casamento fraco so em frase com cara de pergunta (25/09/2026):
+      // "Aguardo retorno" casou com "retorno" e recebeu a lista de documentos
+      // para levar a consulta. "Convenio?" e "Valores ?" continuam respondidos.
       const achada =
         acharResposta(texto, lista, 2) ??
-        (pediuAgendamento(texto) ? null : acharResposta(texto, lista, 1))
+        (pediuAgendamento(texto) || !parecePergunta(texto) ? null : acharResposta(texto, lista, 1))
       // Sem perguntar a unidade: a pergunta "para qual atendimento?" mudaria a
       // etapa da conversa e tiraria a pessoa da fila sem ela pedir. Vale o
       // texto curto da propria resposta, que ja cobre os tres lugares.
@@ -3000,7 +3207,6 @@ export async function tratarConversa(opcoes: {
           'Aqui não dá para voltar uma pergunta - mas o que já foi respondido está guardado, ' +
           'e a Dra. Patrícia confere tudo na consulta.\n\n' +
           perguntaAtual.texto,
-        botoes: manual ? undefined : [{ id: 'MENU', titulo: 'Voltar ao menu' }],
       }
     }
 
@@ -3017,7 +3223,6 @@ export async function tratarConversa(opcoes: {
             'Esse dado a Dra. Patrícia precisa ter no cadastro. Pode responder aqui, ' +
             'mesmo que não seja exato?\n\n' +
             perguntaAtual.texto,
-          botoes: manual ? undefined : [{ id: 'MENU', titulo: 'Voltar ao menu' }],
         }
       }
       return restantes.length
@@ -3045,16 +3250,7 @@ export async function tratarConversa(opcoes: {
         resposta:
           perguntaAtual.erro +
           (perguntaAtual.obrigatoria ? '' : '\n\n_Ou digite PULAR para seguir sem esse dado._'),
-        botoes: perguntaAtual.obrigatoria
-          ? manual
-            ? undefined
-            : [{ id: 'MENU', titulo: 'Voltar ao menu' }]
-          : manual
-            ? [{ id: 'PULAR', titulo: 'Pular' }]
-            : [
-                { id: 'PULAR', titulo: 'Pular' },
-                { id: 'MENU', titulo: 'Voltar ao menu' },
-              ],
+        botoes: perguntaAtual.obrigatoria ? undefined : [{ id: 'PULAR', titulo: 'Pular' }],
       }
     }
 
@@ -3066,6 +3262,12 @@ export async function tratarConversa(opcoes: {
 
   // ---- Menu ----
   if (estadoAtual === 'menu') {
+    // Toque em "Completar cadastro" (ver tentarFichaPendente).
+    if (['ficha', 'completar cadastro', 'completar'].includes(normalizar(texto))) {
+      const retomada = await tentarFichaPendente(admin, clinicId, conversationId, texto, opcoes.consultas)
+      if (retomada) return retomada
+    }
+
     const escolhido = escolha(texto, 5)
 
     // A resposta da pergunta "o que as pessoas mais pedem?". Guardado como o
@@ -3150,8 +3352,38 @@ export async function tratarConversa(opcoes: {
     // entao precisa do proprio registro. Sem esta linha o painel contaria so
     // os "nao entendi" de dentro dos fluxos, que sao a minoria, e diria que o
     // menu esta claro quando nao esta.
-    // Cumprimento nao e erro de quem escreveu: ver cumprimentou().
+    // Antes do "nao entendi": o cadastro da consulta ficou pela metade?
+    const retomada = await tentarFichaPendente(admin, clinicId, conversationId, texto, opcoes.consultas)
+    if (retomada) return retomada
+
+    // Cumprimento nao e erro de quem escreveu: ver cumprimentou(). Vem antes
+    // do agradecimento ("bom dia" tambem e cortesia de despedida, e com o menu
+    // na tela e cumprimento) e da regra das tres palavras (a mensagem pronta
+    // do botao do site tem muitas palavras e pede o menu, nao a equipe).
     if (cumprimentou(texto)) return await mostrarMenu(admin, conversationId, saudacao)
+
+    // "Ok, obrigada" nao e pedido: responder com o menu inteiro e "Nao
+    // entendi" corrigia uma mae que so estava sendo educada.
+    if (soAgradecimento(texto)) {
+      return { resposta: '😊 Por nada! Se precisar de algo, é só escrever *0* para ver as opções.' }
+    }
+
+    // Frase de verdade que o robo nao entendeu vai para a equipe (25/09/2026).
+    // Em 24/09, "Dr está ciente." (a mae explicando que o medico ja sabia do
+    // convenio dela) e o nome da crianca escrito solto receberam "Nao
+    // entendi. Responda com o numero" - e a familia teve de achar sozinha o
+    // "falar com a equipe". Tres palavras ou mais ja e recado para gente, nao
+    // erro de digitacao. Numero, letra solta e palavra curta continuam
+    // recebendo o menu, que e o que resolve nesses casos.
+    const palavras = normalizar(texto).replace(/[^a-z\s]/g, ' ').trim().split(/\s+/).filter((p) => p.length > 1)
+    if (palavras.length >= 3) {
+      registrar('nao_entendi', 'equipe')
+      const chamada = await chamarEquipe(admin, conversationId)
+      return {
+        ...chamada,
+        resposta: 'Não consegui entender por aqui, então passei sua mensagem para a nossa equipe.\n\n' + (chamada?.resposta ?? ''),
+      }
+    }
 
     registrar('nao_entendi')
     return await mostrarMenu(
@@ -3205,7 +3437,7 @@ export async function tratarConversa(opcoes: {
       resposta:
         '✅ Registrado. Vou passar para a Dra. Patrícia.\n\n' +
         'O documento corrigido é enviado ao paciente, não por este canal.\n\n' +
-        'Atendemos de segunda a sexta, das 8h às 18h.',
+        avisoDeHorario(),
       atencao: 'farmacia',
     }
   }
@@ -3360,7 +3592,7 @@ export async function tratarConversa(opcoes: {
           'original, então a 2ª via não pode ser resolvida por aqui automaticamente.\n\n' +
           'Já avisei a equipe: alguém do consultório responde por aqui para combinar como ' +
           'retirar.\n\n' +
-          'Atendemos de segunda a sexta, das 8h às 18h.',
+          avisoDeHorario(),
         atencao: 'documento',
       }
     }
@@ -3609,6 +3841,10 @@ export async function tratarConversa(opcoes: {
         admin, clinicId, conversationId, opcoes.pacientes, opcoes.consultas, true,
       )
     }
+    // 24/09/2026: a mae saiu do cadastro, tocou em "Marcar uma consulta",
+    // caiu aqui e escreveu o nome da crianca - que virava "Nao entendi".
+    const retomada = await tentarFichaPendente(admin, clinicId, conversationId, texto, opcoes.consultas)
+    if (retomada) return retomada
     return {
       resposta: await naoEntendi(
         admin,
