@@ -31,3 +31,8 @@ verify_jwt = false
 [functions.transcrever-audio]
 # Chamada pelo navegador com a sessao do usuario logado. Mantem o JWT.
 verify_jwt = true
+
+[functions.notificar-equipe]
+# Chamada pelo navegador com a sessao do usuario logado (chave publica e botao
+# de teste das notificacoes no celular). Mantem o JWT.
+verify_jwt = true

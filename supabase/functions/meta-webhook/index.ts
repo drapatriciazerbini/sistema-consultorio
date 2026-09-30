@@ -3,6 +3,15 @@ import { adminClient, digits, sha256HmacHex, safeEqual } from '../_shared/whatsa
 import { colherEventos, type Estado, type Toque, tratarConversa } from '../_shared/atendimento.ts'
 import { montarConteudo } from '../_shared/conteudo.ts'
 import { RegistroDeEventos } from '../_shared/eventos-do-webhook.ts'
+import { variantesDoTelefone } from '../_shared/telefone-br.ts'
+import { textoDaLocalizacao, textoDosContatos } from '../_shared/mensagem-recebida.ts'
+import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
+import { montarAviso } from '../_shared/aviso-da-equipe.ts'
+import { avisarEquipe } from '../_shared/push-da-equipe.ts'
+
+// O runtime das Edge Functions deixa terminar trabalho depois da resposta.
+// Fora dele (teste local) cai no await comum.
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
 import {
   avisoDaResposta,
   respostaAoAcompanhamento,
@@ -37,6 +46,11 @@ type WebhookMessage = {
   }
   /** Em qual mensagem nossa estava o botao tocado. */
   context?: { id?: string; from?: string }
+  location?: { latitude?: number; longitude?: number; name?: string; address?: string; url?: string }
+  contacts?: {
+    name?: { formatted_name?: string; first_name?: string }
+    phones?: { phone?: string; wa_id?: string }[]
+  }[]
 }
 
 type DeliveryError = { title?: string; message?: string }
@@ -70,7 +84,12 @@ function idDoToque(message: WebhookMessage): string {
  * bastante para nao valer regra propria hoje.
  */
 function ehAnexo(message: WebhookMessage) {
-  return ['image', 'document', 'audio', 'video', 'sticker', 'voice'].includes(String(message.type))
+  // Localizacao e contato entram aqui desde 25/09/2026: nao sao pergunta, e o
+  // robo nao tem o que fazer com eles - quem precisa ver e a equipe. Antes
+  // caiam como "[location]" e recebiam o menu inteiro.
+  return ['image', 'document', 'audio', 'video', 'sticker', 'voice', 'location', 'contacts'].includes(
+    String(message.type),
+  )
 }
 
 /** O bloco de midia da mensagem, qualquer que seja o tipo dela. */
@@ -102,8 +121,9 @@ async function guardarAnexo(
   clinicId: string,
   messageId: string,
   midia: Midia,
+  phoneNumberId: string,
 ): Promise<{ path: string; mime: string } | null> {
-  const token = Deno.env.get('WHATSAPP_ACCESS_TOKEN')?.trim()
+  const token = chaveDoWhatsApp(phoneNumberId)
   if (!token || !midia.id) return null
   const graphVersion = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
 
@@ -148,19 +168,11 @@ function messageBody(message: WebhookMessage) {
   if (message.type === 'interactive') {
     return message.interactive?.button_reply?.title ?? message.interactive?.list_reply?.title ?? ''
   }
-  // Localizacao vira texto legivel com link de mapa. Era "[location]" no
-  // historico, e desde 24/09/2026 o robo pede o endereco da visita em casa
-  // aceitando a localizacao: a equipe precisa abrir o mapa, e o robo precisa
-  // de algo que nao comece com "[" para seguir em frente.
-  if (message.type === 'location' && message.location) {
-    const { latitude, longitude, name, address } = message.location
-    const nome = [name, address].filter(Boolean).join(', ')
-    const mapa =
-      latitude != null && longitude != null
-        ? `https://maps.google.com/?q=${latitude},${longitude}`
-        : ''
-    if (nome || mapa) return `📍 Localização: ${[nome, mapa].filter(Boolean).join(' ')}`
-  }
+  // Localizacao e contato viram texto legivel no historico (25/09/2026), em
+  // vez de "[location]" e "[contacts]" - a equipe precisa do endereco e do
+  // telefone, nao do nome do tipo.
+  if (message.type === 'location') return textoDaLocalizacao(message.location)
+  if (message.type === 'contacts') return textoDosContatos(message.contacts)
   // A legenda da foto e a mensagem de verdade: "olha o exame dele" diz mais
   // do que "[image]", e antes ela era jogada fora.
   const midia = midiaDaMensagem(message)
@@ -280,7 +292,39 @@ Deno.serve(async (req) => {
           }
 
           const waId = digits(String(message.from ?? ''))
-          const localDigits = waId.startsWith('55') ? waId.slice(2) : waId
+          // Com e sem o nono digito (ver telefone-br.ts): numero antigo chega
+          // da Meta sem o 9, e o cadastro guarda com ele.
+          const grafias = variantesDoTelefone(waId)
+
+          // Conversa aberta por um envio nosso com a outra grafia do numero
+          // (lembrete ou acompanhamento para "13991234567", resposta chegando
+          // de "551391234567"). Sem isto a pessoa ficava com duas conversas, e
+          // a resposta caia na que nao tinha o lembrete. A grafia da Meta e a
+          // verdadeira: a conversa antiga passa a usa-la.
+          try {
+            const { data: exata } = await admin
+              .from('whatsapp_conversations')
+              .select('id')
+              .eq('clinic_id', clinicId)
+              .eq('wa_id', waId)
+              .maybeSingle()
+            if (!exata) {
+              const { data: outra } = await admin
+                .from('whatsapp_conversations')
+                .select('id,wa_id')
+                .eq('clinic_id', clinicId)
+                .in('wa_id', grafias.filter((g) => g !== waId))
+                .order('last_message_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+              if (outra) {
+                await admin.from('whatsapp_conversations').update({ wa_id: waId }).eq('id', outra.id)
+                console.warn(`Conversa ${outra.id} passou de ${outra.wa_id} para ${waId} (nono digito)`)
+              }
+            }
+          } catch (causa) {
+            console.warn('Nao consegui juntar a conversa das duas grafias do numero', causa)
+          }
           // Todos os pacientes deste telefone, e nao o primeiro que aparecer.
           // Numa gastropediatria a mae cadastra os dois filhos com o proprio
           // celular; escolher sozinho marcava consulta no nome do irmao errado.
@@ -289,7 +333,7 @@ Deno.serve(async (req) => {
             .select('id,name,birth_date,guardian_name,cpf,email')
             .eq('clinic_id', clinicId)
             .is('archived_at', null)
-            .or(`phone_digits.eq.${waId},phone_digits.eq.${localDigits}`)
+            .in('phone_digits', grafias)
             .order('name')
 
           const pacientes = (patientRows ?? []).map((p) => {
@@ -316,7 +360,9 @@ Deno.serve(async (req) => {
             .eq('clinic_id', clinicId)
             .eq('status', 'scheduled')
             .gte('starts_at', new Date().toISOString())
-            .or(`contact_phone.eq.${waId},contact_phone.eq.${localDigits}`)
+            // contact_phone e gravado so com digitos (createAppointment), entao
+            // as grafias do numero servem direto.
+            .in('contact_phone', grafias)
             .order('starts_at')
 
           const idsUnidades = [...new Set((futurasRows ?? []).map((a) => a.unit_id))]
@@ -407,7 +453,7 @@ Deno.serve(async (req) => {
           // robo respondia com a saudacao inteira como se nada estivesse
           // pendente. Exatamente o que a migration dizia estar evitando.
           const motivoDaEspera = String(linhaAnterior?.attention_reason ?? '')
-          const ESPERA_LONGA = ['anexo', 'ajuda', 'documento', 'farmacia', 'visita']
+          const ESPERA_LONGA = ['anexo', 'ajuda', 'documento', 'farmacia', 'visita', 'pedido_consulta']
           const horasDeEspera = ESPERA_LONGA.includes(motivoDaEspera) ? 48 : 24
           const etapaVenceu = Boolean(
             linhaAnterior?.booking_state &&
@@ -569,7 +615,7 @@ Deno.serve(async (req) => {
           // poucos minutos, e se a gravacao demorasse ela ja teria expirado.
           const midia = midiaDaMensagem(message)
           const anexo = midia && externalId
-            ? await guardarAnexo(admin, clinicId, externalId, midia)
+            ? await guardarAnexo(admin, clinicId, externalId, midia, phoneNumberId)
             : null
 
           const { error: messageError } = await admin.from('whatsapp_messages').insert({
@@ -611,7 +657,7 @@ Deno.serve(async (req) => {
             appointmentId: string | null = null,
             toques?: { botoes?: Toque[]; lista?: { rotulo: string; linhas: Toque[] } },
           ) {
-            const token = Deno.env.get('WHATSAPP_ACCESS_TOKEN')?.trim()
+            const token = chaveDoWhatsApp(phoneNumberId)
             if (!token || !texto.trim()) return false
             const graphVersion = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
             const enviadoEm = new Date().toISOString()
@@ -819,6 +865,46 @@ Deno.serve(async (req) => {
               }
             } catch (erro) {
               console.warn('Nao consegui registrar os eventos do robo', erro)
+            }
+
+            /**
+             * Notificacao no celular da equipe (28/09/2026). Ver
+             * _shared/aviso-da-equipe.ts para quando avisa.
+             *
+             * O motivo final espelha o que as linhas de cima gravaram: o do
+             * resultado; se o robo respondeu sem pedir gente, a bandeira que
+             * ja estava (ela so sobe); se calou, a mesma regra do silencio.
+             *
+             * Por ultimo e fora do caminho: a resposta a familia ja saiu, e o
+             * envio roda depois de o webhook responder a Meta. Falha aqui vira
+             * aviso no log e ultimo_erro no aparelho, nunca mensagem perdida.
+             */
+            try {
+              const motivoAgora = resultado
+                ? resultado.atencao ??
+                  (resultado.concluida
+                    ? null
+                    : conversaAnterior?.needs_attention
+                      ? String(conversaAnterior.attention_reason ?? '') || null
+                      : null)
+                : String(conversaAnterior?.attention_reason ?? '') || 'atendente'
+              const aviso = montarAviso({
+                conversationId: conversation.id,
+                atencaoAntes: Boolean(conversaAnterior?.needs_attention),
+                motivoAntes: (conversaAnterior?.attention_reason as string | null) ?? null,
+                motivoAgora,
+                texto: body,
+                pacientes,
+                nomeDoPerfil: nomeDoPerfil || String(conversaAnterior?.profile_name ?? ''),
+                telefone: waId,
+              })
+              if (aviso) {
+                const envio = avisarEquipe(admin, clinicId, aviso)
+                if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(envio)
+                else await envio
+              }
+            } catch (erro) {
+              console.warn('Notificacao no celular: nao consegui montar o aviso', erro)
             }
           }
 

@@ -22,6 +22,7 @@ import { avisoDeHorario } from './expediente.ts'
 import { dataDeNascimentoIso } from './datas.ts'
 import type { adminClient } from './whatsapp.ts'
 import { cadastrarDaFicha, type ConsultaParaCadastro } from './cadastro.ts'
+import { quemAtende } from './quem-atende.ts'
 import {
   acharResposta,
   assuntoClinico,
@@ -83,6 +84,14 @@ export type Estado =
   | 'visita_restricao'
   | 'visita_nome'
   | 'visita_nascimento'
+  | 'visita_periodos'
+  | 'visita_quando'
+  | 'pedido_tipo'
+  | 'pedido_periodos'
+  | 'pedido_restricao'
+  | 'pedido_quando'
+  | 'pedido_nome'
+  | 'pedido_nascimento'
 export type MotivoAtencao =
   | 'atendente'
   | 'falha'
@@ -92,6 +101,7 @@ export type MotivoAtencao =
   | 'documento'
   | 'farmacia'
   | 'visita'
+  | 'pedido_consulta'
 
 /**
  * A telemedicina como "unidade" do fluxo.
@@ -292,7 +302,31 @@ export function soAgradecimento(texto: string): boolean {
     'pela', 'atencao', 'sim', 'tudo', 'bem', 'ate', 'mais', 'amanha', 'boa', 'noite', 'tarde', 'dia',
     'deus', 'abencoe', 'e', 'o', 'a', 'de', 'nada', 'show', 'maravilha', 'agradeco', 'mt', 'mto', 'td',
   ])
-  return t.split(/\s+/).every((palavra) => cortesia.has(palavra))
+  const palavras = t.split(/\s+/)
+  // Precisa de UM agradecimento ou "ok" de verdade (25/09/2026): so com a
+  // lista de cortesia, "Bom dia" (duas palavras dela) virava "Por nada!".
+  const agradece = palavras.some((palavra) => AGRADECIMENTO.has(palavra))
+  return agradece && palavras.every((palavra) => cortesia.has(palavra))
+}
+
+const AGRADECIMENTO = new Set([
+  'ok', 'okay', 'okk', 'blz', 'beleza', 'obrigado', 'obrigada', 'obg', 'brigado', 'brigada', 'valeu',
+  'grato', 'grata', 'certo', 'combinado', 'perfeito', 'entendi', 'otimo', 'show', 'maravilha', 'agradeco',
+])
+
+/**
+ * So cumprimento: "Bom dia", "Oi, tudo bem?". Com o menu ja na tela, a
+ * resposta certa e cumprimentar de volta com o menu - nem "Nao entendi", nem
+ * "Por nada".
+ */
+export function soCumprimento(texto: string): boolean {
+  const t = normalizar(texto).replace(/[^a-z\s]/g, ' ').trim()
+  if (!t) return false
+  const cumprimento = new Set([
+    'oi', 'oie', 'ola', 'opa', 'bom', 'boa', 'dia', 'tarde', 'noite', 'tudo', 'bem', 'como', 'vai',
+    'e', 'ai', 'vc', 'voce', 'voces', 'td', 'pessoal', 'doutor', 'dr', 'ate', 'amanha', 'mais', 'logo',
+  ])
+  return t.split(/\s+/).every((palavra) => cumprimento.has(palavra))
 }
 
 /** A saida de emergencia. Vale em qualquer etapa, inclusive com a equipe. */
@@ -837,7 +871,7 @@ export async function mostrarMenu(
       rotulo: 'Ver opções',
       linhas: [
         { id: '1', titulo: 'Dúvidas sobre a consulta', descricao: 'Valores, contatos e orientações' },
-        { id: '2', titulo: 'Marcar uma consulta', descricao: 'Consulta nova ou retorno · unidade, dia e horário' },
+        { id: '2', titulo: 'Marcar uma consulta', descricao: 'Consulta nova ou retorno · consultório ou em casa' },
         { id: '3', titulo: 'Falar com a equipe', descricao: 'Alguém do consultório responde' },
         { id: '4', titulo: 'Minha consulta', descricao: 'Ver, remarcar ou cancelar' },
         // 24 caracteres e o teto do titulo; "2ª via ou exame" cabe e diz o
@@ -892,7 +926,7 @@ async function responderPergunta(
     lista: {
       rotulo: 'Ver opções',
       linhas: [
-        { id: '2', titulo: 'Marcar uma consulta', descricao: 'Consulta nova ou retorno · unidade, dia e horário' },
+        { id: '2', titulo: 'Marcar uma consulta', descricao: 'Consulta nova ou retorno · consultório ou em casa' },
         { id: '9', titulo: 'Falar com a equipe', descricao: 'Alguém do consultório responde' },
         { id: '0', titulo: 'Voltar ao menu' },
       ],
@@ -949,7 +983,7 @@ async function naoEntendi(
   registrar('nao_entendi')
   if (assuntoClinico(texto)) {
     return (
-      'Sobre sintomas, remédios e o que fazer, quem responde é a Dra. Patrícia ou alguém ' +
+      `Sobre sintomas, remédios e o que fazer, quem responde é ${quemAtende(clinicId).o} ou alguém ` +
       'da equipe - por aqui eu não posso orientar. Digite *9* para falar com a equipe.\n\n' +
       pergunta
     )
@@ -1064,7 +1098,7 @@ async function responderInformacoes(
     lista: {
       rotulo: 'Ver opções',
       linhas: [
-        { id: '2', titulo: 'Marcar uma consulta', descricao: 'Consulta nova ou retorno · unidade, dia e horário' },
+        { id: '2', titulo: 'Marcar uma consulta', descricao: 'Consulta nova ou retorno · consultório ou em casa' },
         ...(tele ? [{ id: 'URGENCIA', titulo: '🚨 É urgência', descricao: 'Falar com a equipe agora' }] : []),
         ...(temOutros ? [{ id: '1', titulo: 'Outra unidade', descricao: descricaoOutros }] : []),
         { id: '9', titulo: 'Falar com a equipe', descricao: 'Alguém do consultório responde' },
@@ -1094,6 +1128,39 @@ async function chamarEquipe(admin: Admin, conversationId: string): Promise<Resul
       'Estou direcionando você para um atendente da clínica.\n\n' +
       'Pode já escrever sua dúvida por aqui: a pessoa que assumir o atendimento ' +
       'vai ler tudo antes de responder.\n\n' +
+      avisoDeHorario() + '\n\n' + VOLTA,
+    atencao: 'atendente',
+  }
+}
+
+/**
+ * Unidade sem horario aberto no robo: a secretaria passa a agenda.
+ *
+ * Existe desde 29/09/2026. A agenda do consultorio ainda nao estava cadastrada
+ * no sistema, e o robo respondia "no momento nao temos horarios abertos" - a
+ * familia entendia que a Dra. Patricia nao tinha agenda e desistia. Ela tem:
+ * so nao esta aberta para marcar sozinho pelo WhatsApp. Entao o robo diz que
+ * tem agenda e ja coloca a conversa na fila da secretaria, que responde com
+ * os dias e horarios.
+ */
+async function secretariaPassaAgenda(
+  admin: Admin,
+  conversationId: string,
+  /** Nome da unidade escolhida; nulo quando nenhuma unidade tem horario aberto. */
+  unidadeNome: string | null,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'atendente',
+    booking_options: null,
+    booking_unit_id: null,
+    auto_replies_while_waiting: 0,
+  })
+  const onde = unidadeNome ? ` para ${unidadeNome}` : ''
+  return {
+    resposta:
+      `Temos agenda, sim! 😊 Os dias e horários${onde} são passados pela nossa secretária.\n\n` +
+      'Já encaminhei você para ela: é só aguardar que ela responde por aqui com as opções disponíveis. ' +
+      'Se quiser, já escreva o *nome do paciente* e o *melhor período* (manhã ou tarde).\n\n' +
       avisoDeHorario() + '\n\n' + VOLTA,
     atencao: 'atendente',
   }
@@ -1169,7 +1236,7 @@ async function mostrarMinhaConsulta(
       lista: {
         rotulo: 'Ver opções',
         linhas: [
-          { id: '2', titulo: 'Marcar uma consulta', descricao: 'Consulta nova ou retorno · unidade, dia e horário' },
+          { id: '2', titulo: 'Marcar uma consulta', descricao: 'Consulta nova ou retorno · consultório ou em casa' },
           { id: '9', titulo: 'Falar com a equipe' },
           { id: '0', titulo: 'Voltar ao menu' },
         ],
@@ -1365,6 +1432,35 @@ async function perguntarUnidade(
     }
   }
 
+  // Agenda por pedido (30/09/2026): nenhuma unidade oferece horario para o
+  // paciente escolher. A lista so pergunta onde; o resto vira pedido.
+  if (await agendamentoPorPedido(admin, clinicId)) {
+    if (unidades.length === 1) {
+      return unidades[0].is_home_visit
+        ? await iniciarVisita(admin, conversationId, unidades[0])
+        : await iniciarPedidoDeConsulta(admin, clinicId, conversationId, unidades[0])
+    }
+    await salvarEstado(admin, conversationId, {
+      booking_state: 'aguardando_unidade',
+      booking_options: unidades.map((u) => u.id),
+      booking_unit_id: null,
+      booking_modality: null,
+    })
+    const confirma = quemAtende(clinicId).O
+    const rotulo = (u: Unidade) =>
+      u.is_home_visit ? `${confirma} confirma o dia` : `${confirma} confirma o horário`
+    const linhas = unidades
+      .map((u, i) => `*${i + 1}* ${u.is_home_visit ? '🏠' : '🏥'} ${u.name}`)
+      .join('\n')
+    return {
+      resposta: `📍 *Vamos agendar!* Onde vai ser a consulta?\n\n${linhas}\n\nResponda com o número. ${SAIDAS}`,
+      lista: {
+        rotulo: 'Escolher o local',
+        linhas: comVoltar(unidades.map((u, i) => ({ id: String(i + 1), titulo: u.name, descricao: rotulo(u) }))),
+      },
+    }
+  }
+
   // Uma unidade so: nao faz sentido perguntar qual, mas o convenio continua
   // valendo - e ele e justamente o caso de uma clinica com unidade unica.
   if (unidades.length === 1) {
@@ -1397,12 +1493,7 @@ async function perguntarUnidade(
   const abertas = comAgenda.filter((u) => u.visita || u.horarios.length > 0)
 
   if (abertas.length === 0) {
-    await limparEstado(admin, conversationId)
-    return {
-      resposta:
-        'No momento não temos horários abertos para agendamento pelo WhatsApp.\n\n' + SAIDAS,
-      atencao: 'atendente',
-    }
+    return await secretariaPassaAgenda(admin, conversationId, null)
   }
 
   // "Sem horários" e "não consegui ver a agenda" são coisas diferentes, e
@@ -1417,7 +1508,7 @@ async function perguntarUnidade(
       ? `${u.horarios.length} horário${u.horarios.length === 1 ? '' : 's'} livre${u.horarios.length === 1 ? '' : 's'}`
       : u.falhou
         ? 'não consegui ver a agenda agora'
-        : 'sem horários no momento'
+        : 'a secretária passa os horários'
 
   const linhas = comAgenda
     .map((u, i) => `*${i + 1}* ${u.unidade.name} (${rotuloDaAgenda(u)})`)
@@ -1522,21 +1613,10 @@ async function perguntarDia(
   }
 
   if (horarios.length === 0) {
-    if (!podeTrocarUnidade) {
-      await limparEstado(admin, conversationId)
-      return {
-        resposta:
-          `No momento não temos horários abertos em ${unidade.name}.\n\n` + SAIDAS,
-        atencao: 'atendente',
-      }
-    }
-    // Continua em aguardando_unidade: assim o proximo numero ja escolhe outra
-    // unidade, sem obrigar a recomecar.
-    return {
-      resposta:
-        `No momento não temos horários abertos em ${unidade.name}.\n\n` +
-        'Você pode responder com o número de outra unidade da lista acima.\n' + SAIDAS,
-    }
+    // Sem horario aberto nao e "sem agenda": a secretaria passa os horarios.
+    // Ate 29/09/2026 o robo dizia "nao temos horarios abertos" e a familia
+    // entendia que a doutora nao tinha agenda. Vale com uma unidade ou varias.
+    return await secretariaPassaAgenda(admin, conversationId, unidade.name)
   }
 
   const dias = agruparPorDia(horarios, timezone)
@@ -2265,7 +2345,7 @@ async function tentarFichaPendente(
   return {
     resposta:
       `📋 O cadastro da sua consulta de *${quando}* ficou pela metade. ` +
-      'São poucas perguntas, e ajudam a Dra. Patrícia a já ter os dados na hora.\n\n' +
+      `São poucas perguntas, e ajudam ${quemAtende(clinicId).o} a já ter os dados na hora.\n\n` +
       'Quer completar agora?',
     botoes: [
       { id: 'FICHA', titulo: 'Completar cadastro' },
@@ -2567,6 +2647,7 @@ async function perguntarExigencia(
  */
 async function registrarPedido(
   admin: Admin,
+  clinicId: string,
   conversationId: string,
   pedido: PedidoDeDocumento,
   exigencia: string,
@@ -2593,7 +2674,7 @@ async function registrarPedido(
       // nunca existiu. Prometer o envio seria mandar essa pessoa esperar um
       // documento que nao ha; prometer a resposta e verdade nos dois casos, e
       // no caso comum - o que motivou tudo isto - a resposta E o documento.
-      '\n\nA Dra. Patrícia vai revisar e responder por aqui, em até *1 dia útil*.\n\n' +
+      `\n\n${quemAtende(clinicId).O} vai revisar e responder por aqui, em até *1 dia útil*.\n\n` +
       VOLTA,
     atencao: 'documento',
   }
@@ -2683,6 +2764,12 @@ type PedidoDeVisita = {
   restricao?: string
   nome?: string
   nascimento?: string
+  /** Periodos escolhidos da agenda-base da visita (agenda por pedido). */
+  periodos?: string[]
+  /** "Esta semana", "Proxima semana", "Tanto faz" ou o que a pessoa escreveu. */
+  aPartir?: string
+  /** Periodos oferecidos na ultima pergunta, para ler o numero respondido. */
+  oferecidos?: string[]
 }
 
 function visitaEmAndamento(opcoes: unknown): PedidoDeVisita {
@@ -2788,6 +2875,8 @@ async function registrarVisita(
     linhas.push(`👤 ${visita.nome}${visita.nascimento ? ` (nasc. ${visita.nascimento})` : ''}`)
   }
   if (visita.endereco) linhas.push(`📍 ${visita.endereco}`)
+  if (visita.periodos?.length) linhas.push(`📅 ${visita.periodos.join(' ou ')}`)
+  if (visita.aPartir) linhas.push(`⏳ A partir de: ${visita.aPartir}`)
   linhas.push(
     visita.restricao
       ? `🗓️ Dias e horários: ${visita.restricao}`
@@ -2804,6 +2893,422 @@ async function registrarVisita(
       VOLTA,
     atencao: 'visita',
   }
+}
+
+
+// ---------------------------------------------------------------
+// Agenda por pedido (30/09/2026)
+// ---------------------------------------------------------------
+//
+// A agenda da Dra. Patricia muda toda semana, e a visita em casa ocupa o turno
+// inteiro: marcar um domicilio na quarta de manha acaba com a manha do
+// consultorio. Horario fixo marcado pelo proprio paciente nao funciona para
+// ela, e toda marcacao passa por ela. Pedido dela em 29/09/2026.
+//
+// Com clinic_settings.agendamento_por_pedido ligado, o robo nao marca: monta
+// o pedido (primeira vez ou retorno, periodos possiveis, restricao de dia ou
+// horario, a partir de quando) e entrega para ela confirmar. Os periodos vem
+// dos "Horarios de atendimento" da unidade na Agenda - segunda 08h-12h vira
+// "Segunda de manha" -, sempre com a opcao de outro dia, a combinar.
+
+const DIAS_DA_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+const OUTRO_DIA = 'Outro dia (a combinar)'
+
+/** "Segunda de manhã", "Terça à tarde", "Quarta às 18h". */
+export function rotuloDoPeriodo(weekday: number, inicio: string): string {
+  const [h, m] = String(inicio).split(':').map((parte) => Number.parseInt(parte, 10) || 0)
+  const dia = DIAS_DA_SEMANA[weekday] ?? ''
+  const minutos = h * 60 + m
+  if (minutos < 12 * 60) return `${dia} de manhã`
+  // Fim de tarde vira horario, e nao "a tarde": "quarta as 18h" e um encaixe
+  // especifico, diferente da tarde inteira.
+  if (minutos >= 17 * 60 + 30) return `${dia} às ${h}h${m ? String(m).padStart(2, '0') : ''}`
+  return `${dia} à tarde`
+}
+
+/** Periodos da semana, de segunda a domingo, sem repetir. */
+export function periodosDasRegras(regras: { weekday: number; starts_at: string }[]): string[] {
+  const ordenadas = [...regras].sort(
+    (a, b) => ((a.weekday + 6) % 7) - ((b.weekday + 6) % 7) || String(a.starts_at).localeCompare(String(b.starts_at)),
+  )
+  return [...new Set(ordenadas.map((r) => rotuloDoPeriodo(r.weekday, String(r.starts_at))))]
+}
+
+/**
+ * Numeros escolhidos numa resposta: "1, 3", "1 e 3", "2". Nulo quando nao ha
+ * numero valido nenhum. "Tanto faz" devolve todos.
+ */
+export function escolhasMultiplas(texto: string, total: number): number[] | null {
+  const t = normalizar(texto)
+  if (/^(tanto faz|qualquer( um| dia)?|todos|todas|todos eles)[.!]*$/.test(t)) {
+    return Array.from({ length: total }, (_, i) => i)
+  }
+  const numeros = (t.match(/\d{1,2}/g) ?? []).map((n) => Number.parseInt(n, 10))
+  // Texto com numeros no meio de uma frase ("dia 13 nao posso") nao e escolha.
+  if (numeros.length === 0 || /[a-z]{3,}/.test(t.replace(/\b(e|ou)\b/g, ''))) return null
+  const validos = [...new Set(numeros.filter((n) => n >= 1 && n <= total).map((n) => n - 1))]
+  return validos.length ? validos.sort((a, b) => a - b) : null
+}
+
+function respostaLivre(texto: string): boolean {
+  return /^(tanto faz|qualquer( dia| horario| um)?|nao|nao tem|nenhum|nenhuma|sem restricao|livre|pode ser qualquer( dia| horario)?)[.!]*$/
+    .test(normalizar(texto.trim()))
+}
+
+export type RegraDaSemana = { weekday: number; starts_at: string; ends_at: string }
+
+/**
+ * Periodos com data dos proximos dias, sem o que ja esta ocupado (30/09/2026).
+ *
+ * "Quarta 07/10 de manha", e nao "Quarta de manha": o domicilio marcado numa
+ * quarta ocupa AQUELA quarta, e a proxima continua livre. Sai do que esta
+ * ocupado:
+ *  - dia bloqueado na Agenda (fechado para a unidade ou para todas);
+ *  - periodo que cruza uma visita em casa, com a margem de deslocamento;
+ *  - periodo que ja comecou, ou comeca antes da antecedencia minima.
+ *
+ * Horario de Sao Paulo, fixo em -03:00 (sem horario de verao desde 2019).
+ */
+export function periodosComData(opcoes: {
+  regras: RegraDaSemana[]
+  /** Datas (AAAA-MM-DD) fechadas para esta unidade. */
+  fechados: Set<string>
+  /** Visitas em casa marcadas, de qualquer unidade. */
+  ocupados: { inicio: string; fim: string }[]
+  agora: Date
+  dias?: number
+  margemMinutos?: number
+  antecedenciaHoras?: number
+  maximo?: number
+}): string[] {
+  const dias = opcoes.dias ?? 14
+  const margem = (opcoes.margemMinutos ?? 30) * 60_000
+  const limite = opcoes.agora.getTime() + (opcoes.antecedenciaHoras ?? 2) * 3_600_000
+  const saida: { quando: number; rotulo: string }[] = []
+  const hojeLocal = new Date(opcoes.agora.getTime() - 3 * 3_600_000)
+  for (let d = 0; d <= dias; d++) {
+    const dia = new Date(Date.UTC(hojeLocal.getUTCFullYear(), hojeLocal.getUTCMonth(), hojeLocal.getUTCDate() + d))
+    const data = dia.toISOString().slice(0, 10)
+    if (opcoes.fechados.has(data)) continue
+    const semana = dia.getUTCDay()
+    for (const regra of opcoes.regras.filter((r) => r.weekday === semana)) {
+      const inicio = new Date(`${data}T${String(regra.starts_at).slice(0, 5)}:00-03:00`).getTime()
+      const fim = new Date(`${data}T${String(regra.ends_at).slice(0, 5)}:00-03:00`).getTime()
+      if (!Number.isFinite(inicio) || !Number.isFinite(fim) || inicio < limite) continue
+      const ocupado = opcoes.ocupados.some(
+        (o) => new Date(o.inicio).getTime() - margem < fim && new Date(o.fim).getTime() + margem > inicio,
+      )
+      if (ocupado) continue
+      const [, mes, diaDoMes] = data.split('-')
+      const turno = rotuloDoPeriodo(semana, String(regra.starts_at)).slice(DIAS_DA_SEMANA[semana].length)
+      saida.push({ quando: inicio, rotulo: `${DIAS_DA_SEMANA[semana]} ${diaDoMes}/${mes}${turno}` })
+    }
+  }
+  const unicos = [...new Map(saida.sort((a, b) => a.quando - b.quando).map((p) => [p.rotulo, p])).values()]
+  return unicos.slice(0, opcoes.maximo ?? 8).map((p) => p.rotulo)
+}
+
+async function agendamentoPorPedido(admin: Admin, clinicId: string): Promise<boolean> {
+  // Coluna nova, em consulta separada: se a migration ainda nao rodou, o robo
+  // segue marcando pela agenda, como antes.
+  try {
+    const { data, error } = await admin
+      .from('clinic_settings')
+      .select('agendamento_por_pedido')
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+    if (error) return false
+    return Boolean((data as { agendamento_por_pedido?: boolean } | null)?.agendamento_por_pedido)
+  } catch {
+    return false
+  }
+}
+
+async function periodosDaUnidade(admin: Admin, clinicId: string, unitId: string): Promise<string[]> {
+  let regras: RegraDaSemana[] = []
+  try {
+    const { data, error } = await admin
+      .from('availability_rules')
+      .select('weekday,starts_at,ends_at')
+      .eq('unit_id', unitId)
+    if (error || !Array.isArray(data)) return []
+    regras = data as RegraDaSemana[]
+  } catch {
+    return []
+  }
+  if (regras.length === 0) return []
+
+  // Bloqueios e visitas marcadas sao complemento: se a leitura falhar, os
+  // periodos saem sem esse filtro, e a Dra. confere ao confirmar.
+  const fechados = new Set<string>()
+  try {
+    const { data } = await admin
+      .from('schedule_exceptions')
+      .select('exception_date,unit_id,is_closed')
+      .eq('clinic_id', clinicId)
+    for (const e of (data ?? []) as { exception_date: string; unit_id: string | null; is_closed: boolean }[]) {
+      if (e.is_closed && (e.unit_id === null || e.unit_id === unitId)) fechados.add(String(e.exception_date).slice(0, 10))
+    }
+  } catch (erro) {
+    console.warn('Nao consegui ler os dias bloqueados', erro)
+  }
+
+  const ocupados: { inicio: string; fim: string }[] = []
+  let margem = 30
+  try {
+    const unidades = await unidadesAtivas(admin, clinicId)
+    const visitas = unidades.filter((u) => u.is_home_visit).map((u) => u.id)
+    if (visitas.length > 0) {
+      const { data } = await admin
+        .from('appointments')
+        .select('starts_at,ends_at,status,unit_id')
+        .eq('clinic_id', clinicId)
+        .in('unit_id', visitas)
+      for (const a of (data ?? []) as { starts_at: string; ends_at: string; status: string }[]) {
+        if (a.status !== 'cancelled' && a.starts_at && a.ends_at) ocupados.push({ inicio: a.starts_at, fim: a.ends_at })
+      }
+    }
+    const { data: ajustes } = await admin
+      .from('clinic_settings')
+      .select('domicilio_margem_minutos')
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+    const valor = (ajustes as { domicilio_margem_minutos?: number | null } | null)?.domicilio_margem_minutos
+    if (typeof valor === 'number') margem = valor
+  } catch (erro) {
+    console.warn('Nao consegui ler as visitas em casa marcadas', erro)
+  }
+
+  return periodosComData({ regras, fechados, ocupados, agora: new Date(), margemMinutos: margem })
+}
+
+type PedidoDeConsulta = {
+  unidadeId?: string
+  unidadeNome?: string
+  tipo?: string
+  periodos?: string[]
+  restricao?: string
+  aPartir?: string
+  nome?: string
+  nascimento?: string
+  oferecidos?: string[]
+}
+
+function pedidoEmAndamentoDaConsulta(opcoes: unknown): PedidoDeConsulta {
+  const bruto = opcoes as { consulta?: PedidoDeConsulta } | null
+  return bruto?.consulta ?? {}
+}
+
+function mensagemDosPeriodos(oferecidos: string[], titulo: string): Resultado {
+  const linhas = oferecidos.map((p, i) => `*${i + 1}* ${p}`).join('\n')
+  return {
+    resposta:
+      `${titulo}\n\n${linhas}\n\n` +
+      'Pode escolher *mais de um*: responda com os números separados por vírgula (ex.: *1, 3*).\n\n' +
+      SAIDAS,
+  }
+}
+
+const DICA_DO_QUANDO = 'Toque numa opção: *Esta semana*, *Próxima semana* ou *Tanto faz*. Ou escreva, por exemplo: "depois do dia 10".'
+
+function botoesDoQuando(): Toque[] {
+  return [
+    { id: 'esta semana', titulo: 'Esta semana' },
+    { id: 'proxima semana', titulo: 'Próxima semana' },
+    { id: 'tanto faz', titulo: 'Tanto faz' },
+  ]
+}
+
+/**
+ * "A partir de quando" so faz sentido sem data: quem escolheu "Quarta 07/10 de
+ * manha" ja disse quando. Pergunta quando nao houve periodo, ou quando so
+ * escolheu "outro dia, a combinar".
+ */
+function precisaDoQuando(periodos: string[] | undefined): boolean {
+  return !periodos?.length || periodos.every((p) => p === OUTRO_DIA)
+}
+
+function lerQuando(texto: string): string | null {
+  const t = normalizar(texto.trim()).replace(/[.!]+$/, '')
+  if (t === '1' || t === 'esta semana' || t === 'essa semana') return 'Esta semana'
+  if (t === '2' || t === 'proxima semana') return 'Próxima semana'
+  if (t === '3' || respostaLivre(t)) return 'Tanto faz'
+  if (texto.trim().length >= 3 && !texto.trim().startsWith('[')) return texto.trim().slice(0, 120)
+  return null
+}
+
+/** Entrada: a pessoa escolheu o consultorio, e a clinica marca por pedido. */
+async function iniciarPedidoDeConsulta(
+  admin: Admin,
+  clinicId: string,
+  conversationId: string,
+  unidade: Unidade,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'pedido_tipo',
+    booking_unit_id: unidade.id,
+    booking_modality: 'presencial',
+    booking_options: { consulta: { unidadeId: unidade.id, unidadeNome: unidade.name } },
+  })
+  return {
+    resposta:
+      `🏥 *Consulta em ${unidade.name}*\n\n` +
+      `É a primeira consulta com ${quemAtende(clinicId).o} ou um retorno?\n\n` +
+      '*1* Primeira consulta\n*2* Retorno\n\n' +
+      SAIDAS,
+    botoes: [
+      { id: '1', titulo: 'Primeira consulta' },
+      { id: '2', titulo: 'Retorno' },
+    ],
+  }
+}
+
+async function perguntarPeriodosDoPedido(
+  admin: Admin,
+  clinicId: string,
+  conversationId: string,
+  pedido: PedidoDeConsulta,
+): Promise<Resultado> {
+  const periodos = pedido.unidadeId ? await periodosDaUnidade(admin, clinicId, pedido.unidadeId) : []
+  // Sem horario de atendimento cadastrado, nao ha periodo para oferecer: a
+  // restricao, em texto livre, diz o que a familia pode.
+  if (periodos.length === 0) return await perguntarRestricaoDoPedido(admin, conversationId, pedido)
+  const oferecidos = [...periodos, OUTRO_DIA]
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'pedido_periodos',
+    booking_options: { consulta: { ...pedido, oferecidos } },
+  })
+  return mensagemDosPeriodos(oferecidos, '📅 Em quais *períodos* fica bom para vocês?')
+}
+
+async function perguntarRestricaoDoPedido(
+  admin: Admin,
+  conversationId: string,
+  pedido: PedidoDeConsulta,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'pedido_restricao',
+    booking_options: { consulta: pedido },
+  })
+  return {
+    resposta:
+      '🗓️ Tem alguma *restrição de dia ou horário*? Por exemplo: "só depois das 10h", ' +
+      '"dia 13 não posso".\n\nSe não tiver, toque em *Não tenho*.',
+    botoes: [{ id: 'nao', titulo: 'Não tenho' }],
+  }
+}
+
+async function perguntarQuandoDoPedido(
+  admin: Admin,
+  conversationId: string,
+  pedido: PedidoDeConsulta,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'pedido_quando',
+    booking_options: { consulta: pedido },
+  })
+  return { resposta: '⏳ A partir de quando pode ser?\n\n' + DICA_DO_QUANDO, botoes: botoesDoQuando() }
+}
+
+async function perguntarNomeDoPedido(
+  admin: Admin,
+  conversationId: string,
+  pedido: PedidoDeConsulta,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'pedido_nome',
+    booking_options: { consulta: pedido },
+  })
+  return { resposta: '📝 Qual é o *nome completo do paciente*?' }
+}
+
+async function perguntarNascimentoDoPedido(
+  admin: Admin,
+  conversationId: string,
+  pedido: PedidoDeConsulta,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'pedido_nascimento',
+    booking_options: { consulta: pedido },
+  })
+  return { resposta: '🎂 Qual é a *data de nascimento* dele(a)? (dia/mês/ano)' }
+}
+
+/**
+ * O fim do pedido: vai para a fila da equipe, com a mensagem que resume tudo.
+ * Como na visita, ESTA mensagem e o pedido - a ultima da conversa, na previa
+ * da lista, sem precisar subir o historico.
+ */
+async function registrarPedidoDeConsulta(
+  admin: Admin,
+  clinicId: string,
+  conversationId: string,
+  pedido: PedidoDeConsulta,
+  substitui: boolean,
+): Promise<Resultado> {
+  registrar('pedido_consulta')
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'atendente',
+    booking_options: null,
+    booking_unit_id: null,
+    booking_modality: null,
+    booking_replaces_id: null,
+    auto_replies_while_waiting: 0,
+  })
+
+  const linhas: string[] = []
+  if (pedido.nome) {
+    linhas.push(
+      `👤 ${pedido.nome}${pedido.nascimento ? ` (nasc. ${pedido.nascimento})` : ''}${pedido.tipo ? `, ${pedido.tipo.toLowerCase()}` : ''}`,
+    )
+  } else if (pedido.tipo) {
+    linhas.push(`👤 ${pedido.tipo}`)
+  }
+  if (pedido.unidadeNome) linhas.push(`🏥 ${pedido.unidadeNome}`)
+  if (pedido.periodos?.length) linhas.push(`📅 ${pedido.periodos.join(' ou ')}`)
+  if (pedido.aPartir) linhas.push(`⏳ A partir de: ${pedido.aPartir}`)
+  linhas.push(pedido.restricao ? `⚠️ ${pedido.restricao}` : '⚠️ Sem restrição de dia ou horário')
+  if (substitui) linhas.push('🔄 No lugar da consulta que já estava marcada')
+
+  return {
+    resposta:
+      '✅ *Pedido de consulta anotado.*\n\n' +
+      linhas.join('\n') +
+      `\n\n${quemAtende(clinicId).O} confere a agenda e confirma o *dia* e o *horário* por aqui. ` +
+      'A vaga só fica garantida depois dessa confirmação.\n\n' +
+      avisoDeHorario() + '\n\n' +
+      VOLTA,
+    atencao: 'pedido_consulta',
+  }
+}
+
+async function perguntarPeriodosDaVisita(
+  admin: Admin,
+  clinicId: string,
+  conversationId: string,
+  visita: PedidoDeVisita,
+  unitId: string | null,
+): Promise<Resultado> {
+  const periodos = unitId ? await periodosDaUnidade(admin, clinicId, unitId) : []
+  if (periodos.length === 0) return await perguntarRestricaoDaVisita(admin, conversationId, visita)
+  const oferecidos = [...periodos, OUTRO_DIA]
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'visita_periodos',
+    booking_options: { visita: { ...visita, oferecidos } },
+  })
+  return mensagemDosPeriodos(oferecidos, '📅 Em quais *períodos* a visita pode acontecer?')
+}
+
+async function perguntarQuandoDaVisita(
+  admin: Admin,
+  conversationId: string,
+  visita: PedidoDeVisita,
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, {
+    booking_state: 'visita_quando',
+    booking_options: { visita },
+  })
+  return { resposta: '⏳ A partir de quando pode ser a visita?\n\n' + DICA_DO_QUANDO, botoes: botoesDoQuando() }
 }
 
 // ---------------------------------------------------------------
@@ -2894,7 +3399,7 @@ export async function tratarConversa(opcoes: {
     unico && opcoes.textos.saudacaoConhecida.trim()
       ? opcoes.textos.saudacaoConhecida.replace(/\{nome\}/g, primeiroNome)
       : opcoes.textos.saudacao
-  ).trim() || 'Olá! 👋 Aqui é o consultório da Dra. Patrícia Zerbini.'
+  ).trim() || quemAtende(clinicId).saudacaoPadrao
 
   /** Quem vai no prontuario da consulta: o escolhido, ou o unico que existe. */
   const pacienteDaConsulta =
@@ -2928,6 +3433,20 @@ export async function tratarConversa(opcoes: {
   // quando o robo pergunta o nome do remedio) e precisa ser recebida sem
   // derrubar o que ja foi respondido. Cada etapa trata a sua, mais abaixo.
   const noPedidoDeDocumento = Boolean(estadoAtual?.startsWith('documento_'))
+
+  // Arquivo no meio de um fluxo (25/09/2026): a etapa continua de pe. A mae
+  // que manda a foto da carteirinha enquanto o robo pergunta o nome da crianca
+  // perdia o agendamento inteiro - a regra geral zerava tudo e a mandava para
+  // a fila. Agora a equipe e avisada do arquivo e a pergunta segue esperando.
+  const emFluxo = Boolean(estadoAtual) && estadoAtual !== 'menu' && estadoAtual !== 'atendente'
+  if (opcoes.anexo && !noPedidoDeDocumento && emFluxo) {
+    return {
+      resposta:
+        '📎 Recebi o que você enviou e já avisei a nossa equipe.\n\n' +
+        'Para continuar de onde paramos, é só responder a pergunta acima 👆',
+      atencao: 'anexo',
+    }
+  }
 
   if (opcoes.anexo && !noPedidoDeDocumento) {
     if (estadoAtual === 'atendente') return null
@@ -3166,7 +3685,7 @@ export async function tratarConversa(opcoes: {
         admin,
         conversationId,
         saudacao,
-        'Sobre sintomas, remédios e o que fazer, quem responde é a Dra. Patrícia ou alguém da equipe - ' +
+        `Sobre sintomas, remédios e o que fazer, quem responde é ${quemAtende(clinicId).o} ou alguém da equipe - ` +
           'por aqui eu não posso orientar. Digite *3* para falar com a equipe, ou escolha:',
       )
     }
@@ -3205,7 +3724,7 @@ export async function tratarConversa(opcoes: {
       return {
         resposta:
           'Aqui não dá para voltar uma pergunta - mas o que já foi respondido está guardado, ' +
-          'e a Dra. Patrícia confere tudo na consulta.\n\n' +
+          `e ${quemAtende(clinicId).o} confere tudo na consulta.\n\n` +
           perguntaAtual.texto,
       }
     }
@@ -3220,7 +3739,7 @@ export async function tratarConversa(opcoes: {
         })
         return {
           resposta:
-            'Esse dado a Dra. Patrícia precisa ter no cadastro. Pode responder aqui, ' +
+            `Esse dado ${quemAtende(clinicId).o} precisa ter no cadastro. Pode responder aqui, ` +
             'mesmo que não seja exato?\n\n' +
             perguntaAtual.texto,
         }
@@ -3238,7 +3757,7 @@ export async function tratarConversa(opcoes: {
         return restantes.length
           ? await perguntarDados(
               admin, conversationId, consulta, restantes,
-              'Tudo bem, deixamos esse campo em branco: a Dra. Patrícia completa na consulta.',
+              `Tudo bem, deixamos esse campo em branco: ${quemAtende(clinicId).o} completa na consulta.`,
               manual,
             )
           : await terminarDados(admin, conversationId, clinicId, consulta, manual)
@@ -3342,7 +3861,7 @@ export async function tratarConversa(opcoes: {
         admin,
         conversationId,
         saudacao,
-        'Sobre sintomas, remédios e o que fazer, quem responde é a Dra. Patrícia ou alguém da equipe - ' +
+        `Sobre sintomas, remédios e o que fazer, quem responde é ${quemAtende(clinicId).o} ou alguém da equipe - ` +
           'por aqui eu não posso orientar. Digite *3* para falar com a equipe, ou escolha:',
       )
     }
@@ -3356,17 +3875,20 @@ export async function tratarConversa(opcoes: {
     const retomada = await tentarFichaPendente(admin, clinicId, conversationId, texto, opcoes.consultas)
     if (retomada) return retomada
 
-    // Cumprimento nao e erro de quem escreveu: ver cumprimentou(). Vem antes
-    // do agradecimento ("bom dia" tambem e cortesia de despedida, e com o menu
-    // na tela e cumprimento) e da regra das tres palavras (a mensagem pronta
-    // do botao do site tem muitas palavras e pede o menu, nao a equipe).
-    if (cumprimentou(texto)) return await mostrarMenu(admin, conversationId, saudacao)
-
     // "Ok, obrigada" nao e pedido: responder com o menu inteiro e "Nao
-    // entendi" corrigia uma mae que so estava sendo educada.
+    // entendi" corrigia quem so estava sendo educado. Vem antes do cumprimento
+    // desde 30/09/2026: soAgradecimento exige um agradecimento de verdade, entao
+    // "Bom dia" sozinho nao cai aqui, e "Bom dia, obrigada!" recebe "Por nada".
     if (soAgradecimento(texto)) {
       return { resposta: '😊 Por nada! Se precisar de algo, é só escrever *0* para ver as opções.' }
     }
+
+    // Cumprimento nao e erro de quem escreveu: ver cumprimentou(). Vem antes
+    // da regra das tres palavras (a mensagem pronta do botao do site tem
+    // muitas palavras e pede o menu, nao a equipe).
+    if (cumprimentou(texto)) return await mostrarMenu(admin, conversationId, saudacao)
+
+    if (soCumprimento(texto)) return await mostrarMenu(admin, conversationId, saudacao)
 
     // Frase de verdade que o robo nao entendeu vai para a equipe (25/09/2026).
     // Em 24/09, "Dr está ciente." (a mae explicando que o medico ja sabia do
@@ -3381,7 +3903,9 @@ export async function tratarConversa(opcoes: {
       const chamada = await chamarEquipe(admin, conversationId)
       return {
         ...chamada,
-        resposta: 'Não consegui entender por aqui, então passei sua mensagem para a nossa equipe.\n\n' + (chamada?.resposta ?? ''),
+        resposta:
+          'Não consegui entender por aqui, então passei sua mensagem para a nossa equipe.' +
+          (chamada?.resposta ? `\n\n${chamada.resposta}` : ''),
       }
     }
 
@@ -3435,7 +3959,7 @@ export async function tratarConversa(opcoes: {
     })
     return {
       resposta:
-        '✅ Registrado. Vou passar para a Dra. Patrícia.\n\n' +
+        `✅ Registrado. Vou passar para ${quemAtende(clinicId).o}.\n\n` +
         'O documento corrigido é enviado ao paciente, não por este canal.\n\n' +
         avisoDeHorario(),
       atencao: 'farmacia',
@@ -3615,6 +4139,7 @@ export async function tratarConversa(opcoes: {
     const exigencia = nada ? '' : resposta
     return await registrarPedido(
       admin,
+      clinicId,
       conversationId,
       pedido,
       exigencia || (opcoes.anexo ? 'enviou foto do documento' : ''),
@@ -3637,10 +4162,41 @@ export async function tratarConversa(opcoes: {
           SAIDAS,
       }
     }
+    const comEndereco = { ...visita, endereco: endereco.slice(0, 300) }
+    if (await agendamentoPorPedido(admin, clinicId)) {
+      return await perguntarPeriodosDaVisita(admin, clinicId, conversationId, comEndereco, unidadeEmAndamento)
+    }
+    return await perguntarRestricaoDaVisita(admin, conversationId, comEndereco)
+  }
+
+  if (estadoAtual === 'visita_periodos') {
+    const visita = visitaEmAndamento(opcoes.opcoesAtuais)
+    const oferecidos = visita.oferecidos ?? []
+    const escolhidos = escolhasMultiplas(texto, oferecidos.length)
+    if (!escolhidos) {
+      return mensagemDosPeriodos(oferecidos, 'Não entendi. Responda com os números dos períodos que servem:')
+    }
     return await perguntarRestricaoDaVisita(admin, conversationId, {
       ...visita,
-      endereco: endereco.slice(0, 300),
+      periodos: escolhidos.map((i) => oferecidos[i]),
+      oferecidos: undefined,
     })
+  }
+
+  if (estadoAtual === 'visita_quando') {
+    const visita = visitaEmAndamento(opcoes.opcoesAtuais)
+    const quando = lerQuando(texto)
+    if (!quando) return await perguntarQuandoDaVisita(admin, conversationId, visita)
+    const pronto = { ...visita, aPartir: quando }
+    if (pacienteDaConsulta) {
+      return await registrarVisita(
+        admin,
+        conversationId,
+        { ...pronto, nome: pacienteDaConsulta.name },
+        Boolean(opcoes.consultaASubstituir),
+      )
+    }
+    return await perguntarNomeDaVisita(admin, conversationId, pronto)
   }
 
   if (estadoAtual === 'visita_restricao') {
@@ -3655,6 +4211,9 @@ export async function tratarConversa(opcoes: {
     const livre = /^(tanto faz|qualquer( dia| horario| um)?|nao|nao tem|nenhum|nenhuma|sem restricao|livre|pode ser qualquer( dia| horario)?)[.!]*$/
       .test(normalizar(resposta))
     const pronto = { ...visita, restricao: livre ? '' : resposta.slice(0, 300) }
+    if (await agendamentoPorPedido(admin, clinicId) && precisaDoQuando(pronto.periodos)) {
+      return await perguntarQuandoDaVisita(admin, conversationId, pronto)
+    }
     if (pacienteDaConsulta) {
       return await registrarVisita(
         admin,
@@ -3688,6 +4247,104 @@ export async function tratarConversa(opcoes: {
       admin,
       conversationId,
       { ...visita, nascimento: nascimento.slice(0, 60) },
+      Boolean(opcoes.consultaASubstituir),
+    )
+  }
+
+  // ---- Pedido de consulta no consultorio (agenda por pedido) ----
+  if (estadoAtual === 'pedido_tipo') {
+    const pedido = pedidoEmAndamentoDaConsulta(opcoes.opcoesAtuais)
+    const t = normalizar(texto.trim())
+    const tipo = /^(1|primeira( consulta| vez)?)[.!]*$/.test(t)
+      ? 'Primeira consulta'
+      : /^(2|retorno|e retorno|volta)[.!]*$/.test(t)
+        ? 'Retorno'
+        : null
+    if (!tipo) {
+      return {
+        resposta: 'Responda *1* para primeira consulta ou *2* para retorno.\n\n' + SAIDAS,
+        botoes: [
+          { id: '1', titulo: 'Primeira consulta' },
+          { id: '2', titulo: 'Retorno' },
+        ],
+      }
+    }
+    return await perguntarPeriodosDoPedido(admin, clinicId, conversationId, { ...pedido, tipo })
+  }
+
+  if (estadoAtual === 'pedido_periodos') {
+    const pedido = pedidoEmAndamentoDaConsulta(opcoes.opcoesAtuais)
+    const oferecidos = pedido.oferecidos ?? []
+    const escolhidos = escolhasMultiplas(texto, oferecidos.length)
+    if (!escolhidos) {
+      return mensagemDosPeriodos(oferecidos, 'Não entendi. Responda com os números dos períodos que servem:')
+    }
+    return await perguntarRestricaoDoPedido(admin, conversationId, {
+      ...pedido,
+      periodos: escolhidos.map((i) => oferecidos[i]),
+      oferecidos: undefined,
+    })
+  }
+
+  if (estadoAtual === 'pedido_restricao') {
+    const pedido = pedidoEmAndamentoDaConsulta(opcoes.opcoesAtuais)
+    const resposta = texto.trim()
+    if (!resposta || resposta.startsWith('[')) {
+      return await perguntarRestricaoDoPedido(admin, conversationId, pedido)
+    }
+    const comRestricao = { ...pedido, restricao: respostaLivre(resposta) ? '' : resposta.slice(0, 300) }
+    if (precisaDoQuando(comRestricao.periodos)) {
+      return await perguntarQuandoDoPedido(admin, conversationId, comRestricao)
+    }
+    if (pacienteDaConsulta) {
+      return await registrarPedidoDeConsulta(
+        admin,
+        clinicId,
+        conversationId,
+        { ...comRestricao, nome: pacienteDaConsulta.name },
+        Boolean(opcoes.consultaASubstituir),
+      )
+    }
+    return await perguntarNomeDoPedido(admin, conversationId, comRestricao)
+  }
+
+  if (estadoAtual === 'pedido_quando') {
+    const pedido = pedidoEmAndamentoDaConsulta(opcoes.opcoesAtuais)
+    const quando = lerQuando(texto)
+    if (!quando) return await perguntarQuandoDoPedido(admin, conversationId, pedido)
+    const pronto = { ...pedido, aPartir: quando }
+    if (pacienteDaConsulta) {
+      return await registrarPedidoDeConsulta(
+        admin,
+        clinicId,
+        conversationId,
+        { ...pronto, nome: pacienteDaConsulta.name },
+        Boolean(opcoes.consultaASubstituir),
+      )
+    }
+    return await perguntarNomeDoPedido(admin, conversationId, pronto)
+  }
+
+  if (estadoAtual === 'pedido_nome') {
+    const pedido = pedidoEmAndamentoDaConsulta(opcoes.opcoesAtuais)
+    const nome = texto.trim()
+    if (nome.length < 2 || nome.startsWith('[')) {
+      return { resposta: 'Não consegui ler o nome. Pode escrever o nome completo do paciente?' }
+    }
+    return await perguntarNascimentoDoPedido(admin, conversationId, { ...pedido, nome: nome.slice(0, 160) })
+  }
+
+  if (estadoAtual === 'pedido_nascimento') {
+    const pedido = pedidoEmAndamentoDaConsulta(opcoes.opcoesAtuais)
+    const nascimento = texto.trim()
+    if (nascimento.length < 3 || nascimento.startsWith('[')) {
+      return { resposta: 'Não consegui ler a data. Pode escrever assim: 12/03/1945?' }
+    }
+    return await registrarPedidoDeConsulta(
+      admin,
+      clinicId,
+      conversationId,
+      { ...pedido, nascimento: nascimento.slice(0, 60) },
       Boolean(opcoes.consultaASubstituir),
     )
   }
@@ -3921,6 +4578,9 @@ export async function tratarConversa(opcoes: {
       )
     }
     if (escolhida.is_home_visit) return await iniciarVisita(admin, conversationId, escolhida)
+    if (await agendamentoPorPedido(admin, clinicId)) {
+      return await iniciarPedidoDeConsulta(admin, clinicId, conversationId, escolhida)
+    }
     return await perguntarConvenioOuDia(admin, clinicId, conversationId, escolhida)
   }
 

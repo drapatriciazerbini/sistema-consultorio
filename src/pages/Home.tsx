@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ComponentType } from 'react'
+import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
 import {
   Bell,
   CalendarDays,
@@ -34,9 +34,12 @@ import { prepararPrescricao } from '@/lib/memed'
 import Agenda from '@/sections/Agenda'
 import Settings from '@/sections/Settings'
 import AccessAdmin from '@/sections/AccessAdmin'
-import logo from '@/assets/logo.webp'
+import { lembrarClinica, marcaDaClinica, ultimaClinicaVista } from '@/lib/marca'
 import { useAuth } from '@/auth/AuthProvider'
-import { parametrosDoEndereco } from '@/lib/endereco'
+import { useDialogos } from '@/components/dialogos-contexto'
+import { apagarParametrosDoEndereco, parametrosDoEndereco } from '@/lib/endereco'
+import { registrarServiceWorker } from '@/lib/notificacoes'
+import ConviteParaAvisos from '@/components/ConviteParaAvisos'
 
 type Tab = 'dashboard' | 'agenda' | 'followups' | 'conversas' | 'pacientes' | 'config' | 'admin'
 type Icon = ComponentType<{ className?: string; strokeWidth?: number }>
@@ -128,8 +131,6 @@ function preferenciaDeTopo(): boolean | null {
   return null
 }
 
-/** Titulo original da aba, do index.html. */
-const TITULO_DA_ABA = 'Central de Cuidado | Dra. Patrícia Zerbini'
 
 /** Meia hora: a partir disso a espera deixa de ser "chegou agora". */
 const ESPERA_LONGA_MS = 30 * 60 * 1000
@@ -174,10 +175,33 @@ export default function Home() {
    */
   const [tab, setTab] = useState<Tab>(() => {
     const endereco = parametrosDoEndereco()
+    if (endereco.get('conversa')) return 'conversas'
     return endereco.get('state') || endereco.get('paciente') ? 'pacientes' : 'followups'
   })
   // Paciente cuja conversa deve abrir ao entrar em Respostas pelo atalho.
   const [conversaFoco, setConversaFoco] = useState<string | null>(null)
+  /**
+   * Conversa pedida pelo toque na notificacao do celular (28/09/2026). Vem
+   * pelo endereco (?conversa=, app fechado) ou por mensagem do service worker
+   * (app ja aberto). O `vez` faz o mesmo aviso tocado duas vezes abrir de novo.
+   */
+  const [conversaDoAviso, setConversaDoAviso] = useState<{ id: string; vez: number } | null>(() => {
+    const id = parametrosDoEndereco().get('conversa')
+    return id ? { id, vez: Date.now() } : null
+  })
+  useEffect(() => {
+    if (parametrosDoEndereco().get('conversa')) apagarParametrosDoEndereco(['conversa'])
+    void registrarServiceWorker()
+    if (!('serviceWorker' in navigator)) return
+    const aoReceber = (evento: MessageEvent) => {
+      const dados = evento.data as { tipo?: string; conversa?: string } | null
+      if (dados?.tipo !== 'abrir-conversa') return
+      setTab('conversas')
+      if (dados.conversa) setConversaDoAviso({ id: dados.conversa, vez: Date.now() })
+    }
+    navigator.serviceWorker.addEventListener('message', aoReceber)
+    return () => navigator.serviceWorker.removeEventListener('message', aoReceber)
+  }, [])
   const [newPatientSignal, setNewPatientSignal] = useState(0)
   const [preCadastro, setPreCadastro] = useState<
     {
@@ -194,6 +218,35 @@ export default function Home() {
   >(null)
   const pendentes = dueCount(db.patients)
   const [solicitacoes, setSolicitacoes] = useState<PendingRequest[]>([])
+  // Clinica atual, para o logo do menu (ver lib/marca.ts). Comeca pela ultima
+  // vista neste navegador para o menu nao piscar a cada recarga.
+  const [clinicaId, setClinicaId] = useState<string | null>(ultimaClinicaVista)
+  // Uma clinica so (ver lib/marca.ts): o logo aparece desde o primeiro quadro,
+  // sem esperar a consulta da clinica voltar.
+  const marca = marcaDaClinica(clinicaId)
+  // Altura do cabecalho do celular, publicada como --altura-topo-celular (27/09/2026).
+  // O cabecalho da conversa tambem e grudado no topo, e ficava POR TRAS deste:
+  // no celular sumiam o "Todas as conversas" e o nome de quem fala. Medido, e
+  // nao chutado, porque o sino abre um painel e a barra muda de altura; no
+  // computador ele some (lg:hidden) e a medida vira 0 sozinha.
+  // Callback ref, e nao useRef + useEffect([]): na primeira montagem o Home
+  // ainda mostra "carregando" e o cabecalho nao existe - o efeito rodava uma
+  // vez, nao achava nada e nunca mais media. Assim mede quando ele nasce.
+  const observadorDoTopo = useRef<ResizeObserver | null>(null)
+  const topoDoCelular = useCallback((alvo: HTMLElement | null) => {
+    observadorDoTopo.current?.disconnect()
+    observadorDoTopo.current = null
+    if (!alvo) return
+    const publicar = () =>
+      document.documentElement.style.setProperty('--altura-topo-celular', `${alvo.offsetHeight}px`)
+    publicar()
+    const observador = new ResizeObserver(publicar)
+    observador.observe(alvo)
+    observadorDoTopo.current = observador
+  }, [])
+  const nomeNoRodape =
+    marca?.nomeNoRodape ??
+    (String((user?.user_metadata as { full_name?: unknown } | undefined)?.full_name ?? '').trim() || 'Equipe clínica')
   // Conversas esperando alguem da equipe (22/09/2026). Ver o bloco do
   // contador, mais abaixo, para o porque.
   const [espera, setEspera] = useState<EsperaDaEquipe & { longa: boolean; ha: string }>({
@@ -210,6 +263,8 @@ export default function Home() {
     try {
       const membership = await getCurrentMembership()
       if (!membership) return
+      setClinicaId(membership.clinicId)
+      lembrarClinica(membership.clinicId)
       // Junto das solicitacoes, e no mesmo relogio de 60s: um aviso a mais
       // nao justifica outra rodada de consultas.
       // "Ha quanto tempo" e calculado aqui, na chegada do dado, e nao durante
@@ -252,10 +307,24 @@ export default function Home() {
    * outra aba do navegador ve que tem gente esperando. E o mesmo recurso que o
    * WhatsApp Web usa, e por isso a recepcao ja sabe ler.
    */
+  // O titulo base vem da marca da clinica (lib/marca.ts): a conta de teste
+  // nao leva nome de outra clinica na aba.
+  const tituloDaAba = marca?.titulo ?? 'Central de Cuidado'
   useEffect(() => {
-    document.title = espera.total > 0 ? `(${espera.total}) ${TITULO_DA_ABA}` : TITULO_DA_ABA
-  }, [espera.total])
+    document.title = espera.total > 0 ? `(${espera.total}) ${tituloDaAba}` : tituloDaAba
+  }, [espera.total, tituloDaAba])
   const esperaLonga = espera.longa
+
+  // O sino do celular (ver o cabecalho mais abaixo).
+  const [avisosAbertos, setAvisosAbertos] = useState(false)
+  const totalDeAvisos = espera.total + solicitacoes.length + pendentes
+  const { perguntar } = useDialogos()
+  // Pergunta antes: no celular o botao fica ao lado do sino, e um toque
+  // errado derrubava a sessao no meio do atendimento.
+  const sairDoSistema = async () => {
+    const sair = await perguntar({ titulo: 'Sair do sistema?', confirmar: 'Sair', cancelar: 'Continuar' })
+    if (sair) await signOut()
+  }
 
   const meta = PAGE_META[tab]
   // Acessos e Preferencias so para administrador (24/09/2026). Preferencias
@@ -405,11 +474,17 @@ export default function Home() {
         <div className="absolute -right-24 top-24 h-64 w-64 rounded-full bg-[#2f7f74]/10 blur-3xl" />
         <div className="relative flex h-full flex-col">
           <div className="px-7 pb-7 pt-8 [@media(max-height:820px)]:pb-4 [@media(max-height:820px)]:pt-5">
-            <img src={logo} alt="Dra. Patrícia Zerbini" className="h-12 w-auto max-w-[190px] [@media(max-height:820px)]:h-9" />
-            <div className="mt-5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-white/45 [@media(max-height:820px)]:mt-3">
-              <HeartHandshake className="h-3.5 w-3.5 text-[#dfc49b]" />
-              Central de cuidado
-            </div>
+            {marca ? (
+              <img src={marca.src} alt={marca.nome} className="h-12 w-auto max-w-[190px] [@media(max-height:820px)]:h-9" />
+            ) : (
+              <div className="h-12 [@media(max-height:820px)]:h-9" aria-hidden="true" />
+            )}
+            {marca?.mostraEtiquetaDoProduto && (
+              <div className="mt-5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-white/45 [@media(max-height:820px)]:mt-3">
+                <HeartHandshake className="h-3.5 w-3.5 text-[#dfc49b]" />
+                Central de cuidado
+              </div>
+            )}
             {/* Versao publicada, logo abaixo do nome: e o que responde, sem
                 adivinhacao, se a tela aberta ja e a de depois da ultima
                 publicacao. Ficava no rodape, mas em tela menor o rodape nao
@@ -511,7 +586,7 @@ export default function Home() {
               <CircleUserRound className="h-5 w-5 text-white/60" />
             </span>
             <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-white/90">Dra. Patrícia Zerbini</p>
+              <p className="truncate text-xs font-bold text-white/90">{nomeNoRodape}</p>
               <p className="mt-0.5 truncate text-[10px] text-white/40">{user?.email ?? 'Equipe clínica'}</p>
             </div>
             <button
@@ -527,22 +602,121 @@ export default function Home() {
         </div>
       </aside>
 
-      <header className="sticky top-0 z-30 border-b border-white/10 bg-[#193d36]/95 px-4 py-3 text-white backdrop-blur-xl lg:hidden">
-        <div className="mx-auto flex max-w-2xl items-center justify-between">
-          <img src={logo} alt="Dra. Patrícia Zerbini" className="h-8 w-auto max-w-[150px]" />
-          <button
-            type="button"
-            onClick={() => setTab('followups')}
-            aria-label={`${pendentes} acompanhamentos pendentes`}
-            className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.07]"
-          >
-            <Bell className="h-[18px] w-[18px] text-white/75" />
-            {pendentes > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#4acfb0] px-1 text-[9px] font-extrabold text-white ring-2 ring-[#193d36]">
-                {pendentes}
-              </span>
-            )}
-          </button>
+      {/* Cabecalho do celular.
+          Ate 27/09/2026 o sino so levava para Acompanhamentos - e quem ja
+          estava la tocava e nada acontecia, parecia quebrado. E o numero dele
+          contava so acompanhamento, deixando de fora justamente o que tem
+          pressa: familia esperando resposta e pedido de horario. Agora ele abre
+          a lista do que pede atencao, cada linha levando para a tela certa.
+          O botao de sair nao existia no celular: o do rodape do menu lateral
+          so aparece no computador. */}
+      <header
+        ref={topoDoCelular}
+        className="sticky top-0 z-30 border-b border-white/10 bg-[#193d36]/95 px-4 py-3 text-white backdrop-blur-xl lg:hidden"
+      >
+        <div className="relative mx-auto flex max-w-2xl items-center justify-between">
+          {marca ? (
+            <img src={marca.src} alt={marca.nome} className="h-8 w-auto max-w-[150px]" />
+          ) : (
+            <div className="h-8" aria-hidden="true" />
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAvisosAbertos((aberto) => !aberto)}
+              aria-expanded={avisosAbertos}
+              aria-label={totalDeAvisos > 0 ? `${totalDeAvisos} ${totalDeAvisos === 1 ? 'item pede' : 'itens pedem'} atenção` : 'Nada pedindo atenção'}
+              className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.07]"
+            >
+              <Bell className="h-[18px] w-[18px] text-white/75" />
+              {totalDeAvisos > 0 && (
+                <span
+                  className={`absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[9px] font-extrabold ring-2 ring-[#193d36] ${
+                    esperaLonga || solicitacoes.length > 0 ? 'bg-red-500 text-white' : 'bg-[#4acfb0] text-white'
+                  }`}
+                >
+                  {totalDeAvisos}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => void sairDoSistema()}
+              aria-label="Sair do sistema"
+              title="Sair do sistema"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.07] text-white/60"
+            >
+              <LogOut className="h-[18px] w-[18px]" />
+            </button>
+          </div>
+
+          {avisosAbertos && (
+            <>
+              {/* Toque fora fecha. */}
+              <button
+                type="button"
+                aria-label="Fechar avisos"
+                onClick={() => setAvisosAbertos(false)}
+                className="fixed inset-0 z-40 cursor-default"
+              />
+              <div className="absolute right-0 top-12 z-50 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-[#193d36]/10 bg-white text-[#193d36] shadow-[0_18px_42px_rgba(25,61,54,.25)]">
+                <p className="border-b border-[#193d36]/[0.07] px-4 py-3 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[#1f5f55]">
+                  Pede atenção
+                </p>
+                {totalDeAvisos === 0 ? (
+                  <p className="px-4 py-5 text-xs text-slate-500">Nada esperando agora. Tudo em dia.</p>
+                ) : (
+                  <ul className="divide-y divide-[#193d36]/[0.06]">
+                    {[
+                      {
+                        chave: 'conversas' as Tab,
+                        n: espera.total,
+                        titulo: espera.total === 1 ? 'família esperando resposta' : 'famílias esperando resposta',
+                        detalhe: espera.total > 0 ? `A mais antiga: ${espera.ha}` : '',
+                        cor: esperaLonga ? 'bg-red-500' : 'bg-[#e0a33a]',
+                      },
+                      {
+                        chave: 'agenda' as Tab,
+                        n: solicitacoes.length,
+                        titulo: solicitacoes.length === 1 ? 'pedido de horário para confirmar' : 'pedidos de horário para confirmar',
+                        detalhe: 'A vaga fica reservada por 24h',
+                        cor: 'bg-red-500',
+                      },
+                      {
+                        chave: 'followups' as Tab,
+                        n: pendentes,
+                        titulo: pendentes === 1 ? 'acompanhamento para hoje ou atrasado' : 'acompanhamentos para hoje ou atrasados',
+                        detalhe: 'Saem sozinhos às 9h; aqui dá para antecipar',
+                        cor: 'bg-[#4acfb0]',
+                      },
+                    ]
+                      .filter((aviso) => aviso.n > 0)
+                      .map((aviso) => (
+                        <li key={aviso.chave}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAvisosAbertos(false)
+                              setTab(aviso.chave)
+                            }}
+                            className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-[#f4f8f7]"
+                          >
+                            <span className={`flex h-7 min-w-7 items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold text-white ${aviso.cor}`}>
+                              {aviso.n}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-xs font-bold">{aviso.titulo}</span>
+                              {aviso.detalhe && <span className="mt-0.5 block text-[10px] text-slate-400">{aviso.detalhe}</span>}
+                            </span>
+                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </header>
 
@@ -618,6 +792,7 @@ export default function Home() {
             {tab === 'conversas' && (
               <Conversations
                 focoPatientId={conversaFoco}
+                focoConversa={conversaDoAviso}
                 onCadastrarContato={cadastrarContato}
                 compacto={topoRecolhido}
                 onAlternarCompacto={tela.computador ? alternarTopo : undefined}
@@ -653,6 +828,8 @@ export default function Home() {
           </div>
         </div>
       </main>
+
+      <ConviteParaAvisos clinicId={clinicaId} />
 
       <nav
         className="fixed inset-x-3 bottom-3 z-40 flex rounded-[22px] border border-[#193d36]/10 bg-white/95 px-1.5 py-1.5 shadow-[0_18px_55px_rgba(25,61,54,.2)] backdrop-blur-xl lg:hidden"

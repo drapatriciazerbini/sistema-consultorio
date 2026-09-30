@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
   ArrowDown,
@@ -21,12 +22,20 @@ import {
   X,
   ClipboardList,
   List as ListIcon,
+  Lock,
+  MoreVertical,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { criarNota, listarNotas, type NotaDaConversa } from '@/lib/notas-da-conversa'
+import { linhaDoTempo } from '@/lib/linha-do-tempo'
+import { VisualizadorDeArquivo, type ArquivoAberto } from '@/components/VisualizadorDeArquivo'
+import { marcaSemClinicaConhecida } from '@/lib/marca'
 import {
   getAutoReply,
   getCurrentMembership,
   listConversationMessages,
+  linkDoAnexo,
+  buscarNasConversas,
   listRespostasProntas,
   sendConversationFile,
   type RespostaPronta,
@@ -70,6 +79,16 @@ const ETAPA_DO_ROBO: Record<string, string> = {
   aguardando_unidade: 'escolhendo a unidade',
   aguardando_dia: 'escolhendo o dia',
   aguardando_horario: 'escolhendo o horário',
+  pedido_tipo: 'montando o pedido de consulta',
+  pedido_periodos: 'escolhendo os períodos',
+  pedido_restricao: 'contando as restrições',
+  pedido_quando: 'dizendo a partir de quando',
+  pedido_nome: 'informando o nome do paciente',
+  pedido_nascimento: 'informando o nascimento',
+  visita_endereco: 'informando o endereço da visita',
+  visita_periodos: 'escolhendo os períodos da visita',
+  visita_restricao: 'contando as restrições da visita',
+  visita_quando: 'dizendo a partir de quando',
   atendente: 'aguardando a equipe',
 }
 
@@ -213,6 +232,13 @@ const MOTIVO_ATENCAO: Record<
     classe: 'bg-[#fef3c7] text-[#92400e]',
     borda: 'border-[#f59e0b]',
   },
+  // Pedido de consulta no consultorio (agenda por pedido, 30/09/2026): o robo
+  // anotou periodos e restricoes, e so a Dra. confirma o dia e o horario.
+  pedido_consulta: {
+    rotulo: '📅 Pediu consulta',
+    classe: 'bg-[#fef3c7] text-[#92400e]',
+    borda: 'border-[#f59e0b]',
+  },
 }
 
 /**
@@ -293,19 +319,59 @@ const FUNDO_WHATSAPP = {
  * É foto de exame, de lesão, de criança: um endereço permanente seria
  * prontuário circulando solto.
  */
-function Anexo({ url, mime }: { url: string; mime: string | null }) {
+/**
+ * Anexo dentro do balao da conversa.
+ *
+ * Clicar abre o arquivo POR CIMA da tela (VisualizadorDeArquivo), e nao numa
+ * aba nova: a recepcao perdia a conversa de vista para conferir um comprovante
+ * (25/09/2026). E o link e pedido na hora do clique - o que veio com a conversa
+ * vale so cinco minutos, e quem deixava a tela aberta recebia "expirado".
+ */
+function Anexo({
+  url,
+  mime,
+  caminho,
+  onAbrir,
+}: {
+  url: string
+  mime: string | null
+  caminho: string | null
+  onAbrir: (arquivo: ArquivoAberto) => void
+}) {
   const tipo = mime ?? ''
+  const [previa, setPrevia] = useState(url)
+  const [erro, setErro] = useState('')
+
+  async function linkNovo() {
+    if (!caminho) return url
+    return linkDoAnexo(caminho)
+  }
+
+  async function abrir() {
+    setErro('')
+    try {
+      onAbrir({ url: await linkNovo(), mime, titulo: tipo.startsWith('image/') ? 'Foto enviada' : 'Documento enviado' })
+    } catch (causa) {
+      setErro(causa instanceof Error ? causa.message : 'Não consegui abrir o anexo.')
+    }
+  }
 
   if (tipo.startsWith('image/')) {
     return (
-      <a href={url} target="_blank" rel="noreferrer" className="block">
+      <button type="button" onClick={() => void abrir()} className="block w-full" title="Ver a foto">
         <img
-          src={url}
+          src={previa}
           alt="Anexo enviado pelo paciente"
           className="mb-1 max-h-[320px] w-full rounded-[6px] object-cover"
           loading="lazy"
+          // Previa com link vencido: pede outro, uma vez.
+          onError={() => {
+            if (!caminho || previa !== url) return
+            void linkNovo().then(setPrevia).catch(() => undefined)
+          }}
         />
-      </a>
+        {erro && <span className="block text-[11px] font-bold text-[#b42318]">{erro}</span>}
+      </button>
     )
   }
 
@@ -320,15 +386,35 @@ function Anexo({ url, mime }: { url: string; mime: string | null }) {
   }
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="mb-1 flex items-center gap-2 rounded-[6px] bg-black/5 px-2 py-1.5 text-[12px] font-bold text-[#11211d] transition hover:bg-black/10"
-    >
-      <Paperclip className="h-3.5 w-3.5 shrink-0" />
-      Abrir documento
-    </a>
+    <>
+      <button
+        type="button"
+        onClick={() => void abrir()}
+        className="mb-1 flex items-center gap-2 rounded-[6px] bg-black/5 px-2 py-1.5 text-[12px] font-bold text-[#11211d] transition hover:bg-black/10"
+      >
+        <Paperclip className="h-3.5 w-3.5 shrink-0" />
+        Abrir documento
+      </button>
+      {erro && <span className="block text-[11px] font-bold text-[#b42318]">{erro}</span>}
+    </>
+  )
+}
+
+/**
+ * Endereco da web vira link clicavel no balao (25/09/2026): a localizacao que
+ * a familia compartilha chega como link de mapa, e copiar e colar um endereco
+ * comprido era o caminho ate aqui.
+ */
+function comLinks(texto: string) {
+  const partes = texto.split(/(https?:\/\/[^\s]+)/g)
+  return partes.map((parte, i) =>
+    /^https?:\/\//.test(parte) ? (
+      <a key={i} href={parte} target="_blank" rel="noreferrer" className="break-all text-[#027eb5] underline">
+        {parte}
+      </a>
+    ) : (
+      parte
+    ),
   )
 }
 
@@ -368,13 +454,48 @@ function formatWhen(value: string | null) {
 
 export type PreCadastro = { nome: string; telefone: string }
 
+
+/* Ajudantes do visual WhatsApp (27/09/2026). */
+function iniciais(nome: string) {
+  const partes = nome.trim().split(/\s+/).filter(Boolean)
+  const letras = (partes[0]?.[0] ?? '') + (partes.length > 1 ? partes[partes.length - 1][0] : '')
+  return letras.toUpperCase() || '?'
+}
+const CORES_DE_AVATAR = ['#128c7e', '#2f7f74', '#8e5cc4', '#d9764f', '#3b9c5a', '#c2527c', '#5b7a73']
+function corDoAvatar(nome: string) {
+  let soma = 0
+  for (const letra of nome) soma = (soma * 31 + letra.charCodeAt(0)) >>> 0
+  return CORES_DE_AVATAR[soma % CORES_DE_AVATAR.length]
+}
+function diaLocal(iso: string) {
+  return new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+}
+function rotuloDoDia(iso: string) {
+  const dia = diaLocal(iso)
+  const hoje = new Date()
+  const ontem = new Date(hoje.getTime() - 86_400_000)
+  if (dia === diaLocal(hoje.toISOString())) return 'Hoje'
+  if (dia === diaLocal(ontem.toISOString())) return 'Ontem'
+  return dia
+}
+function horaLocal(iso: string) {
+  return new Date(iso).toLocaleTimeString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export default function Conversations({
   focoPatientId,
+  focoConversa,
   onCadastrarContato,
   compacto = false,
   onAlternarCompacto,
 }: {
   focoPatientId?: string | null
+  /** Conversa tocada na notificacao do celular. */
+  focoConversa?: { id: string; vez: number } | null
   /** Abre a tela de pacientes com nome e telefone do contato ja preenchidos. */
   onCadastrarContato?: (dados: PreCadastro) => void
   /**
@@ -390,6 +511,10 @@ export default function Conversations({
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [busca, setBusca] = useState('')
+  // Conversas cujo TEXTO contem a busca, vindas do banco (25/09/2026). null
+  // enquanto nao ha busca, ou quando o banco nao respondeu (ai vale o texto
+  // que a lista antiga trazia).
+  const [idsPelaBusca, setIdsPelaBusca] = useState<Set<string> | null>(null)
   const [de, setDe] = useState('')
   const [ate, setAte] = useState('')
   // Comeca desligado: quem abre a tela espera ver a conversa inteira da
@@ -412,6 +537,15 @@ export default function Conversations({
     })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ConversationMessage[]>([])
+  // Notas internas da conversa aberta (25/09/2026): so a equipe ve.
+  const [notas, setNotas] = useState<NotaDaConversa[]>([])
+  const [erroDasNotas, setErroDasNotas] = useState('')
+  const [escrevendoNota, setEscrevendoNota] = useState(false)
+  const [textoDaNota, setTextoDaNota] = useState('')
+  const [salvandoNota, setSalvandoNota] = useState(false)
+  // Foto ou documento aberto por cima da conversa.
+  const [arquivoAberto, setArquivoAberto] = useState<ArquivoAberto | null>(null)
+  const fecharArquivo = useCallback(() => setArquivoAberto(null), [])
   const [loading, setLoading] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [error, setError] = useState('')
@@ -642,6 +776,40 @@ export default function Conversations({
     void load()
   }, [load])
 
+  // As notas vem a parte das mensagens: falhar aqui nao pode esconder a
+  // conversa, so avisar que as notas nao carregaram.
+  const carregarNotas = useCallback(async (conversationId: string) => {
+    try {
+      const lista = await listarNotas(conversationId)
+      if (selectedIdRef.current === conversationId) {
+        setNotas(lista)
+        setErroDasNotas('')
+      }
+    } catch (causa) {
+      if (selectedIdRef.current === conversationId) {
+        setNotas([])
+        setErroDasNotas(causa instanceof Error ? causa.message : 'Notas internas indisponíveis.')
+      }
+    }
+  }, [])
+
+  async function salvarNota() {
+    if (!selectedId || !clinicId || !textoDaNota.trim() || salvandoNota) return
+    setSalvandoNota(true)
+    setErroDasNotas('')
+    try {
+      await criarNota(clinicId, selectedId, textoDaNota)
+      setTextoDaNota('')
+      setEscrevendoNota(false)
+      acabamosDeEnviar.current = true
+      await carregarNotas(selectedId)
+    } catch (causa) {
+      setErroDasNotas(causa instanceof Error ? causa.message : 'A nota não foi salva.')
+    } finally {
+      setSalvandoNota(false)
+    }
+  }
+
   /**
    * Quando a tela e aberta pelo botao "Conversa" do acompanhamento, ja abre a
    * conversa daquele paciente. Sem isso a equipe cairia na lista e teria de
@@ -656,6 +824,21 @@ export default function Conversations({
   }, [focoPatientId, conversations])
 
   /**
+   * Toque na notificacao do celular: abre a conversa pelo id. Cada toque
+   * (vez) abre uma so vez - sem isso a lista, ao se atualizar em tempo real,
+   * puxaria a pessoa de volta para esta conversa a cada mensagem nova.
+   */
+  const avisoAtendido = useRef(0)
+  useEffect(() => {
+    if (!focoConversa || focoConversa.vez === avisoAtendido.current || conversations.length === 0) return
+    const alvo = conversations.find((item) => item.id === focoConversa.id)
+    if (!alvo) return
+    avisoAtendido.current = focoConversa.vez
+    if (alvo.id !== selectedId) void openConversation(alvo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focoConversa, conversations])
+
+  /**
    * Tempo real: a tela se atualiza sozinha quando um paciente responde, sem
    * ninguem precisar clicar em Atualizar. Numa clinica, depender de alguem
    * lembrar de atualizar a pagina significa resposta de paciente parada na tela.
@@ -663,43 +846,76 @@ export default function Conversations({
   useEffect(() => {
     if (!clinicId) return
 
+    // Recargas agrupadas (25/09/2026). Cada "entregue" e "lida" da Meta e um
+    // evento, e cada evento recarregava a lista inteira e a conversa aberta:
+    // um lote de dez confirmacoes virava vinte downloads. Agora varios eventos
+    // em sequencia viram uma recarga so, e confirmacao de entrega nao mexe na
+    // lista - so no tiquinho da conversa que esta aberta.
+    let esperaDaLista: number | null = null
+    let esperaDaConversa: number | null = null
+    const recarregarLista = () => {
+      if (esperaDaLista) window.clearTimeout(esperaDaLista)
+      esperaDaLista = window.setTimeout(() => void load(true), 1200)
+    }
+    const recarregarConversa = (conversa: string) => {
+      if (esperaDaConversa) window.clearTimeout(esperaDaConversa)
+      esperaDaConversa = window.setTimeout(() => {
+        if (selectedIdRef.current !== conversa) return
+        void listConversationMessages(conversa).then(setMessages).catch(() => {})
+        // Se quem escreveu foi o paciente, a janela de 24h reabriu: sem isto
+        // a caixa continuaria bloqueada ate alguem trocar de conversa.
+        void getReplyWindow(conversa).then(setJanelaAte).catch(() => {})
+      }, 500)
+    }
+
     const canal = supabase
       .channel(`conversas-${clinicId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'whatsapp_messages', filter: `clinic_id=eq.${clinicId}` },
-        () => {
-          // Recarrega o historico da conversa aberta em qualquer evento. Nao da
-          // para olhar so o registro novo: em exclusao o Supabase manda apenas o
-          // registro antigo, e a tela ficaria mostrando algo que ja nao existe.
+        (evento) => {
+          const linha = (evento.new ?? evento.old ?? {}) as { conversation_id?: string }
           const aberta = selectedIdRef.current
-          if (aberta) {
-            void listConversationMessages(aberta).then(setMessages).catch(() => {})
-            // Se quem escreveu foi o paciente, a janela de 24h reabriu: sem
-            // isto a caixa continuaria bloqueada ate alguem trocar de conversa.
-            void getReplyWindow(aberta).then(setJanelaAte).catch(() => {})
-          }
-          // A lista lateral sempre reflete a ultima mensagem e o contador.
-          void load(true)
+          // Em exclusao o Supabase manda so o registro antigo, as vezes sem a
+          // conversa: na duvida, recarrega a aberta.
+          if (aberta && (!linha.conversation_id || linha.conversation_id === aberta)) recarregarConversa(aberta)
+          // Mudanca de status (entregue, lida) nao muda a lista.
+          if (evento.eventType !== 'UPDATE') recarregarLista()
         },
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'whatsapp_conversations', filter: `clinic_id=eq.${clinicId}` },
-        () => void load(true),
+        () => recarregarLista(),
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'conversation_notes', filter: `clinic_id=eq.${clinicId}` },
+        (evento) => {
+          const conversa = (evento.new as { conversation_id?: string } | null)?.conversation_id
+          if (conversa && conversa === selectedIdRef.current) void carregarNotas(conversa)
+        },
       )
       .subscribe((status) => setAoVivo(status === 'SUBSCRIBED'))
 
     return () => {
+      if (esperaDaLista) window.clearTimeout(esperaDaLista)
+      if (esperaDaConversa) window.clearTimeout(esperaDaConversa)
       void supabase.removeChannel(canal)
     }
-  }, [clinicId, load])
+  }, [clinicId, load, carregarNotas])
 
 
   async function openConversation(conversation: Conversation) {
     setSelectedId(conversation.id)
-    // Arquivo escolhido numa conversa nao pode ir parar em outra.
+    selectedIdRef.current = conversation.id
+    // Arquivo escolhido numa conversa nao pode ir parar em outra - nem a nota.
     setArquivo(null)
+    setNotas([])
+    setErroDasNotas('')
+    setEscrevendoNota(false)
+    setTextoDaNota('')
+    void carregarNotas(conversation.id)
     setLoadingMessages(true)
     setResposta('')
     setJanelaAte(null)
@@ -908,6 +1124,7 @@ export default function Conversations({
       if (item.patientName.toLowerCase().includes(termo)) return true
       if (item.profileName.toLowerCase().includes(termo)) return true
       if (digitosBusca && item.phoneDigits.includes(digitosBusca)) return true
+      if (idsPelaBusca) return idsPelaBusca.has(item.id)
       return item.textoBusca.includes(termo)
     })
 
@@ -918,7 +1135,27 @@ export default function Conversations({
     // mostrar o que falta fazer. O sort do JS e estavel, entao a ordem por
     // horario dentro de cada grupo se mantem.
     return [...filtradas].sort((a, b) => Number(estaConcluida(a)) - Number(estaConcluida(b)))
-  }, [conversations, busca, de, ate, esconderConcluidas, recorte, selectedId])
+  }, [conversations, busca, de, ate, esconderConcluidas, recorte, selectedId, idsPelaBusca])
+
+  // A busca no texto vai ao banco com um respiro de 400 ms: digitar "refluxo"
+  // nao pode virar sete consultas.
+  useEffect(() => {
+    const termo = busca.trim()
+    if (!clinicId || termo.length < 2) {
+      setIdsPelaBusca(null)
+      return
+    }
+    let vivo = true
+    const espera = window.setTimeout(() => {
+      void buscarNasConversas(clinicId, termo).then((ids) => {
+        if (vivo) setIdsPelaBusca(ids)
+      })
+    }, 400)
+    return () => {
+      vivo = false
+      window.clearTimeout(espera)
+    }
+  }, [busca, clinicId])
 
   const concluidas = useMemo(() => conversations.filter(estaConcluida).length, [conversations])
 
@@ -978,6 +1215,102 @@ export default function Conversations({
       vivo = false
     }
   }, [clinicId, selected?.patientId])
+
+
+  /**
+   * Visual "igual ao WhatsApp" no celular (27/09/2026).
+   *
+   * Pedido da equipe: no celular, quem responde familia o dia inteiro vive no
+   * WhatsApp, e a conversa aqui tinha outra cara - botoes, blocos, resumo em
+   * cima. Este modo abre a conversa em tela cheia, com a barra de cima, o papel
+   * de parede, os baloes e a barra de digitar do app. O visual padrao continua
+   * sendo o padrao; a escolha fica guardada neste aparelho.
+   *
+   * Tudo o que a equipe faz aqui passa pelas MESMAS funcoes do visual padrao
+   * (enviarResposta, responderPorModelo, reabrirConversa...). So muda a casca:
+   * uma regra nova de envio nao pode existir num visual e faltar no outro.
+   */
+  const [visualWhatsApp, setVisualWhatsApp] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('central.conversa-visual') === 'whatsapp'
+    } catch {
+      return false
+    }
+  })
+  const trocarVisual = (whatsapp: boolean) => {
+    setVisualWhatsApp(whatsapp)
+    setMenuWhats(false)
+    try {
+      window.localStorage.setItem('central.conversa-visual', whatsapp ? 'whatsapp' : 'padrao')
+    } catch {
+      // sem armazenamento: vale ate recarregar a pagina
+    }
+  }
+  const [telaDeCelular, setTelaDeCelular] = useState(() => window.matchMedia('(max-width: 1023px)').matches)
+  useEffect(() => {
+    const consulta = window.matchMedia('(max-width: 1023px)')
+    const mudar = () => setTelaDeCelular(consulta.matches)
+    consulta.addEventListener('change', mudar)
+    return () => consulta.removeEventListener('change', mudar)
+  }, [])
+  const [menuWhats, setMenuWhats] = useState(false)
+  const rolagemWhats = useRef<HTMLDivElement>(null)
+  const modoWhatsApp = visualWhatsApp && telaDeCelular && selected !== null
+
+  // Tela cheia de verdade: a pagina de tras nao rola junto com a conversa.
+  useEffect(() => {
+    if (!modoWhatsApp) return
+    const antes = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = antes
+    }
+  }, [modoWhatsApp])
+
+  // Depois de enviar, o campo volta a ter uma linha so.
+  useEffect(() => {
+    if (resposta) return
+    const campo = document.getElementById('resposta-whatsapp')
+    if (campo) campo.style.height = ''
+  }, [resposta])
+
+  // Abre JA no fim, como o WhatsApp (28/09/2026). Antes a conversa aparecia
+  // no topo e descia na frente da pessoa: o scroll rodava depois da pintura
+  // (useEffect) e as fotos, carregando depois, empurravam o fim para baixo.
+  // Agora posiciona antes de pintar e fica "grudada" no fim enquanto o
+  // conteudo cresce - ate a pessoa subir para ler, ai para de puxar.
+  const grudadoNoFim = useRef(true)
+  const conteudoWhats = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!modoWhatsApp) return
+    grudadoNoFim.current = true
+    const caixa = rolagemWhats.current
+    if (caixa) caixa.scrollTop = caixa.scrollHeight
+  }, [modoWhatsApp, selectedId, loadingMessages])
+  useLayoutEffect(() => {
+    if (!modoWhatsApp || !grudadoNoFim.current) return
+    const caixa = rolagemWhats.current
+    if (caixa) caixa.scrollTop = caixa.scrollHeight
+  }, [modoWhatsApp, messages.length, notas.length])
+  useEffect(() => {
+    if (!modoWhatsApp) return
+    const caixa = rolagemWhats.current
+    const conteudo = conteudoWhats.current
+    if (!caixa || !conteudo) return
+    const observador = new ResizeObserver(() => {
+      if (grudadoNoFim.current) caixa.scrollTop = caixa.scrollHeight
+    })
+    observador.observe(conteudo)
+    return () => observador.disconnect()
+  }, [modoWhatsApp, selectedId, loadingMessages])
+
+  // Voltar para a lista leva ao TOPO dela (28/09/2026). No celular a pagina
+  // inteira rola, e a pessoa voltava parada no meio da lista, na altura em
+  // que a conversa estava.
+  function voltarParaALista() {
+    setSelectedId(null)
+    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }))
+  }
 
   if (loading) {
     return (
@@ -1614,7 +1947,7 @@ export default function Conversations({
               as partes internas, onde nao atrapalha o sticky. */}
           <div
             ref={painel}
-            className={`surface-card rolagem-fina min-h-[320px] min-w-0 rounded-[22px] lg:h-full lg:overflow-y-auto ${
+            className={`surface-card rolagem-fina min-h-[320px] min-w-0 scroll-mt-[var(--altura-topo-celular,0px)] rounded-[22px] lg:h-full lg:overflow-y-auto ${
               selected ? '' : 'hidden lg:block'
             }`}
           >
@@ -1632,18 +1965,32 @@ export default function Conversations({
                     ate a borda do cartao, para nada aparecer por tras. */}
                 <div
                   ref={cabecalho}
-                  className="sticky top-0 z-20 rounded-t-[22px] bg-white/95 px-4 pt-4 backdrop-blur"
+                  // top: no celular gruda logo abaixo da barra do app (ver
+                  // --altura-topo-celular no Home); antes ficava por tras dela e
+                  // o "Todas as conversas" sumia ao rolar (27/09/2026).
+                  className="sticky top-[var(--altura-topo-celular,0px)] z-20 rounded-t-[22px] bg-white/95 px-4 pt-4 backdrop-blur lg:top-0"
                 >
                 {/* Só no celular: no computador a lista está do lado, e um
                     botão de voltar ali seria um passo inventado. */}
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="mb-3 inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 px-3 py-2 text-[10px] font-extrabold text-slate-500 transition hover:text-[#1f5f55] lg:hidden"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  Todas as conversas
-                </button>
+                <div className="mb-3 flex items-center justify-between gap-2 lg:hidden">
+                  <button
+                    type="button"
+                    onClick={voltarParaALista}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 px-3 py-2 text-[10px] font-extrabold text-slate-500 transition hover:text-[#1f5f55]"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    Todas as conversas
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => trocarVisual(true)}
+                    title="Abre a conversa com a cara do WhatsApp, em tela cheia"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-[#e7f8ee] px-3 py-2 text-[10px] font-extrabold text-[#128c4a] transition hover:bg-[#d6f3e2]"
+                  >
+                    <MessageSquareText className="h-3.5 w-3.5" />
+                    Visual WhatsApp
+                  </button>
+                </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#193d36]/[0.07] pb-3">
                   <div>
                     <p className="text-sm font-extrabold text-[#193d36]">{selected.patientName}</p>
@@ -1761,7 +2108,7 @@ export default function Conversations({
                     {messages.length > 6 && (
                       <div
                         className="sticky z-10 mb-1 flex justify-end gap-1.5"
-                        style={{ top: alturaCabecalho + 4 }}
+                        style={{ top: `calc(var(--altura-topo-celular, 0px) + ${alturaCabecalho + 4}px)` }}
                       >
                         <button
                           type="button"
@@ -1793,7 +2140,29 @@ export default function Conversations({
                     )}
                     <div className="space-y-2">
                       <div ref={inicioDasMensagens} />
-                      {messages.map((message) => {
+                      {linhaDoTempo(messages, notas).map((entrada) => {
+                        // Nota interna: amarela, centralizada e com cadeado,
+                        // para nunca ser confundida com algo que a familia leu.
+                        if (entrada.tipo === 'nota') {
+                          const nota = entrada.item
+                          return (
+                            <div key={`nota-${nota.id}`} className="flex justify-center">
+                              <div className="max-w-[85%] rounded-[8px] border border-[#e8c96a] bg-[#fff6d6] px-3 py-2 shadow-[0_1px_0.5px_rgba(12,26,23,.1)]">
+                                <p className="flex items-center gap-1 text-[10px] font-extrabold uppercase tracking-wide text-[#8a6a10]">
+                                  <Lock className="h-3 w-3" /> Nota interna
+                                  {nota.autorNome ? ` · ${nota.autorNome}` : ''}
+                                </p>
+                                <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-[18px] text-[#3d3208]">
+                                  {nota.texto}
+                                </p>
+                                <span className="mt-0.5 block text-right text-[10px] text-[#8a6a10]/80">
+                                  {formatWhen(nota.criadoEm)} · a família não vê
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        }
+                        const message = entrada.item
                         const outbound = message.direction === 'outbound'
                         return (
                           <div
@@ -1805,12 +2174,19 @@ export default function Conversations({
                                 outbound ? 'bg-[#d9fdd3]' : 'bg-white'
                               }`}
                             >
-                              {message.anexoUrl && <Anexo url={message.anexoUrl} mime={message.anexoMime} />}
+                              {message.anexoUrl && (
+                                <Anexo
+                                  url={message.anexoUrl}
+                                  mime={message.anexoMime}
+                                  caminho={message.anexoPath}
+                                  onAbrir={setArquivoAberto}
+                                />
+                              )}
                               {/* Sem texto e com arquivo, a linha de "[image]"
                                   vira ruído embaixo da própria foto. */}
                               {(!message.anexoUrl || !/^\[/.test(message.body)) && (
                                 <p className="whitespace-pre-wrap break-words text-[13.5px] leading-[19px] text-[#11211d]">
-                                  {message.body ||
+                                  {(message.body && comLinks(message.body)) ||
                                     (message.templateName
                                       ? `[modelo: ${message.templateName}]`
                                       : '[sem conteúdo]')}
@@ -1839,6 +2215,58 @@ export default function Conversations({
                     vista e a caixa se desliga sozinha quando fecha - senao a
                     equipe digita, envia e a mensagem falha sem explicacao. */}
                 <div className="mt-4 border-t border-[#193d36]/[0.07] pt-3">
+                  {/* Nota interna: funciona com a janela aberta ou fechada,
+                      porque nao passa pela Meta. */}
+                  <div className="mb-3">
+                    {escrevendoNota ? (
+                      <div className="rounded-[14px] border border-[#e8c96a] bg-[#fffaf0] p-3">
+                        <p className="flex items-center gap-1.5 text-[10px] font-extrabold text-[#8a6a10]">
+                          <Lock className="h-3.5 w-3.5" /> Nota interna · só a equipe vê, a família não recebe
+                        </p>
+                        <textarea
+                          value={textoDaNota}
+                          onChange={(e) => setTextoDaNota(e.target.value)}
+                          rows={2}
+                          maxLength={4000}
+                          autoFocus
+                          placeholder="Ex.: Liguei às 15h, não atendeu. / A Dra. autorizou atender particular."
+                          className="mt-2 w-full resize-y rounded-xl border border-[#e8c96a] bg-white p-2.5 text-[12px] outline-none focus:border-[#b8932a]"
+                        />
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            type="button"
+                            disabled={salvandoNota || !textoDaNota.trim()}
+                            onClick={() => void salvarNota()}
+                            className="rounded-xl bg-[#8a6a10] px-3.5 py-2 text-[10px] font-extrabold text-white disabled:opacity-40"
+                          >
+                            {salvandoNota ? 'Salvando...' : 'Salvar nota'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEscrevendoNota(false)
+                              setTextoDaNota('')
+                            }}
+                            className="rounded-xl border border-[#193d36]/10 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-500"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setEscrevendoNota(true)}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[#e8c96a] bg-[#fffaf0] px-3 py-1.5 text-[10px] font-extrabold text-[#8a6a10] transition hover:bg-[#fff3d6]"
+                        title="Recado para a equipe, dentro desta conversa. A família não recebe."
+                      >
+                        <Lock className="h-3.5 w-3.5" /> Nota interna
+                      </button>
+                    )}
+                    {erroDasNotas && (
+                      <p className="mt-1.5 text-[10px] font-bold text-[#b42318]">{erroDasNotas}</p>
+                    )}
+                  </div>
                   {janelaAberta ? (
                     <>
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2008,7 +2436,7 @@ export default function Conversations({
                         onChange={(evento) => setResposta(evento.target.value)}
                         rows={3}
                         maxLength={700}
-                        placeholder="Escreva a resposta. Ela chega precedida de 'Olá, [nome]. Aqui é o consultório da Dra. Patrícia Zerbini.'"
+                        placeholder={`Escreva a resposta. Ela chega precedida de 'Olá, [nome]. Aqui é ${marcaSemClinicaConhecida(clinicId).consultorioNaResposta}.'`}
                         className="mt-3 w-full resize-y rounded-xl border border-[#2f7f74]/25 bg-white px-3 py-2.5 text-[11px] font-semibold leading-relaxed text-[#193d36] outline-none transition placeholder:font-medium placeholder:text-slate-300 focus:border-[#2f7f74] focus:ring-4 focus:ring-[#2f7f74]/10"
                       />
                       <p className="mt-1 text-[9px] font-bold text-[#17564d]/60">
@@ -2049,6 +2477,298 @@ export default function Conversations({
           </div>
         </div>
       )}
+      {/* Portal no body, como o VisualizadorDeArquivo: a tela de Respostas
+          fica dentro do .animate-enter, e o transform da animacao vira o
+          "chao" de todo position:fixed la dentro. Sem o portal, a tela cheia
+          nascia do tamanho da secao, com a pagina travada por baixo - foi o
+          "entra bugado e fica travado" de 27/09/2026. */}
+      {modoWhatsApp && selected && createPortal(
+        <div className="fixed inset-0 z-[60] flex flex-col bg-[#efeae2] lg:hidden" role="dialog" aria-label={`Conversa com ${selected.patientName}`}>
+          {/* Barra de cima: voltar, foto, nome e acoes - a do WhatsApp. */}
+          <div
+            className="flex items-center gap-2 bg-white px-2 pb-2 text-[#11211d] shadow-[0_1px_2px_rgba(12,26,23,.12)]"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }}
+          >
+            <button
+              type="button"
+              onClick={voltarParaALista}
+              aria-label="Voltar para as conversas"
+              className="rounded-full p-2 text-[#54656f] active:bg-black/5"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <span
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[15px] font-bold text-white"
+              style={{ background: corDoAvatar(selected.patientName) }}
+              aria-hidden="true"
+            >
+              {iniciais(selected.patientName)}
+            </span>
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-[16px] font-semibold">{selected.patientName}</p>
+              <p className="truncate text-[12.5px] text-[#667781]">
+                {selected.phone} · {STATUS_LABEL[selected.status]}
+              </p>
+            </div>
+            {selected.status === 'resolved' ? (
+              <button
+                type="button"
+                onClick={() => void reabrir(selected.id)}
+                aria-label="Reabrir conversa"
+                title="Reabrir conversa"
+                className="rounded-full p-2 text-[#54656f] active:bg-black/5"
+              >
+                <RotateCcw className="h-5 w-5" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void resolve(selected.id)}
+                aria-label="Concluir conversa"
+                title="Concluir conversa"
+                className="rounded-full p-2 text-[#54656f] active:bg-black/5"
+              >
+                <Check className="h-5 w-5" />
+              </button>
+            )}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuWhats((aberto) => !aberto)}
+                aria-label="Mais opções"
+                aria-expanded={menuWhats}
+                className="rounded-full p-2 text-[#54656f] active:bg-black/5"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+              {menuWhats && (
+                <div className="absolute right-0 top-11 z-10 w-60 overflow-hidden rounded-[10px] bg-white py-1.5 text-[14.5px] text-[#11211d] shadow-[0_6px_24px_rgba(12,26,23,.25)]">
+                  {janelaAberta && (
+                    <>
+                      <button type="button" disabled={enviando} onClick={() => { setMenuWhats(false); void enviarMenu() }} className="block w-full px-4 py-2.5 text-left active:bg-black/5 disabled:opacity-40">
+                        Enviar menu de opções
+                      </button>
+                      <button type="button" disabled={enviando} onClick={() => { setMenuWhats(false); void enviarQuestionario() }} className="block w-full px-4 py-2.5 text-left active:bg-black/5 disabled:opacity-40">
+                        Enviar questionário
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // A nota interna tem campo proprio e aviso de que a
+                      // familia nao recebe: fica no visual padrao, que ja
+                      // mostra tudo isso, em vez de virar um balao parecido
+                      // com mensagem de verdade.
+                      trocarVisual(false)
+                      setEscrevendoNota(true)
+                    }}
+                    className="block w-full px-4 py-2.5 text-left active:bg-black/5"
+                  >
+                    Escrever nota interna
+                  </button>
+                  <button type="button" onClick={() => trocarVisual(false)} className="block w-full px-4 py-2.5 text-left active:bg-black/5">
+                    Voltar ao visual padrão
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2 bg-[#fdecea] px-4 py-2 text-[12.5px] font-semibold text-[#b42318]">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span className="flex-1">{error}</span>
+              <button type="button" onClick={() => setError('')} aria-label="Fechar aviso" className="shrink-0">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Conversa: papel de parede, separador de dia e baloes com
+              "rabinho" na primeira mensagem de cada sequencia. */}
+          <div
+            ref={rolagemWhats}
+            onScroll={(e) => {
+              const caixa = e.currentTarget
+              grudadoNoFim.current = caixa.scrollHeight - caixa.scrollTop - caixa.clientHeight < 80
+            }}
+            className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
+            style={FUNDO_WHATSAPP}
+            onClick={() => menuWhats && setMenuWhats(false)}
+          >
+            {loadingMessages ? (
+              <p className="mx-auto mt-10 w-fit rounded-[8px] bg-white/90 px-3 py-1.5 text-[12.5px] text-[#54656f]">
+                Carregando mensagens...
+              </p>
+            ) : (
+              <div ref={conteudoWhats} className="flex flex-col gap-[3px] pb-2">
+                {linhaDoTempo(messages, notas).map((entrada, indice, todas) => {
+                  const quando = entrada.tipo === 'nota' ? entrada.item.criadoEm : entrada.item.createdAt
+                  const anterior = indice > 0 ? todas[indice - 1] : null
+                  const quandoAnterior = anterior
+                    ? anterior.tipo === 'nota'
+                      ? anterior.item.criadoEm
+                      : anterior.item.createdAt
+                    : null
+                  const novoDia = !quandoAnterior || diaLocal(quandoAnterior) !== diaLocal(quando)
+                  const separador = novoDia ? (
+                    <div key={`dia-${indice}`} className="my-2 flex justify-center">
+                      <span className="rounded-[8px] bg-white px-3 py-1 text-[12.5px] font-medium text-[#54656f] shadow-[0_1px_0.5px_rgba(12,26,23,.13)]">
+                        {rotuloDoDia(quando)}
+                      </span>
+                    </div>
+                  ) : null
+
+                  if (entrada.tipo === 'nota') {
+                    const nota = entrada.item
+                    return [
+                      separador,
+                      <div key={`nota-${nota.id}`} className="my-1 flex justify-center">
+                        <div className="max-w-[85%] rounded-[8px] border border-[#e8c96a] bg-[#fff6d6] px-3 py-1.5 text-center shadow-[0_1px_0.5px_rgba(12,26,23,.1)]">
+                          <p className="flex items-center justify-center gap-1 text-[11px] font-bold uppercase tracking-wide text-[#8a6a10]">
+                            <Lock className="h-3 w-3" /> Nota interna{nota.autorNome ? ` · ${nota.autorNome}` : ''}
+                          </p>
+                          <p className="mt-0.5 whitespace-pre-wrap break-words text-[13.5px] text-[#3d3208]">{nota.texto}</p>
+                        </div>
+                      </div>,
+                    ]
+                  }
+
+                  const message = entrada.item
+                  const outbound = message.direction === 'outbound'
+                  const mesmoLadoAntes =
+                    !novoDia &&
+                    anterior?.tipo === 'mensagem' &&
+                    (anterior.item.direction === 'outbound') === outbound
+                  const comRabinho = !mesmoLadoAntes
+                  return [
+                    separador,
+                    <div
+                      key={message.id}
+                      className={`flex ${outbound ? 'justify-end' : 'justify-start'} ${comRabinho ? 'mt-1.5' : ''}`}
+                    >
+                      <div
+                        className={`relative max-w-[82%] rounded-[7.5px] px-[9px] pb-[6px] pt-[6px] shadow-[0_1px_0.5px_rgba(12,26,23,.13)] ${
+                          outbound ? 'bg-[#d9fdd3]' : 'bg-white'
+                        } ${comRabinho ? (outbound ? 'rounded-tr-none' : 'rounded-tl-none') : ''}`}
+                      >
+                        {comRabinho && (
+                          <svg
+                            viewBox="0 0 8 13"
+                            width="8"
+                            height="13"
+                            aria-hidden="true"
+                            className={`absolute top-0 ${outbound ? '-right-2' : '-left-2'}`}
+                          >
+                            <path
+                              fill={outbound ? '#d9fdd3' : '#ffffff'}
+                              d={outbound ? 'M5.188 0H0v11.193l6.467-8.625C7.526 1.156 6.958 0 5.188 0z' : 'M2.812 0H8v11.193L1.533 2.568C.474 1.156 1.042 0 2.812 0z'}
+                            />
+                          </svg>
+                        )}
+                        {message.anexoUrl && (
+                          <Anexo url={message.anexoUrl} mime={message.anexoMime} caminho={message.anexoPath} onAbrir={setArquivoAberto} />
+                        )}
+                        {(!message.anexoUrl || !/^\[/.test(message.body)) && (
+                          <p className="whitespace-pre-wrap break-words pr-[58px] text-[14.2px] leading-[19px] text-[#11211d]">
+                            {(message.body && comLinks(message.body)) ||
+                              (message.templateName ? `[modelo: ${message.templateName}]` : '[sem conteúdo]')}
+                          </p>
+                        )}
+                        <span className="absolute bottom-[5px] right-[8px] flex items-center gap-[3px] text-[11px] leading-none text-[#667781]">
+                          {horaLocal(message.createdAt)}
+                          {outbound && <Confirmacao status={message.status} />}
+                        </span>
+                        {message.failureReason && (
+                          <p className="mt-1 pb-3 text-[11.5px] font-semibold text-[#b42318]">{message.failureReason}</p>
+                        )}
+                      </div>
+                    </div>,
+                  ]
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Barra de digitar. Com a janela de 24h fechada, o texto vai
+              dentro do modelo aprovado - a Meta nao aceita texto livre -, e o
+              aviso de cima diz isso antes de a pessoa escrever. */}
+          <div className="bg-transparent px-1.5 pt-1" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 6px)' }}>
+            {!janelaAberta && (
+              <div className="mx-1 mb-1.5 rounded-[10px] bg-white px-3 py-2 text-[12.5px] text-[#54656f] shadow-[0_1px_0.5px_rgba(12,26,23,.13)]">
+                <p>
+                  Janela de 24h fechada: a mensagem sai dentro do modelo aprovado
+                  (&quot;Olá, [nome]. Aqui é {marcaSemClinicaConhecida(clinicId).consultorioNaResposta}.&quot;), sem quebra de linha.
+                </p>
+                <button
+                  type="button"
+                  disabled={reabrindo || enviandoModelo}
+                  onClick={() => void reabrirConversa()}
+                  className="mt-1 font-semibold text-[#008069] disabled:opacity-50"
+                >
+                  {reabrindo ? 'Enviando convite...' : 'Só convidar a responder'}
+                </button>
+                {avisoRetomada && <p className="mt-1 font-semibold text-[#b42318]">{avisoRetomada}</p>}
+              </div>
+            )}
+            {arquivo && janelaAberta && (
+              <div className="mx-1 mb-1.5 flex items-center gap-2 rounded-[10px] bg-white px-3 py-2 text-[12.5px] text-[#11211d] shadow-[0_1px_0.5px_rgba(12,26,23,.13)]">
+                <Paperclip className="h-4 w-4 shrink-0 text-[#54656f]" />
+                <span className="min-w-0 flex-1 truncate">{arquivo.name}</span>
+                <button type="button" onClick={() => setArquivo(null)} aria-label="Tirar o arquivo" className="shrink-0 text-[#54656f]">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+            <div className="flex items-end gap-1.5">
+              <div className="flex min-h-[48px] min-w-0 flex-1 items-end rounded-[24px] bg-white px-2 shadow-[0_1px_0.5px_rgba(12,26,23,.13)]">
+                <textarea
+                  id="resposta-whatsapp"
+                  value={resposta}
+                  onChange={(e) => {
+                    const texto = e.target.value
+                    setResposta(janelaAberta ? texto : texto.replace(/\s*\n+\s*/g, ' '))
+                    // Cresce com o texto ate umas 5 linhas, como no app.
+                    e.target.style.height = 'auto'
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
+                  }}
+                  rows={1}
+                  maxLength={janelaAberta ? 4096 : 700}
+                  placeholder="Mensagem"
+                  className="max-h-[120px] min-w-0 flex-1 resize-none bg-transparent px-2 py-[13px] text-[16px] leading-[21px] text-[#11211d] outline-none placeholder:text-[#8696a0]"
+                />
+                {janelaAberta && (
+                  <button
+                    type="button"
+                    disabled={enviando}
+                    onClick={() => seletorDeArquivo.current?.click()}
+                    aria-label="Anexar arquivo"
+                    className="mb-[6px] rounded-full p-2 text-[#54656f] active:bg-black/5 disabled:opacity-40"
+                  >
+                    <Paperclip className="h-5 w-5 -rotate-45" />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={
+                  janelaAberta
+                    ? enviando || (!resposta.trim() && !arquivo)
+                    : enviandoModelo || reabrindo || !resposta.trim()
+                }
+                onClick={() => void (janelaAberta ? enviarResposta() : responderPorModelo())}
+                aria-label="Enviar"
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#1daa61] text-white shadow-[0_1px_2px_rgba(12,26,23,.2)] transition active:bg-[#178a4f] disabled:bg-[#1daa61]/60"
+              >
+                <Send className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+      <VisualizadorDeArquivo arquivo={arquivoAberto} onFechar={fecharArquivo} />
     </div>
   )
 }

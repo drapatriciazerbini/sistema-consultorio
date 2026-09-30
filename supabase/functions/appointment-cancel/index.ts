@@ -1,4 +1,6 @@
 import { adminClient, corsHeaders, json, toBrazilE164, userClient } from '../_shared/whatsapp.ts'
+import { variantesDoTelefone } from '../_shared/telefone-br.ts'
+import { chaveDoWhatsApp, foraDaListaDeTeste, listaDeTeste } from '../_shared/whatsapp-teste.ts'
 
 /**
  * Cancela uma consulta e avisa o paciente pelo WhatsApp.
@@ -201,7 +203,8 @@ Deno.serve(async (req) => {
           .from('whatsapp_conversations')
           .select('id,wa_id,status,profile_name')
           .eq('clinic_id', consulta.clinic_id)
-          .eq('wa_id', toBrazilE164(telefone))
+          // Todas as grafias do numero: com e sem o nono digito.
+          .in('wa_id', variantesDoTelefone(telefone))
           .order('last_message_at', { ascending: false })
           .limit(1)
           .maybeSingle()
@@ -282,6 +285,17 @@ Deno.serve(async (req) => {
       })
     }
 
+    // Clinica de teste (27/09/2026): o numero de teste da Meta so entrega para
+    // os celulares cadastrados. Para os outros, diz isso na tela em vez de
+    // mostrar uma recusa da Meta que parece defeito.
+    if (foraDaListaDeTeste(await listaDeTeste(admin, consulta.clinic_id), String(conversa.wa_id ?? ''))) {
+      return json({
+        ok: true,
+        avisado: false,
+        motivoDoSilencio: 'Clínica em modo teste: este telefone não está na lista de teste do WhatsApp.',
+      })
+    }
+
     const { data: ultimaEntrada } = await admin
       .from('whatsapp_messages')
       .select('created_at')
@@ -322,7 +336,7 @@ Deno.serve(async (req) => {
       .eq('id', consulta.clinic_id)
       .maybeSingle()
 
-    const token = Deno.env.get('WHATSAPP_ACCESS_TOKEN')?.trim()
+    const token = chaveDoWhatsApp(ajustes?.whatsapp_phone_number_id)
     if (!token || !ajustes?.whatsapp_phone_number_id) {
       return json({
         ok: true,

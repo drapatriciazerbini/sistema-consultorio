@@ -1,6 +1,8 @@
 import { adminClient, corsHeaders, json, userClient } from '../_shared/whatsapp.ts'
 import { iniciarQuestionario, mostrarMenu } from '../_shared/atendimento.ts'
 import { montarConteudo } from '../_shared/conteudo.ts'
+import { variantesDoTelefone } from '../_shared/telefone-br.ts'
+import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
 
 /**
  * Resposta livre da equipe para um paciente, a partir da tela de Conversas.
@@ -206,17 +208,16 @@ Deno.serve(async (req) => {
       // A ficha que recebe as respostas quando nao ha consulta nenhuma.
       //
       // Procurada pelo TELEFONE, com a mesma regra do webhook (com e sem o 55
-      // do pais). Tem de ser a mesma: e o webhook que vai reconhecer a pessoa
-      // quando a resposta chegar, e um cadastro que ele nao encontra faria o
-      // robo perguntar e jogar fora o que a familia digitasse.
-      const digitos = (telefone ?? '').replace(/\D/g, '')
-      const semPais = digitos.startsWith('55') ? digitos.slice(2) : digitos
+      // do pais, com e sem o nono digito). Tem de ser a mesma: e o webhook que
+      // vai reconhecer a pessoa quando a resposta chegar, e um cadastro que ele
+      // nao encontra faria o robo perguntar e jogar fora o que a familia
+      // digitasse.
       const { data: fichas } = await admin
         .from('patients')
         .select('id,name,nascimento:birth_date,responsavel:guardian_name,cpf,email')
         .eq('clinic_id', visivel.clinic_id)
         .is('archived_at', null)
-        .or(`phone_digits.eq.${digitos},phone_digits.eq.${semPais}`)
+        .in('phone_digits', variantesDoTelefone(telefone ?? ''))
         .order('name')
       const encontradas = (fichas ?? []) as unknown as PacienteDaFicha[]
       const paciente = encontradas.length === 1 ? encontradas[0] : null
@@ -270,7 +271,7 @@ Deno.serve(async (req) => {
       return json({ error: 'Configuração do WhatsApp incompleta.', code: 'INCOMPLETE' }, 409)
     }
 
-    const token = Deno.env.get('WHATSAPP_ACCESS_TOKEN')?.trim()
+    const token = chaveDoWhatsApp(settings.whatsapp_phone_number_id)
     if (!token) return json({ error: 'Token do WhatsApp não configurado.', code: 'NO_TOKEN' }, 503)
 
     const graphVersion = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'

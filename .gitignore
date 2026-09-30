@@ -55,3 +55,15 @@ tests/continuidade-da-consulta.build.mjs
 tests/retorno.build.mjs
 tests/curvas.build.mjs
 tests/followup.build.mjs
+tests/telefone-br.build.mjs
+tests/mensagem-recebida.build.mjs
+tests/linha-do-tempo.build.mjs
+tests/saude-dos-envios.build.mjs
+tests/bloqueio-de-dia.build.mjs
+tests/whatsapp-teste.build.mjs
+tests/marca.build.mjs
+tests/quem-atende.build.mjs
+tests/web-push.build.mjs
+tests/aviso-da-equipe.build.mjs
+tests/modelos.build.mjs
+tests/aviso-mudanca.build.mjs

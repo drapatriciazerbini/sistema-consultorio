@@ -9,7 +9,7 @@
 // O banco aqui e falso e mora neste arquivo. Isso e proposital: o objetivo e
 // exercitar as DECISOES do robo (o que responder, o que gravar, quando ficar
 // calado), e nao o Supabase.
-import { tratarConversa, iniciarQuestionario, colherEventos } from './atendimento.build.mjs'
+import { tratarConversa, iniciarQuestionario, colherEventos, periodosComData } from './atendimento.build.mjs'
 import { readFileSync } from 'node:fs'
 
 // ---------------------------------------------------------------
@@ -29,6 +29,13 @@ function fazerAdmin({
   colunasAusentes = [],
   // Consultas com o cadastro (intake_*) como o banco devolve.
   consultasComFicha = [],
+  // Agenda por pedido (30/09/2026): o robo anota o pedido em vez de marcar.
+  porPedido = false,
+  // Horarios de atendimento por unidade: { 'u-cons': [{ weekday, starts_at }] }.
+  regras = {},
+  // Dias bloqueados e visitas em casa ja marcadas (agenda por pedido).
+  bloqueios = [],
+  domicilios = [],
 }) {
   const conversa = {
     booking_state: null,
@@ -50,6 +57,9 @@ function fazerAdmin({
     eq: (_col, valor) => chain(resultado._porId ? { ...resultado, single: resultado._porId(valor) } : resultado),
     is: () => chain(resultado),
     in: () => chain(resultado),
+    neq: () => chain(resultado),
+    gte: () => chain(resultado),
+    lt: () => chain(resultado),
     order: () => chain(resultado),
     limit: () => chain(resultado),
     maybeSingle: async () => ({ data: resultado.single ?? null, error: resultado.erro ?? null }),
@@ -125,8 +135,21 @@ function fazerAdmin({
               single: {
                 telemedicine_enabled: telemedicina.ativa,
                 telemedicine_info_text: telemedicina.texto,
+                agendamento_por_pedido: porPedido,
               },
             }),
+        }
+      }
+      if (tabela === 'schedule_exceptions') {
+        return { select: () => chain({ list: bloqueios }) }
+      }
+      if (tabela === 'availability_rules') {
+        return {
+          select: () => ({
+            eq: (_coluna, unidade) => ({
+              then: (r) => r({ data: regras[unidade] ?? [], error: null }),
+            }),
+          }),
         }
       }
       if (tabela === 'appointments') {
@@ -138,8 +161,9 @@ function fazerAdmin({
           // regra do "manual", e nao a data.
           select: () =>
             chain({
-              // Consultas lidas em lista (cadastro pela metade, 24/09/2026).
-              list: consultasComFicha,
+              // Consultas lidas em lista (cadastro pela metade, 24/09/2026), e
+              // as visitas em casa marcadas (agenda por pedido, 30/09/2026).
+              list: [...consultasComFicha, ...domicilios],
               single: {
                 reschedule_count: remarcacoesAnteriores,
                 starts_at: '2027-09-14T18:00:00Z',
@@ -258,6 +282,10 @@ async function caso(titulo, passos, opcoes = {}) {
     telemedicina: opcoes.telemedicina ?? { ativa: false, texto: '' },
     colunasAusentes: opcoes.colunasAusentes ?? [],
     consultasComFicha: opcoes.fichas ?? [],
+    porPedido: opcoes.porPedido ?? false,
+    regras: opcoes.regras ?? {},
+    bloqueios: opcoes.bloqueios ?? [],
+    domicilios: opcoes.domicilios ?? [],
   })
 
   // A conversa começa como se o menu já tivesse aparecido alguma vez.
@@ -538,16 +566,17 @@ await caso(
   { unidades: UMA_UNIDADE },
 )
 
-await caso('Unidade sem agenda: continua na lista, não trava', [
-  ['agendar', 'Em qual unidade'],
-  ['2', ['não temos horários abertos em Livance · Santo André', 'outra unidade da lista']],
-  ['1', 'Datas disponíveis'],
+// Desde 29/09/2026: unidade sem horario aberto nao diz "nao temos horarios".
+// Diz que tem agenda e passa para a secretaria, que manda os horarios.
+await caso('Unidade sem agenda: diz que tem agenda e passa para a secretária', [
+  ['agendar', ['Em qual unidade', 'a secretária passa os horários']],
+  ['2', ['Temos agenda, sim', 'para Livance · Santo André', 'secretária', 'nome do paciente']],
 ])
 
 await caso(
   'Nenhuma unidade com agenda: manda para a equipe',
   [
-    ['agendar', ['não temos horários abertos para agendamento', '*9*']],
+    ['agendar', ['Temos agenda, sim', 'secretária', 'Já encaminhei você']],
   ],
   { slots: SLOTS_VAZIOS },
 )
@@ -1839,6 +1868,22 @@ await caso('"Ok, obrigada!" no menu não é "Não entendi" nem fila', [
     else falhas.push(`${titulo}: agradecimento foi para a fila`)
   },
 })
+// A outra instalacao achou (25/09/2026): "Bom dia" com o menu na tela
+// recebia "Por nada!", porque bom e dia estavam na lista de cortesia.
+await caso('"Bom dia" com o menu na tela recebe o menu, não "Por nada"', [
+  ['Bom dia', 'Como podemos ajudar'],
+  ['Oi, tudo bem?', 'Como podemos ajudar'],
+], {
+  estadoInicial: NO_MENU,
+  verificar: ({ transcricao, titulo }) => {
+    if (transcricao.some((t) => t.includes('Por nada') || t.includes('Não entendi'))) falhas.push(`${titulo}: cumprimento tratado como agradecimento ou erro`)
+    else passou++
+  },
+})
+await caso('"Bom dia, obrigada!" continua sendo agradecimento', [
+  ['Bom dia, obrigada!', 'Por nada'],
+], { estadoInicial: NO_MENU })
+
 await caso('Palavra solta no menu continua recebendo o menu', [
   ['blablabla', 'Não entendi'],
 ], { estadoInicial: NO_MENU })
@@ -1854,6 +1899,23 @@ await caso('"Tem vaga?" abre o agendamento', [
 
 // Com o cadastro completo o nome nao e ficha - e, desde 25/09/2026, frase de
 // tres palavras que o robo nao entende vai para a equipe.
+// 25/09/2026: foto mandada no meio do cadastro não derruba a etapa. A regra
+// geral mandava para a fila e zerava o agendamento que estava pela metade.
+await caso('Anexo no meio do cadastro avisa a equipe e mantém a pergunta', [
+  ['Oi', 'Aqui é o consultório'],
+  ['2', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', ['está guardado', 'nome completo do paciente']],
+  ['[ANEXO]', ['avisei a nossa equipe', 'pergunta acima']],
+  ['Helena Souza Lima', 'data de nascimento'],
+], {
+  verificar: ({ conversa, titulo }) => {
+    if (conversa.booking_state !== 'atendente') passou++
+    else falhas.push(`${titulo}: o anexo mandou a conversa para a fila`)
+  },
+})
+
 // 24/09/2026: duas famílias tocaram em "Voltar ao menu" logo na pergunta do
 // nome, com o horário já guardado, e a consulta ficou no nome da mãe.
 await caso('Ficha depois do agendamento não oferece "Voltar ao menu"', [
@@ -2884,9 +2946,198 @@ await caso('Visita em casa: 0 no meio volta ao menu', [
 // temos horarios" para quem so queria a visita.
 await caso('Visita em casa aparece mesmo sem horário no consultório', [
   ['Oi', 'Como podemos ajudar'],
-  ['2', ['Onde vai ser a consulta', 'sem horários no momento', 'a equipe confirma o dia']],
+  ['2', ['Onde vai ser a consulta', 'a secretária passa os horários', 'a equipe confirma o dia']],
   ['2', 'endereço'],
 ], { unidades: CONSULTORIO_E_CASA, slots: { 'u-cons': [], 'u-casa': [] } })
+
+// O caso real de 29/09/2026: consultorio ainda sem agenda cadastrada. Quem
+// escolhe o consultorio ouve que tem agenda e vai para a secretaria.
+await caso('Consultório sem horário cadastrado: secretária passa a agenda', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', ['Temos agenda, sim', 'secretária', 'Já encaminhei você']],
+], { unidades: CONSULTORIO_E_CASA, slots: { 'u-cons': [], 'u-casa': [] } })
+
+
+// ---------------------------------------------------------------
+// Agenda por pedido (30/09/2026)
+// ---------------------------------------------------------------
+//
+// A Dra. Patricia confirma cada marcacao: o robo nao oferece horario. Ele
+// anota primeira vez ou retorno, os periodos (dos Horarios de atendimento),
+// restricoes e a partir de quando, e passa o pedido para ela.
+
+const REGRAS_DA_DRA = {
+  'u-cons': [
+    { weekday: 1, starts_at: '08:00:00', ends_at: '12:00:00' },
+    { weekday: 2, starts_at: '13:00:00', ends_at: '18:00:00' },
+    { weekday: 3, starts_at: '08:00:00', ends_at: '12:00:00' },
+    { weekday: 3, starts_at: '18:00:00', ends_at: '19:00:00' },
+  ],
+  'u-casa': [
+    { weekday: 5, starts_at: '13:00:00', ends_at: '18:00:00' },
+    { weekday: 1, starts_at: '08:00:00', ends_at: '12:00:00' },
+  ],
+}
+
+{
+  const { conversa, marcadas } = await caso('Pedido de consulta: pessoa nova monta o pedido inteiro', [
+    ['Oi', 'Como podemos ajudar'],
+    ['2', ['Onde vai ser a consulta', 'Consultório (Gonzaga)', 'Visita domiciliar']],
+    ['1', ['Consulta em Consultório (Gonzaga)', 'primeira consulta', 'retorno']],
+    ['2', ['Em quais *períodos*', '*1* ', 'Outro dia (a combinar)', 'mais de um']],
+    ['1, 3', ['restrição de dia ou horário', 'Não tenho']],
+    // Periodo com data ja diz quando: nao pergunta "a partir de quando".
+    ['só depois das 9h30, dia 13 não posso', 'nome completo do paciente'],
+    ['Maria Teste da Silva', 'data de nascimento'],
+    ['01/02/1940', [
+      'Pedido de consulta anotado',
+      'Maria Teste da Silva (nasc. 01/02/1940), retorno',
+      'Consultório (Gonzaga)',
+      ' ou ',
+      'só depois das 9h30, dia 13 não posso',
+      'A Dra. Patrícia confere a agenda',
+      'só fica garantida depois dessa confirmação',
+    ]],
+    ['obrigada', null],
+  ], {
+    unidades: CONSULTORIO_E_CASA,
+    slots: SLOTS_CONSULTORIO,
+    porPedido: true,
+    regras: REGRAS_DA_DRA,
+    verificar: ({ ultimoToque, titulo }) => {
+      if (ultimoToque.atencao !== undefined && ultimoToque.atencao !== 'pedido_consulta') falhas.push(`${titulo} | atenção ${ultimoToque.atencao}`)
+      else passou++
+    },
+  })
+  if (conversa.booking_state !== 'atendente') falhas.push(`pedido: estado ${conversa.booking_state}`)
+  else passou++
+  if (marcadas.length !== 0) falhas.push('pedido: marcou consulta sozinho')
+  else passou++
+}
+
+await caso('Pedido de consulta: sobe como motivo "pedido_consulta"', [
+  ['Oi', 'Olá, Ana!'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+  ['1', 'períodos'],
+  ['2', 'restrição'],
+  ['não', ['Pedido de consulta anotado', 'Ana Paula Souza, primeira consulta', '📅 ', 'Sem restrição']],
+], {
+  unidades: CONSULTORIO_E_CASA,
+  slots: SLOTS_CONSULTORIO,
+  porPedido: true,
+  regras: REGRAS_DA_DRA,
+  pacientes: [ANA],
+  verificar: ({ ultimoToque, titulo }) => {
+    if (ultimoToque.atencao !== 'pedido_consulta') falhas.push(`${titulo} | atenção ${ultimoToque.atencao}`)
+    else passou++
+  },
+})
+
+await caso('Pedido de consulta: resposta sem número pede de novo os períodos', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+  ['1', 'períodos'],
+  ['amanhã de manhã', ['Não entendi', 'Outro dia (a combinar)']],
+  ['tanto faz', 'restrição'],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true, regras: REGRAS_DA_DRA })
+
+await caso('Pedido de consulta: sem horário cadastrado pula os períodos', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+  ['1', 'restrição de dia ou horário'],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true })
+
+await caso('Pedido de consulta: nunca oferece horário da agenda', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+], {
+  unidades: CONSULTORIO_E_CASA,
+  slots: SLOTS_CONSULTORIO,
+  porPedido: true,
+  regras: REGRAS_DA_DRA,
+  verificar: ({ transcricao, titulo }) => {
+    if (transcricao.some((t) => t.includes('Datas disponíveis'))) falhas.push(`${titulo}: ofereceu datas da agenda`)
+    else passou++
+  },
+})
+
+await caso('Visita em casa por pedido: períodos e a partir de quando', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['2', 'endereço'],
+  ['Rua das Flores, 100, Gonzaga, Santos', ['períodos', '*1* ', 'Outro dia (a combinar)']],
+  ['1', 'dia ou horário'],
+  ['depois das 14h', 'nome completo'],
+  ['José Teste', 'nascimento'],
+  ['1938', [
+    'Pedido de visita registrado',
+    'Rua das Flores, 100, Gonzaga, Santos',
+    '📅 ',
+    'depois das 14h',
+  ]],
+], {
+  unidades: CONSULTORIO_E_CASA,
+  slots: SLOTS_CONSULTORIO,
+  porPedido: true,
+  regras: REGRAS_DA_DRA,
+  verificar: ({ ultimoToque, titulo }) => {
+    if (ultimoToque.atencao !== 'visita') falhas.push(`${titulo} | atenção ${ultimoToque.atencao}`)
+    else passou++
+  },
+})
+
+
+await caso('Pedido de consulta: só "outro dia" pergunta a partir de quando', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+  ['1', 'Outro dia (a combinar)'],
+  ['tanto faz', 'restrição'],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true, regras: REGRAS_DA_DRA })
+
+{
+  // Periodos com data: o domicilio ocupa AQUELA quarta, a seguinte continua.
+  // Quarta, 30/09/2026, 10h de Sao Paulo = 13h UTC.
+  const agora = new Date('2026-09-30T13:00:00Z')
+  const regras = REGRAS_DA_DRA['u-cons']
+  const livres = periodosComData({ regras, fechados: new Set(), ocupados: [], agora })
+  const esperado = ['Quarta 30/09 às 18h', 'Segunda 05/10 de manhã', 'Terça 06/10 à tarde', 'Quarta 07/10 de manhã', 'Quarta 07/10 às 18h']
+  for (const [i, rotulo] of esperado.entries()) {
+    if (livres[i] !== rotulo) falhas.push(`periodosComData: posição ${i} veio ${livres[i]}, esperado ${rotulo}`)
+    else passou++
+  }
+  // Quarta de manha de hoje ja comecou: fica de fora.
+  if (livres.includes('Quarta 30/09 de manhã')) falhas.push('periodosComData: ofereceu periodo que ja comecou')
+  else passou++
+
+  const comVisita = periodosComData({
+    regras,
+    fechados: new Set(['2026-10-06']),
+    ocupados: [{ inicio: '2026-10-07T12:00:00Z', fim: '2026-10-07T15:00:00Z' }], // qua 07/10, 9h-12h
+    agora,
+  })
+  if (comVisita.includes('Quarta 07/10 de manhã')) falhas.push('periodosComData: domicilio nao ocupou a manha')
+  else passou++
+  if (!comVisita.includes('Quarta 14/10 de manhã')) falhas.push('periodosComData: a quarta seguinte sumiu junto')
+  else passou++
+  if (comVisita.includes('Terça 06/10 à tarde')) falhas.push('periodosComData: dia bloqueado apareceu')
+  else passou++
+  // Margem de deslocamento: visita ate 17h45 ocupa o encaixe das 18h.
+  const comMargem = periodosComData({
+    regras,
+    fechados: new Set(),
+    ocupados: [{ inicio: '2026-10-07T18:00:00Z', fim: '2026-10-07T20:45:00Z' }], // 15h-17h45
+    agora,
+    margemMinutos: 30,
+  })
+  if (comMargem.includes('Quarta 07/10 às 18h')) falhas.push('periodosComData: margem de deslocamento ignorada')
+  else passou++
+}
 
 // Quem escolhe o consultorio segue o caminho de sempre, com datas.
 await caso('Consultório continua marcando pela agenda', [

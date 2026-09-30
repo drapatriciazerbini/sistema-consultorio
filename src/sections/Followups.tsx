@@ -24,6 +24,7 @@ import {
 } from '@/lib/followup'
 import { supabase } from '@/lib/supabase'
 import { situacaoDosAcompanhamentos } from '@/lib/repository'
+import { SaudeDosEnvios } from '@/components/SaudeDosEnvios'
 
 const NAVY = '#193d36'
 const AZUL = '#2f7f74'
@@ -368,9 +369,17 @@ export default function Followups({ patients, setFollowup, onAbrirConversa }: Pr
     )
   }
 
+  // grid-cols-1 no celular, e nao so "grid": sem coluna declarada o grid cria
+  // uma coluna do tamanho do conteudo, e a dica truncada de "Enviados,
+  // aguardando" (texto de uma linha so) esticava a coluna para 450px numa tela
+  // de 397. Os cartoes vazavam pela direita (26/09/2026). A mesma troca foi
+  // feita nos outros grids de pagina.
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
       <div className="space-y-6">
+        {/* Mora aqui, e nao na Visao geral (pedido de 25/09/2026): e nesta tela
+            que a equipe acompanha o que o sistema envia sozinho. */}
+        <SaudeDosEnvios />
         <section className="soft-grid relative overflow-hidden rounded-[28px] bg-[#193d36] p-5 text-white shadow-[0_18px_42px_rgba(25,61,54,.15)] sm:p-7">
           <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-[#2f7f74]/20 blur-3xl" />
           <div className="relative grid gap-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">

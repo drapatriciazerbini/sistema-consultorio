@@ -3,6 +3,7 @@ import { Ajuda } from '@/components/Ajuda'
 import {
   AlertTriangle,
   Building2,
+  House,
   Check,
   CalendarOff,
   CalendarPlus,
@@ -53,6 +54,17 @@ import {
   type SchedulePreferences,
   type Unit,
 } from '@/lib/repository'
+import { useDialogos } from '@/components/dialogos-contexto'
+import { avisoDoBloqueio, consultasDeUmDia } from '@/lib/bloqueio-de-dia'
+import {
+  DURACOES_DO_DOMICILIO,
+  consultasNaJanela,
+  janelaDoDomicilio,
+  marcarDomicilio,
+  margemDoDomicilio,
+  unidadesDeVisita,
+  type DuracaoDoDomicilio,
+} from '@/lib/domicilio'
 import {
   Sheet,
   SheetContent,
@@ -241,6 +253,9 @@ function HistoricoDaAgenda({
                   >
                     {item.source === 'whatsapp' ? 'marcado pelo paciente no WhatsApp' : 'marcado pela equipe'}
                     {item.contactPhone ? ` · ${item.contactPhone}` : ''}
+                    {/* Falta que o sistema marcou sozinho: a equipe precisa
+                        saber que ninguem conferiu, e pode corrigir no clique. */}
+                    {item.status === 'no_show' && item.faltaAutomatica ? ' · falta automática (sem prontuário no dia)' : ''}
                   </p>
                 </div>
 
@@ -593,8 +608,30 @@ export default function Agenda({
   // digitados na hora. Estado, e nao leitura do DOM: o botao precisa saber se
   // ja da para marcar antes do clique.
   const [novaConsulta, setNovaConsulta] = useState({ patientId: '', nome: '', telefone: '' })
+  // Visita em casa (30/09/2026): quais unidades sao de visita, a margem de
+  // deslocamento, e o formulario de marcar com duracao livre.
+  const [visitas, setVisitas] = useState<Set<string>>(new Set())
+  const [margemVisita, setMargemVisita] = useState(30)
+  const [domicilio, setDomicilio] = useState<{
+    data: string
+    inicio: string
+    duracao: DuracaoDoDomicilio
+    patientId: string
+    nome: string
+    telefone: string
+    endereco: string
+  } | null>(null)
   // Dia que o usuario mandou bloquear e ainda espera o motivo.
   const [bloqueandoDia, setBloqueandoDia] = useState<{ dia: string; motivo: string } | null>(null)
+  const { perguntar } = useDialogos()
+
+  // Dia com consulta marcada pede confirmacao antes de bloquear (ver
+  // bloqueio-de-dia.ts): bloquear nao cancela nem avisa ninguem.
+  async function podeBloquear(dia: string) {
+    const doDia = consultasDeUmDia(appointments, dia)
+    if (doDia.length === 0) return true
+    return perguntar({ ...avisoDoBloqueio(doDia), confirmar: 'Bloquear mesmo assim', cancelar: 'Voltar', perigo: true })
+  }
 
   // Formularios
   const [novaUnidade, setNovaUnidade] = useState({ nome: '', endereco: '' })
@@ -608,11 +645,15 @@ export default function Agenda({
       const membership = await getCurrentMembership()
       if (!membership) throw new Error('Não foi possível identificar a clínica do seu usuário.')
       setClinicId(membership.clinicId)
-      const [lista, preferencias, excecoes] = await Promise.all([
+      const [lista, preferencias, excecoes, deVisita, margem] = await Promise.all([
         listUnits(membership.clinicId),
         getSchedulePreferences(membership.clinicId),
         listScheduleExceptions(membership.clinicId),
+        unidadesDeVisita(membership.clinicId),
+        margemDoDomicilio(membership.clinicId),
       ])
+      setVisitas(deVisita)
+      setMargemVisita(margem)
       setUnits(lista)
       setPrefs(preferencias)
       setExceptions(excecoes)
@@ -647,16 +688,34 @@ export default function Agenda({
           return [] as PendenciaDeLigar[]
         }),
       ])
+      // Olhando o consultorio, as visitas em casa aparecem junto: sao a medica
+      // fora, e explicam por que aquele horario sumiu (30/09/2026).
+      const deOutrasVisitas = (
+        await Promise.all(
+          [...visitas]
+            .filter((id) => id !== unitId)
+            .map((id) =>
+              listAppointments(clinicId, id).catch((erro) => {
+                console.warn('Nao consegui ler as visitas em casa', erro)
+                return [] as Appointment[]
+              }),
+            ),
+        )
+      ).flat()
       setLigarHoje(pendencias)
       setRules(regras)
       setSlots(livres)
-      setAppointments(marcados)
+      setAppointments(
+        [...marcados, ...deOutrasVisitas].sort(
+          (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+        ),
+      )
       setHistorico(passadas)
       setVagas(vagasCanceladas)
     } catch (causa) {
       setError(causa instanceof Error ? causa.message : 'Não foi possível carregar os horários.')
     }
-  }, [clinicId, unitId])
+  }, [clinicId, unitId, visitas])
 
   useEffect(() => {
     void carregarBase()
@@ -980,6 +1039,26 @@ export default function Agenda({
                   </option>
                 ))}
               </select>
+              {visitas.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDomicilio({
+                      data: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }),
+                      inicio: '09:00',
+                      duracao: '120',
+                      patientId: '',
+                      nome: '',
+                      telefone: '',
+                      endereco: '',
+                    })
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#f59e0b]/40 bg-[#fffbeb] px-3 py-1.5 text-[11px] font-bold text-[#92400e] transition hover:bg-[#fef3c7]"
+                >
+                  <House className="h-3.5 w-3.5" />
+                  Marcar domicílio
+                </button>
+              )}
               <div className="flex rounded-xl bg-[#eef3f2] p-0.5">
                 {(['calendario', 'historico', 'configuracao'] as Aba[]).map((chave) => (
                   <button
@@ -1117,11 +1196,14 @@ export default function Agenda({
                           type="button"
                           onClick={() => {
                             const motivo = bloqueandoDia.motivo
-                            setBloqueandoDia(null)
-                            void acao(
-                              () => createScheduleException(clinicId!, dia, motivo, unitId),
-                              'Dia bloqueado. Ele não é mais oferecido no WhatsApp.',
-                            )
+                            void (async () => {
+                              if (!(await podeBloquear(dia))) return
+                              setBloqueandoDia(null)
+                              void acao(
+                                () => createScheduleException(clinicId!, dia, motivo, unitId),
+                                'Dia bloqueado. Ele não é mais oferecido no WhatsApp.',
+                              )
+                            })()
                           }}
                           className="rounded-lg bg-[#1f5f55] px-2.5 py-1 text-[10px] font-bold text-white transition hover:bg-[#186150]"
                         >
@@ -1194,7 +1276,10 @@ export default function Agenda({
                             className="min-w-0 flex-1 text-left"
                           >
                             <p className="truncate text-[11px] font-bold text-white">
-                              {hora(item.startsAt)} · {item.patientName}
+                              {visitas.has(item.unitId)
+                                ? `🏠 ${hora(item.startsAt)}–${hora(item.endsAt)} · Domicílio · `
+                                : `${hora(item.startsAt)} · `}
+                              {item.patientName}
                               {!item.confirmedByClinic && ' · AGUARDANDO CONFIRMAÇÃO'}
                             </p>
                             {/* O paciente respondeu ao lembrete. Ate 31/08/2026
@@ -1399,7 +1484,26 @@ export default function Agenda({
                           <button
                             key={slot}
                             type="button"
-                            onClick={() => setSlotEscolhido(slot)}
+                            onClick={() => {
+                              if (unitId && visitas.has(unitId)) {
+                                const quando = new Date(slot)
+                                setDomicilio({
+                                  data: quando.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }),
+                                  inicio: quando.toLocaleTimeString('pt-BR', {
+                                    timeZone: 'America/Sao_Paulo',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  }),
+                                  duracao: '120',
+                                  patientId: '',
+                                  nome: '',
+                                  telefone: '',
+                                  endereco: '',
+                                })
+                                return
+                              }
+                              setSlotEscolhido(slot)
+                            }}
                             title={
                               vaga
                                 ? `${vaga.paciente} cancelou${
@@ -1429,7 +1533,7 @@ export default function Agenda({
               ))}
             </div>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {/* Horarios de atendimento */}
               <div className="surface-card rounded-[20px] p-4">
                 <p className="flex items-center gap-1.5 text-xs font-extrabold text-[#193d36]">
@@ -1578,6 +1682,7 @@ export default function Agenda({
                     onClick={() =>
                       void acao(async () => {
                         if (!clinicId) return
+                        if (!(await podeBloquear(novoBloqueio.data))) return
                         await createScheduleException(
                           clinicId,
                           novoBloqueio.data,
@@ -1792,6 +1897,153 @@ export default function Agenda({
             </div>
           )}
         </>
+      )}
+
+      {/* Marcar visita em casa, com a duracao que precisar (30/09/2026). */}
+      {domicilio && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#193d36]/40 p-4">
+          <div className="max-h-[92dvh] w-full max-w-sm overflow-y-auto rounded-[22px] bg-white p-5 shadow-xl">
+            <p className="flex items-center gap-1.5 text-sm font-extrabold text-[#193d36]">
+              <House className="h-4 w-4 text-[#b45309]" />
+              Marcar domicílio
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              Ocupa a agenda da Dra. em todas as unidades, com {margemVisita} min de deslocamento antes e depois.
+            </p>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <label className="col-span-2 text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                Dia
+                <input
+                  type="date"
+                  value={domicilio.data}
+                  onChange={(e) => setDomicilio({ ...domicilio, data: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3 py-2 text-xs font-semibold normal-case tracking-normal text-[#193d36] outline-none focus:border-[#1f5f55]"
+                />
+              </label>
+              <label className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                Duração
+                <select
+                  value={domicilio.duracao}
+                  onChange={(e) => setDomicilio({ ...domicilio, duracao: e.target.value as DuracaoDoDomicilio })}
+                  className="mt-1 w-full rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-2 py-2 text-xs font-semibold normal-case tracking-normal text-[#193d36] outline-none focus:border-[#1f5f55]"
+                >
+                  {DURACOES_DO_DOMICILIO.map((d) => (
+                    <option key={d.valor} value={d.valor}>
+                      {d.rotulo}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500">
+                Início
+                <input
+                  type="time"
+                  value={domicilio.inicio}
+                  disabled={domicilio.duracao === 'manha' || domicilio.duracao === 'tarde'}
+                  onChange={(e) => setDomicilio({ ...domicilio, inicio: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3 py-2 text-xs font-semibold normal-case tracking-normal text-[#193d36] outline-none focus:border-[#1f5f55] disabled:opacity-40"
+                />
+              </label>
+            </div>
+
+            <input
+              value={domicilio.endereco}
+              onChange={(e) => setDomicilio({ ...domicilio, endereco: e.target.value })}
+              placeholder="Endereço da visita (rua, número, bairro, cidade)"
+              className="mt-3 w-full rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
+            />
+
+            <select
+              value={domicilio.patientId}
+              onChange={(e) => setDomicilio({ ...domicilio, patientId: e.target.value, nome: '', telefone: '' })}
+              className="mt-3 w-full rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
+            >
+              <option value="">Selecione o paciente</option>
+              {patients.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}
+                </option>
+              ))}
+            </select>
+            {!domicilio.patientId && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <input
+                  value={domicilio.nome}
+                  onChange={(e) => setDomicilio({ ...domicilio, nome: e.target.value })}
+                  placeholder="Ou nome do paciente"
+                  className="rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
+                />
+                <input
+                  value={domicilio.telefone}
+                  onChange={(e) => setDomicilio({ ...domicilio, telefone: e.target.value })}
+                  placeholder="WhatsApp com DDD"
+                  inputMode="tel"
+                  className="rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
+                />
+              </div>
+            )}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setDomicilio(null)}
+                className="rounded-xl bg-[#eef3f2] px-3 py-2 text-[11px] font-bold text-[#557f75]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!domicilio.patientId && domicilio.nome.trim().length < 2}
+                onClick={() => {
+                  const pedido = domicilio
+                  const janela = janelaDoDomicilio(pedido.data, pedido.inicio, pedido.duracao)
+                  const unidadeDaVisita = unitId && visitas.has(unitId) ? unitId : [...visitas][0]
+                  if (!janela || !clinicId || !unidadeDaVisita) {
+                    setError('Confira o dia e o horário da visita.')
+                    return
+                  }
+                  void (async () => {
+                    let cruzam: Awaited<ReturnType<typeof consultasNaJanela>> = []
+                    try {
+                      cruzam = await consultasNaJanela(clinicId, janela, margemVisita)
+                    } catch (erro) {
+                      console.warn('Nao consegui conferir a agenda antes do domicilio', erro)
+                    }
+                    if (cruzam.length > 0) {
+                      const seguir = await perguntar({
+                        titulo: 'Já tem compromisso nesse horário',
+                        detalhe:
+                          cruzam.map((c) => `${diaLegivel(c.inicio)}, ${hora(c.inicio)}: ${c.nome}`).join('\n') +
+                          '\n\nMarcar o domicílio não cancela nem avisa essas pessoas.',
+                        confirmar: 'Marcar mesmo assim',
+                        cancelar: 'Voltar',
+                        perigo: true,
+                      })
+                      if (!seguir) return
+                    }
+                    setDomicilio(null)
+                    await acao(
+                      () =>
+                        marcarDomicilio({
+                          clinicId,
+                          unitId: unidadeDaVisita,
+                          patientId: pedido.patientId || null,
+                          janela,
+                          endereco: pedido.endereco,
+                          contato: { nome: pedido.nome, telefone: pedido.telefone },
+                        }),
+                      'Domicílio marcado. A agenda da Dra. fica ocupada nesse período em todas as unidades.',
+                    )
+                  })()
+                }}
+                className="rounded-xl bg-[#193d36] px-4 py-2 text-[11px] font-bold text-white transition hover:bg-[#13453c] disabled:opacity-40"
+              >
+                Marcar domicílio
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Marcar consulta num horario livre */}

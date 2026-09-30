@@ -45,6 +45,7 @@ const NOME_DO_MOTIVO: Record<string, string> = {
   documento: '2ª via, exame ou nota fiscal',
   farmacia: 'Correção pedida pela farmácia',
   visita: 'Pediu visita em casa',
+  pedido_consulta: 'Pediu consulta no consultório',
   falha: 'O robô não conseguiu concluir',
   cancelou_sozinho: 'Cancelou a consulta',
   'sem motivo': 'Sem motivo registrado',
@@ -259,7 +260,7 @@ export default function NumerosDoWhatsApp() {
             </div>
           )}
 
-          <div className="grid gap-5 xl:grid-cols-2">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <Bloco
               titulo="O que as pessoas mais pedem"
               subtitulo="Opção escolhida no menu automático"
