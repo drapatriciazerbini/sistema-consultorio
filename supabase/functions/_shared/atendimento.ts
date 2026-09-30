@@ -2889,6 +2889,7 @@ async function registrarVisita(
       '✅ *Pedido de visita registrado.*\n\n' +
       linhas.join('\n') +
       '\n\nA equipe confirma por aqui o *dia*, o *horário* e o *valor* da visita.\n\n' +
+      FALAR_DIRETO_COM_A_DRA + '\n\n' +
       avisoDeHorario() + '\n\n' +
       VOLTA,
     atencao: 'visita',
@@ -2910,6 +2911,12 @@ async function registrarVisita(
 // horario, a partir de quando) e entrega para ela confirmar. Os periodos vem
 // dos "Horarios de atendimento" da unidade na Agenda - segunda 08h-12h vira
 // "Segunda de manha" -, sempre com a opcao de outro dia, a combinar.
+
+/**
+ * Telefone para quem prefere falar com uma pessoa (30/09/2026). E o da Dra.
+ * Patricia, sem dizer de quem e: ela prefere responder, e a secretaria saiu.
+ */
+const FALAR_DIRETO_COM_A_DRA = '📞 Prefere falar com uma pessoa? *(13) 99706-9292*, por ligação ou WhatsApp.'
 
 const DIAS_DA_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 const OUTRO_DIA = 'Outro dia (a combinar)'
@@ -3276,6 +3283,7 @@ async function registrarPedidoDeConsulta(
       linhas.join('\n') +
       `\n\n${quemAtende(clinicId).O} confere a agenda e confirma o *dia* e o *horário* por aqui. ` +
       'A vaga só fica garantida depois dessa confirmação.\n\n' +
+      FALAR_DIRETO_COM_A_DRA + '\n\n' +
       avisoDeHorario() + '\n\n' +
       VOLTA,
     atencao: 'pedido_consulta',

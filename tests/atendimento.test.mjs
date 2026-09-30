@@ -2998,6 +2998,7 @@ const REGRAS_DA_DRA = {
       'só depois das 9h30, dia 13 não posso',
       'A Dra. Patrícia confere a agenda',
       'só fica garantida depois dessa confirmação',
+      '(13) 99706-9292',
     ]],
     ['obrigada', null],
   ], {
@@ -3078,6 +3079,7 @@ await caso('Visita em casa por pedido: períodos e a partir de quando', [
     'Pedido de visita registrado',
     'Rua das Flores, 100, Gonzaga, Santos',
     '📅 ',
+    'Prefere falar com uma pessoa?',
     'depois das 14h',
   ]],
 ], {
