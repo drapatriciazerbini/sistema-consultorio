@@ -8,6 +8,7 @@ import { textoDaLocalizacao, textoDosContatos } from '../_shared/mensagem-recebi
 import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
 import { montarAviso } from '../_shared/aviso-da-equipe.ts'
 import { avisarEquipe } from '../_shared/push-da-equipe.ts'
+import { tratarInstagram } from '../_shared/instagram.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
 // Fora dele (teste local) cai no await comum.
@@ -206,11 +207,16 @@ Deno.serve(async (req) => {
   const url = new URL(req.url)
 
   if (req.method === 'GET') {
-    const verifyToken = Deno.env.get('WHATSAPP_VERIFY_TOKEN')?.trim()
+    // O webhook do Instagram (01/10/2026) e cadastrado em outra tela do app da
+    // Meta e pode usar um token de verificacao proprio.
+    const verifyTokens = [
+      Deno.env.get('WHATSAPP_VERIFY_TOKEN')?.trim(),
+      Deno.env.get('INSTAGRAM_VERIFY_TOKEN')?.trim(),
+    ].filter(Boolean)
     const mode = url.searchParams.get('hub.mode')
     const token = url.searchParams.get('hub.verify_token')
     const challenge = url.searchParams.get('hub.challenge')
-    if (verifyToken && mode === 'subscribe' && token === verifyToken && challenge) return text(challenge)
+    if (token && mode === 'subscribe' && verifyTokens.includes(token) && challenge) return text(challenge)
     return text('Webhook verification failed', 403)
   }
 
@@ -221,8 +227,15 @@ Deno.serve(async (req) => {
   const providedSignature = req.headers.get('x-hub-signature-256') ?? ''
   if (!appSecret || !providedSignature.startsWith('sha256=')) return text('Unauthorized', 401)
 
-  const expected = `sha256=${await sha256HmacHex(appSecret, rawBody)}`
-  if (!safeEqual(expected, providedSignature)) return text('Invalid signature', 401)
+  // O Instagram com login proprio assina com a chave secreta do app do
+  // Instagram, que e outra (01/10/2026). As duas valem; sem o segredo
+  // INSTAGRAM_APP_SECRET, so a do app da Meta.
+  const segredos = [appSecret, Deno.env.get('INSTAGRAM_APP_SECRET')?.trim()].filter(Boolean) as string[]
+  let assinaturaValida = false
+  for (const segredo of segredos) {
+    if (safeEqual(`sha256=${await sha256HmacHex(segredo, rawBody)}`, providedSignature)) assinaturaValida = true
+  }
+  if (!assinaturaValida) return text('Invalid signature', 401)
 
   // Fora do try: o catch precisa dele para liberar o evento que falhou.
   let registro: RegistroDeEventos | null = null
@@ -234,6 +247,13 @@ Deno.serve(async (req) => {
       inserir: (linha) => admin.from('whatsapp_webhook_events').insert(linha),
       apagar: (chave) => admin.from('whatsapp_webhook_events').delete().eq('event_key', chave),
     })
+
+    // Direct do Instagram (01/10/2026): mesmo app da Meta, mesma assinatura,
+    // outro objeto. Ver _shared/instagram.ts.
+    if (payload.object === 'instagram') {
+      await tratarInstagram(admin, payload, registro)
+      return text('EVENT_RECEIVED')
+    }
 
     for (const entry of payload.entry ?? []) {
       for (const change of entry.changes ?? []) {
