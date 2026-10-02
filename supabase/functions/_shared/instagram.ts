@@ -4,8 +4,9 @@
  * O Direct não traz telefone, e tudo o que o robô do WhatsApp faz depois do
  * menu depende dele: achar o paciente, marcar, mandar lembrete. Então aqui o
  * robô faz a parte que não precisa de telefone - responder as dúvidas com as
- * MESMAS respostas prontas da tela "Respostas do robô" - e leva quem quer
- * marcar para o WhatsApp do consultório, onde o agendamento já funciona.
+ * MESMAS respostas prontas da tela "Respostas do robô". Quem quer marcar fica
+ * no Direct (02/10/2026: trocar de app perdia gente): o robô pede consultório
+ * ou casa e o melhor dia, avisa o celular da equipe e espera ela fechar por aqui.
  *
  * Duas metades:
  *  - decidirResposta(): regra pura, sem banco nem rede, coberta por
@@ -24,9 +25,6 @@
 import { acharResposta, assuntoClinico, carregarRespostas, type RespostaPronta } from './respostas.ts'
 import { pediuAgendamento, soAgradecimento } from './atendimento.ts'
 import { avisarEquipe } from './push-da-equipe.ts'
-
-/** WhatsApp do consultório, onde o robô agenda. */
-export const LINK_DO_WHATSAPP = 'wa.me/5513996680402'
 
 export const HORAS_DE_SILENCIO = 12
 export const TETO_SEGUIDAS = 4
@@ -68,26 +66,31 @@ export type Decisao = {
   menu?: boolean
   /** Depois desta, o robô espera a equipe. */
   calarDepois?: boolean
+  /** Título do aviso no celular da equipe. */
+  motivo?: 'agendar' | 'equipe'
 } | null
 
 const SAUDACAO = 'Olá! Aqui é o consultório da Dra. Patrícia Zerbini. Toque numa das opções abaixo ou escreva a sua dúvida:'
 
 const AGENDAR =
-  `Para marcar, é só tocar no link e falar com a gente pelo WhatsApp: ${LINK_DO_WHATSAPP}\n\n` +
-  'Lá você escolhe consultório ou consulta em casa, e a equipe confirma o dia e o horário.'
+  'Que bom! A equipe vai combinar o horário com você aqui mesmo, pelo Direct.\n\n' +
+  'Para adiantar, conta pra gente:\n' +
+  '• prefere o consultório no Gonzaga ou a consulta em casa?\n' +
+  '• qual o melhor dia e período (manhã ou tarde)?'
 
-const EQUIPE =
-  'Certo! Alguém da equipe vai te responder aqui no Direct assim que possível.\n\n' +
-  `Se preferir, fale com a gente pelo WhatsApp: ${LINK_DO_WHATSAPP}`
+/** Fecho das respostas prontas: o botão Agendar vem logo embaixo. */
+export const CONVITE_PARA_AGENDAR = 'Quer marcar? Toque em Agendar que a equipe combina o horário com você por aqui.'
+
+const EQUIPE = 'Certo! Alguém da equipe vai te responder aqui no Direct assim que possível.'
 
 const CLINICO =
   'Dúvidas sobre saúde, sintomas ou remédios a Dra. Patrícia precisa avaliar com calma, e não respondemos por mensagem automática.\n\n' +
-  `Alguém da equipe vai te responder aqui, ou fale com a gente pelo WhatsApp: ${LINK_DO_WHATSAPP}\n\n` +
+  'Alguém da equipe vai te responder aqui no Direct.\n\n' +
   'Em emergência, ligue 192 (SAMU).'
 
-const NAO_ENTENDI =
-  'Não consegui entender por aqui. Alguém da equipe vai te responder neste Direct.\n\n' +
-  `Se preferir, fale com a gente pelo WhatsApp: ${LINK_DO_WHATSAPP}`
+const NAO_ENTENDI = 'Não consegui entender por aqui. Alguém da equipe vai te responder neste Direct.'
+
+const PARA_AGENDAR: Decisao = { texto: AGENDAR, avisar: true, calarDepois: true, motivo: 'agendar' }
 
 function normalizar(texto: string): string {
   return texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
@@ -149,7 +152,7 @@ export function decidirResposta(opcoes: {
 
   const menuRecente = horasDesde(estado.menuEnviadoEm, agora) < HORAS_DO_MENU
 
-  if (payload === 'AGENDAR') return { texto: AGENDAR }
+  if (payload === 'AGENDAR') return PARA_AGENDAR
   if (payload === 'EQUIPE') return { texto: EQUIPE, avisar: true, calarDepois: true }
 
   const pergunta = payload && PERGUNTA_DO_BOTAO[payload] ? PERGUNTA_DO_BOTAO[payload] : texto
@@ -168,13 +171,13 @@ export function decidirResposta(opcoes: {
     return menuRecente ? { texto: 'Por nada! Qualquer outra dúvida, é só chamar por aqui.' } : null
   }
 
-  if (!payload && pediuAgendamento(pergunta)) return { texto: AGENDAR }
+  if (!payload && pediuAgendamento(pergunta)) return PARA_AGENDAR
 
   const achada = acharResposta(pergunta, opcoes.respostas, 1)
   if (achada) {
     const corpo = adaptarTexto(achada.resposta)
     return {
-      texto: `${corpo}\n\nPara agendar, é só falar com a gente pelo WhatsApp: ${LINK_DO_WHATSAPP}`,
+      texto: `${corpo}\n\n${CONVITE_PARA_AGENDAR}`,
       botoes: outrosBotoes(payload),
     }
   }
@@ -376,7 +379,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
       if (decisao.avisar) {
         const resumo = (mensagem.text ?? '').replace(/\s+/g, ' ').trim()
         await avisarEquipe(admin, clinicId, {
-          titulo: 'Instagram: pediram para falar com a equipe',
+          titulo: decisao.motivo === 'agendar' ? 'Instagram: querem agendar' : 'Instagram: pediram para falar com a equipe',
           corpo: resumo ? (resumo.length > 140 ? `${resumo.slice(0, 137)}…` : resumo) : 'Responda pelo Direct do Instagram.',
           etiqueta: `instagram-${conversa.id}`,
           conversa: '',

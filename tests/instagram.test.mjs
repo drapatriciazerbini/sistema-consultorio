@@ -8,7 +8,7 @@ import {
   ecoDoRobo,
   pediuPessoa,
   BOTOES,
-  LINK_DO_WHATSAPP,
+  CONVITE_PARA_AGENDAR,
   TETO_SEGUIDAS,
   hostDoToken,
 } from './instagram.build.mjs'
@@ -52,14 +52,15 @@ const agora = new Date('2026-10-01T15:00:00Z')
 const novo = { menuEnviadoEm: null, humanoRespondeuEm: null, respostasSeguidas: 0 }
 const jaApresentado = { ...novo, menuEnviadoEm: '2026-10-01T14:50:00Z', respostasSeguidas: 1 }
 
-caso('pergunta de valor responde o texto da clinica, sem asterisco, com o link do WhatsApp', () => {
+caso('pergunta de valor responde o texto da clinica, sem asterisco, convidando a agendar por aqui', () => {
   const d = decidirResposta({ texto: 'Qual é o valor da consulta?', respostas, estado: novo, agora })
   assert.ok(d)
   assert.match(d.texto, /R\$ 600,00/)
   assert.match(d.texto, /R\$ 800,00/)
   assert.ok(!d.texto.includes('*'))
-  assert.ok(d.texto.includes(LINK_DO_WHATSAPP))
-  assert.ok(d.botoes.length > 0)
+  assert.ok(d.texto.endsWith(CONVITE_PARA_AGENDAR))
+  assert.ok(!/wa\.me|whatsapp/i.test(d.texto))
+  assert.ok(d.botoes.some((b) => b.payload === 'AGENDAR'))
 })
 
 caso('"Atende convênio?" cai em Convenios', () => {
@@ -91,10 +92,28 @@ caso('depois da apresentacao, o que nao entende vai para a equipe e o robo cala'
   assert.equal(d.calarDepois, true)
 })
 
-caso('quer marcar: manda para o WhatsApp', () => {
+caso('quer marcar: fica no Direct, pede consultorio ou casa, avisa a equipe e cala', () => {
   const d = decidirResposta({ texto: 'quero agendar para minha mãe', respostas, estado: novo, agora })
-  assert.ok(d.texto.includes(LINK_DO_WHATSAPP))
-  assert.match(d.texto, /Para marcar/)
+  assert.match(d.texto, /aqui mesmo, pelo Direct/)
+  assert.match(d.texto, /consulta em casa/)
+  assert.ok(!/wa\.me|whatsapp/i.test(d.texto))
+  assert.equal(d.avisar, true)
+  assert.equal(d.calarDepois, true)
+  assert.equal(d.motivo, 'agendar')
+})
+
+caso('botao Agendar faz o mesmo que escrever que quer marcar', () => {
+  const d = decidirResposta({ texto: 'Agendar', payload: 'AGENDAR', respostas, estado: jaApresentado, agora })
+  assert.equal(d.motivo, 'agendar')
+  assert.equal(d.avisar, true)
+  assert.equal(d.calarDepois, true)
+})
+
+caso('nenhuma mensagem do robo manda para o WhatsApp', () => {
+  for (const texto of ['quero falar com uma pessoa', 'minha mãe está com febre', 'xyz']) {
+    const d = decidirResposta({ texto, respostas, estado: jaApresentado, agora })
+    assert.ok(!/wa\.me|whatsapp/i.test(d.texto), texto)
+  }
 })
 
 caso('assunto clinico nunca e respondido, mesmo com palavra de resposta pronta', () => {
