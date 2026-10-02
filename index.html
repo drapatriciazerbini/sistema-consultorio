@@ -31,36 +31,18 @@
     <title>Central de Cuidado | Dra. Patrícia Zerbini</title>
 
     <!--
-      O manifesto (o que transforma a pagina em aplicativo instalavel) so entra
-      no celular, por pedido de 21/09/2026.
+      Manifesto em todo aparelho (02/10/2026, pedido do Edu para a Dra.
+      Patricia): no computador o Chrome passa a oferecer "Instalar app", e o
+      app instalado abre em janela propria, com icone na barra de tarefas, e
+      pede a permissao das notificacoes com mais facilidade do que a aba.
+      Ate aqui o manifesto so entrava no celular (decisao de 21/09 no sistema
+      do Dr. Marcello, que continua assim la).
 
-      No computador ele faria o Chrome oferecer "instalar aplicativo" para quem
-      ja usa o sistema o dia inteiro numa aba - um convite que so confunde a
-      recepcao, e que cria uma segunda janela sem barra de endereco onde
-      ninguem sabe conferir a versao publicada.
-
-      No telefone o atalho vale: abre em tela cheia, com o icone da clinica, e
-      a equipe nao precisa procurar o endereco no navegador.
-
-      NAO existe service worker aqui, e e de proposito. Ele guardaria a versao
-      antiga do sistema em cache e serviria ela depois de uma publicacao - que
-      e exatamente o problema que o carimbo de versao no rodape do menu existe
-      para denunciar. Sem service worker o telefone sempre busca o que esta no
-      ar; o atalho continua funcionando, so nao funciona sem internet (e sem
-      internet ele nao teria banco para consultar de qualquer jeito).
+      NAO existe cache no service worker (public/sw.js), e e de proposito: ele
+      so recebe as notificacoes. Sem cache o app sempre busca o que esta no
+      ar depois de cada publicacao.
     -->
-    <script>
-      (function () {
-        var celular =
-          /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-          window.matchMedia('(max-width: 900px)').matches;
-        if (!celular) return;
-        var l = document.createElement('link');
-        l.rel = 'manifest';
-        l.href = './manifest.json?v=3';
-        document.head.appendChild(l);
-      })();
-    </script>
+    <link rel="manifest" href="./manifest.json?v=3" />
   </head>
   <body>
     <div id="root"></div>
