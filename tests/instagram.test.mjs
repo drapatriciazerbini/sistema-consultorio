@@ -243,4 +243,13 @@ caso('ja conversando: pergunta que o robo nao sabe vai para a equipe, sem novo O
   assert.ok(!/^Olá/.test(d.texto))
 })
 
+caso('cada resposta diz o que contar na aba Instagram', () => {
+  assert.deepEqual(decidirResposta({ texto: 'Oi', respostas, estado: novo, agora }).evento, { tipo: 'menu' })
+  assert.equal(decidirResposta({ texto: 'Qual o valor?', respostas, estado: novo, agora }).evento.tipo, 'resposta')
+  assert.ok(decidirResposta({ texto: 'Qual o valor?', respostas, estado: novo, agora }).evento.detalhe)
+  assert.deepEqual(decidirResposta({ texto: 'quero agendar', respostas, estado: novo, agora }).evento, { tipo: 'agendar' })
+  assert.deepEqual(decidirResposta({ texto: 'minha mãe está com febre', respostas, estado: novo, agora }).evento, { tipo: 'equipe', detalhe: 'saude' })
+  assert.deepEqual(decidirResposta({ texto: 'quero falar com uma pessoa', respostas, estado: novo, agora }).evento, { tipo: 'equipe', detalhe: 'pediu' })
+})
+
 console.log(`instagram: ${ok} casos ok`)

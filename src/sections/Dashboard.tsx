@@ -11,12 +11,14 @@ import {
   Building2,
   MessageCircle,
   UsersRound,
+  Instagram,
 } from 'lucide-react'
 import type { Patient } from '@/types/patient'
 import type { PendingRequest } from '@/lib/repository'
 import { dueCount, idadeAnos, pendingFollowups } from '@/lib/followup'
 import { nomeDoCid } from '@/lib/cid'
 import NumerosDoWhatsApp from '@/sections/NumerosDoWhatsApp'
+import NumerosDoInstagram from '@/sections/NumerosDoInstagram'
 
 const NAVY = '#193d36'
 // Azul de destaque do sistema (proposta 3, aprovada em 08/09/2026). O nome
@@ -37,6 +39,8 @@ const cardClass = 'surface-card rounded-[24px]'
 const ABAS = [
   { chave: 'clinica' as const, rotulo: 'Base clínica', icone: Stethoscope },
   { chave: 'whatsapp' as const, rotulo: 'WhatsApp', icone: MessageCircle },
+  // 02/10/2026: o robô também responde o Direct; os números dele ficam aqui.
+  { chave: 'instagram' as const, rotulo: 'Instagram', icone: Instagram },
 ]
 type Aba = (typeof ABAS)[number]['chave']
 
@@ -395,6 +399,8 @@ export default function Dashboard({
 
       {aba === 'whatsapp' ? (
         <NumerosDoWhatsApp />
+      ) : aba === 'instagram' ? (
+        <NumerosDoInstagram />
       ) : (
         <>
       <section className="soft-grid relative overflow-hidden rounded-[28px] bg-[#193d36] p-5 text-white shadow-[0_20px_45px_rgba(25,61,54,.16)] sm:p-7">

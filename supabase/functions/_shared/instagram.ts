@@ -80,6 +80,8 @@ export type Decisao = {
   calarDepois?: boolean
   /** Título do aviso no celular da equipe. */
   motivo?: 'agendar' | 'equipe'
+  /** O que contar na aba Instagram da Visão geral (instagram_bot_events). */
+  evento?: { tipo: 'menu' | 'resposta' | 'agendar' | 'equipe' | 'agradecimento'; detalhe?: string }
 } | null
 
 const SAUDACAO = 'Olá! Aqui é o consultório da Dra. Patrícia Zerbini. Toque numa das opções abaixo ou escreva a sua dúvida:'
@@ -112,7 +114,7 @@ const NAO_ENTENDI = 'Não consegui entender por aqui. Alguém da equipe vai te r
 /** Botões que só informam (sem Agendar e sem Falar com a equipe). */
 const BOTOES_DE_INFORMACAO = (): BotaoRapido[] => BOTOES.filter((b) => PERGUNTA_DO_BOTAO[b.payload])
 
-const PARA_AGENDAR: Decisao = { texto: AGENDAR, avisar: true, calarDepois: true, motivo: 'agendar', botoes: BOTOES_DE_INFORMACAO() }
+const PARA_AGENDAR: Decisao = { texto: AGENDAR, avisar: true, calarDepois: true, motivo: 'agendar', botoes: BOTOES_DE_INFORMACAO(), evento: { tipo: 'agendar' } }
 
 /** "Em casa, terça de manhã": é resposta para a equipe, não dúvida para o robô. */
 function respostaDoAgendamento(texto: string): boolean {
@@ -196,7 +198,7 @@ export function decidirResposta(opcoes: {
     if (!pergunta) return null
     const achada = acharResposta(pergunta, opcoes.respostas, 1)
     return achada
-      ? { texto: adaptarTexto(achada.resposta), botoes: BOTOES_DE_INFORMACAO().filter((b) => b.payload !== payload) }
+      ? { texto: adaptarTexto(achada.resposta), botoes: BOTOES_DE_INFORMACAO().filter((b) => b.payload !== payload), evento: { tipo: 'resposta', detalhe: achada.assunto } }
       : null
   }
   const pedidoClaro = Boolean(payload && BOTOES.some((b) => b.payload === payload)) ||
@@ -206,7 +208,7 @@ export function decidirResposta(opcoes: {
   const menuRecente = horasDesde(estado.menuEnviadoEm, agora) < HORAS_DO_MENU
 
   if (payload === 'AGENDAR') return PARA_AGENDAR
-  if (payload === 'EQUIPE') return { texto: EQUIPE, avisar: true, calarDepois: true }
+  if (payload === 'EQUIPE') return { texto: EQUIPE, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'pediu' } }
 
   const pergunta = payload && PERGUNTA_DO_BOTAO[payload] ? PERGUNTA_DO_BOTAO[payload] : texto
   // Quem responde a um anúncio às vezes manda o post compartilhado e, logo
@@ -215,17 +217,17 @@ export function decidirResposta(opcoes: {
   if (!pergunta && opcoes.soCompartilhamento) return null
   if (!pergunta) {
     // Foto, áudio, figurinha: o robô não lê. Na primeira vez se apresenta; depois, espera a equipe.
-    return menuRecente ? null : { texto: SAUDACAO, botoes: BOTOES, menu: true }
+    return menuRecente ? null : { texto: SAUDACAO, botoes: BOTOES, menu: true, evento: { tipo: 'menu' } }
   }
 
   // Saúde não se responde por robô, nem que exista resposta cadastrada.
-  if (!payload && assuntoClinico(pergunta)) return { texto: CLINICO, avisar: true, calarDepois: true }
+  if (!payload && assuntoClinico(pergunta)) return { texto: CLINICO, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'saude' } }
 
-  if (!payload && pediuPessoa(pergunta)) return { texto: EQUIPE, avisar: true, calarDepois: true }
+  if (!payload && pediuPessoa(pergunta)) return { texto: EQUIPE, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'pediu' } }
 
   if (!payload && soAgradecimento(pergunta)) {
     // "Obrigada" depois de uma resposta do robô: fecha com gentileza, sem menu.
-    return menuRecente ? { texto: 'Por nada! Qualquer outra dúvida, é só chamar por aqui.' } : null
+    return menuRecente ? { texto: 'Por nada! Qualquer outra dúvida, é só chamar por aqui.', evento: { tipo: 'agradecimento' } } : null
   }
 
   if (!payload && pediuAgendamento(pergunta)) return PARA_AGENDAR
@@ -236,6 +238,7 @@ export function decidirResposta(opcoes: {
     return {
       texto: `${corpo}\n\n${CONVITE_PARA_AGENDAR}`,
       botoes: outrosBotoes(payload),
+      evento: { tipo: 'resposta', detalhe: achada.assunto },
     }
   }
 
@@ -244,14 +247,14 @@ export function decidirResposta(opcoes: {
   // não sabe ("tem desconto pra 2 pessoas?") vai para a equipe (02/10/2026).
   const jaConversou = estado.respostasSeguidas > 0
   if (pediuMaisInformacoes(pergunta) && (jaConversou || menuRecente)) {
-    return { texto: MAIS_INFORMACOES, botoes: BOTOES, menu: true }
+    return { texto: MAIS_INFORMACOES, botoes: BOTOES, menu: true, evento: { tipo: 'menu' } }
   }
 
   // Primeira mensagem (ou a primeira do dia): apresentação com os botões.
-  if (!menuRecente && !jaConversou) return { texto: SAUDACAO, botoes: BOTOES, menu: true }
+  if (!menuRecente && !jaConversou) return { texto: SAUDACAO, botoes: BOTOES, menu: true, evento: { tipo: 'menu' } }
 
   // Já se apresentou e mesmo assim não entendeu: passa para a equipe e espera.
-  return { texto: NAO_ENTENDI, avisar: true, calarDepois: true }
+  return { texto: NAO_ENTENDI, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'nao_entendeu' } }
 }
 
 // ---------------------------------------------------------------------------
@@ -263,6 +266,8 @@ type Admin = {
 }
 
 type EventoDoDirect = {
+  /** Quando a conversa vem de um anúncio a Meta às vezes manda isto aqui... */
+  referral?: { ad_id?: string; source?: string }
   sender?: { id?: string }
   recipient?: { id?: string }
   timestamp?: number
@@ -273,6 +278,8 @@ type EventoDoDirect = {
     is_deleted?: boolean
     is_unsupported?: boolean
     quick_reply?: { payload?: string }
+    /** ...e às vezes dentro da mensagem. */
+    referral?: { ad_id?: string; source?: string }
     attachments?: unknown[]
   }
 }
@@ -344,6 +351,18 @@ async function enviar(destinatario: string, decisao: NonNullable<Decisao>): Prom
 }
 
 /**
+ * Conta uma coisa que aconteceu na conversa (aba Instagram da Visão geral).
+ * Falha aqui não pode virar 500: a Meta reenviaria o aviso e a pessoa
+ * receberia a resposta duas vezes. Por isso só avisa no log.
+ */
+async function contar(admin: Admin, clinicId: string, conversaId: string, evento: string, detalhe = '') {
+  const { error } = await admin
+    .from('instagram_bot_events')
+    .insert({ clinic_id: clinicId, conversation_id: conversaId, evento, detalhe: detalhe.slice(0, 80) })
+  if (error) console.warn('Instagram: nao contei o evento', evento, error.message)
+}
+
+/**
  * Trata um aviso da Meta do objeto 'instagram'. Erro de banco sobe para o
  * meta-webhook, que devolve 500 e libera o evento para o reenvio.
  */
@@ -396,6 +415,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
           .update({ last_human_reply_at: agora.toISOString(), bot_replies_in_row: 0 })
           .eq('id', conversa.id)
         if (error) throw error
+        await contar(admin, clinicId, conversa.id, 'equipe_respondeu')
         continue
       }
 
@@ -403,6 +423,11 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         .from('instagram_conversations')
         .update({ last_inbound_at: agora.toISOString() })
         .eq('id', conversa.id)
+
+      await contar(admin, clinicId, conversa.id, 'mensagem')
+      if (mensagem.quick_reply?.payload) await contar(admin, clinicId, conversa.id, 'botao', mensagem.quick_reply.payload)
+      const anuncio = evento.referral ?? mensagem.referral
+      if (anuncio) await contar(admin, clinicId, conversa.id, 'anuncio', String(anuncio.ad_id ?? anuncio.source ?? ''))
 
       // O mesmo interruptor do WhatsApp liga e desliga o robo daqui.
       if (!settings.whatsapp_autoreply_enabled) continue
@@ -443,6 +468,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         })
         .eq('id', conversa.id)
       if (erroDoEstado) throw erroDoEstado
+      if (decisao.evento) await contar(admin, clinicId, conversa.id, decisao.evento.tipo, decisao.evento.detalhe ?? '')
 
       if (decisao.avisar) {
         const resumo = (mensagem.text ?? '').replace(/\s+/g, ' ').trim()

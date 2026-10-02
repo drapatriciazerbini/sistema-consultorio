@@ -824,6 +824,10 @@ export type Database = {
         Args: { p_clinic: string; p_de: string; p_ate: string }
         Returns: Record<string, unknown>
       }
+      numeros_do_instagram: {
+        Args: { p_clinic: string; p_de: string; p_ate: string }
+        Returns: Record<string, unknown>
+      }
       conferir_integridade_prontuario: {
         Args: { p_clinic_id: string }
         Returns: {

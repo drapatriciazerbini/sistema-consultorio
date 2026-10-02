@@ -5,6 +5,7 @@ import {
   desativarNotificacoes,
   estadoDesteAparelho,
   ehIPhone,
+  abertoComoApp,
   situacaoDoAparelho,
   testarNotificacao,
   type EstadoNoServidor,
@@ -133,9 +134,13 @@ export default function NotificacoesNoCelular({ clinicId }: { clinicId: string |
         {situacao === 'bloqueado' && (
           <p className="rounded-2xl bg-red-50 p-4 text-xs leading-relaxed text-red-700">
             As notificações foram <strong>bloqueadas</strong> para a Central neste aparelho.{' '}
+            {/* 02/10/2026: no app instalado nao existe barra de endereco, e o
+                cadeado da instrucao antiga nao aparecia em lugar nenhum. */}
             {ehIPhone()
               ? 'Libere em Ajustes → Notificações → Central.'
-              : 'No Chrome, toque no cadeado ao lado do endereço → Permissões → Notificações → Permitir.'}{' '}
+              : abertoComoApp()
+                ? 'Segure o ícone da Central na tela inicial → Informações do app → Notificações → ative. Se não resolver: Chrome → ⋮ → Configurações → Configurações do site → Notificações → drapatriciazerbini.com.br → Permitir.'
+                : 'No Chrome, toque no ícone à esquerda do endereço (cadeado ou ajustes) → Permissões → Notificações → Permitir.'}{' '}
             Depois volte aqui e ative.
           </p>
         )}

@@ -3281,6 +3281,60 @@ export async function numerosDoWhatsApp(
 }
 
 /**
+ * Numeros do robo no Direct do Instagram (02/10/2026), para a terceira aba da
+ * Visao geral. Contados no banco por public.numeros_do_instagram, a partir de
+ * instagram_bot_events (sem texto de mensagem).
+ */
+export type NumerosDoInstagram = {
+  contatos: number
+  novos: number
+  mensagens: number
+  respostasRobo: number
+  resolvidas: number
+  pediramAgendar: number
+  equipeRespondeu: number
+  doAnuncio: number
+  foraDoHorario: number
+  /** Assunto da resposta pronta enviada -> quantas vezes. */
+  assuntos: Record<string, number>
+  /** Payload do botao tocado (VALOR, AGENDAR...) -> quantas vezes. */
+  botoes: Record<string, number>
+  /** agendar | pediu | saude | nao_entendeu -> quantas vezes. */
+  equipePorMotivo: Record<string, number>
+}
+
+export async function numerosDoInstagram(clinicId: string, de: Date, ate: Date): Promise<NumerosDoInstagram> {
+  const { data, error } = await supabase.rpc('numeros_do_instagram', {
+    p_clinic: clinicId,
+    p_de: de.toISOString(),
+    p_ate: ate.toISOString(),
+  })
+  // Mesmo desvio do WhatsApp: a tela pode subir antes da migration.
+  if (error) {
+    console.warn('numeros_do_instagram indisponivel', error)
+    return {
+      contatos: 0, novos: 0, mensagens: 0, respostasRobo: 0, resolvidas: 0, pediramAgendar: 0,
+      equipeRespondeu: 0, doAnuncio: 0, foraDoHorario: 0, assuntos: {}, botoes: {}, equipePorMotivo: {},
+    }
+  }
+  const bruto = (data ?? {}) as Record<string, unknown>
+  return {
+    contatos: inteiro(bruto.contatos),
+    novos: inteiro(bruto.novos),
+    mensagens: inteiro(bruto.mensagens),
+    respostasRobo: inteiro(bruto.respostas_robo),
+    resolvidas: inteiro(bruto.resolvidas),
+    pediramAgendar: inteiro(bruto.pediram_agendar),
+    equipeRespondeu: inteiro(bruto.equipe_respondeu),
+    doAnuncio: inteiro(bruto.do_anuncio),
+    foraDoHorario: inteiro(bruto.fora_do_horario),
+    assuntos: contagens(bruto.assuntos),
+    botoes: contagens(bruto.botoes),
+    equipePorMotivo: contagens(bruto.equipe_por_motivo),
+  }
+}
+
+/**
  * Horarios que vagaram porque alguem cancelou.
  *
  * Pedido em 22/09/2026, e a ideia e boa: quando o paciente cancela pelo
