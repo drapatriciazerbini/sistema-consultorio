@@ -26,7 +26,7 @@
  */
 
 import { acharResposta, assuntoClinico, carregarRespostas, type RespostaPronta } from './respostas.ts'
-import { pediuAgendamento, soAgradecimento } from './atendimento.ts'
+import { parecePergunta, pediuAgendamento, soAgradecimento } from './atendimento.ts'
 import { avisarEquipe } from './push-da-equipe.ts'
 
 export const HORAS_DE_SILENCIO = 12
@@ -99,7 +99,16 @@ const CLINICO =
 
 const NAO_ENTENDI = 'Não consegui entender por aqui. Alguém da equipe vai te responder neste Direct.'
 
-const PARA_AGENDAR: Decisao = { texto: AGENDAR, avisar: true, calarDepois: true, motivo: 'agendar' }
+/** Botões que só informam (sem Agendar e sem Falar com a equipe). */
+const BOTOES_DE_INFORMACAO = (): BotaoRapido[] => BOTOES.filter((b) => PERGUNTA_DO_BOTAO[b.payload])
+
+const PARA_AGENDAR: Decisao = { texto: AGENDAR, avisar: true, calarDepois: true, motivo: 'agendar', botoes: BOTOES_DE_INFORMACAO() }
+
+/** "Em casa, terça de manhã": é resposta para a equipe, não dúvida para o robô. */
+function respostaDoAgendamento(texto: string): boolean {
+  if (texto.includes('?')) return false
+  return /\b(casa|domicilio|consultorio|gonzaga|manha|tarde|noite|segunda|terca|quarta|quinta|sexta|sabado|amanha|hoje|dia|semana|horario)\b/.test(normalizar(texto))
+}
 
 function normalizar(texto: string): string {
   return texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
@@ -166,10 +175,16 @@ export function decidirResposta(opcoes: {
   const botaoDeInformacao = Boolean(payload && PERGUNTA_DO_BOTAO[payload])
   const esperandoEquipe = estado.respostasSeguidas >= ESPERANDO_EQUIPE
   if (esperandoEquipe) {
-    if (!botaoDeInformacao) return null
-    const achada = acharResposta(PERGUNTA_DO_BOTAO[payload as string], opcoes.respostas, 1)
+    // Responde botão de informação e dúvida curta ("valor", "qual o endereço?").
+    // O resto (inclusive "em casa, terça de manhã") é conversa com a equipe.
+    let pergunta: string | null = null
+    if (botaoDeInformacao) pergunta = PERGUNTA_DO_BOTAO[payload as string]
+    else if (!payload && texto && !respostaDoAgendamento(texto) && !assuntoClinico(texto) &&
+      (parecePergunta(texto) || texto.split(/\s+/).length <= 2)) pergunta = texto
+    if (!pergunta) return null
+    const achada = acharResposta(pergunta, opcoes.respostas, 1)
     return achada
-      ? { texto: adaptarTexto(achada.resposta), botoes: BOTOES.filter((b) => PERGUNTA_DO_BOTAO[b.payload] && b.payload !== payload) }
+      ? { texto: adaptarTexto(achada.resposta), botoes: BOTOES_DE_INFORMACAO().filter((b) => b.payload !== payload) }
       : null
   }
   const pedidoClaro = Boolean(payload && BOTOES.some((b) => b.payload === payload)) ||

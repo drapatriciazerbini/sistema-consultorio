@@ -208,4 +208,20 @@ caso('esperando a equipe: o que a pessoa escreve e para a equipe; so botao de in
   assert.ok(!d.botoes.some((b) => b.payload === 'AGENDAR' || b.payload === 'EQUIPE'))
 })
 
+caso('esperando a equipe: duvida curta escrita tambem responde; resposta do agendamento nao', () => {
+  const estado = { ...jaApresentado, respostasSeguidas: ESPERANDO_EQUIPE }
+  assert.match(decidirResposta({ texto: 'valor', respostas, estado, agora }).texto, /R\$ 600,00/)
+  assert.match(decidirResposta({ texto: 'Endereço', respostas, estado, agora }).texto, /Tolentino/)
+  assert.match(decidirResposta({ texto: 'qual o endereço?', respostas, estado, agora }).texto, /Tolentino/)
+  assert.equal(decidirResposta({ texto: 'em casa', respostas, estado, agora }), null)
+  assert.equal(decidirResposta({ texto: 'consultório, quinta à tarde', respostas, estado, agora }), null)
+  assert.equal(decidirResposta({ texto: 'ela tem 85 anos', respostas, estado, agora }), null)
+})
+
+caso('pedido de agendamento traz os botoes de informacao, sem Agendar', () => {
+  const d = decidirResposta({ texto: 'quero agendar', respostas, estado: novo, agora })
+  assert.ok(d.botoes.some((b) => b.payload === 'VALOR'))
+  assert.ok(!d.botoes.some((b) => b.payload === 'AGENDAR' || b.payload === 'EQUIPE'))
+})
+
 console.log(`instagram: ${ok} casos ok`)
