@@ -69,3 +69,4 @@ tests/instagram.build.mjs
 tests/*.tmp
 tests/modelos.build.mjs
 tests/aviso-mudanca.build.mjs
+tmp-badge-prev.png

@@ -52,6 +52,31 @@ export default function NotificacoesNoCelular({ clinicId }: { clinicId: string |
     void recarregar()
   }, [recarregar])
 
+  // 02/10/2026: quem libera nos ajustes do Android e volta para a Central
+  // continuava vendo "bloqueadas", porque a situacao so era lida ao abrir a
+  // tela. Agora rele ao voltar para o app e quando o navegador avisa que a
+  // permissao mudou.
+  useEffect(() => {
+    const reler = () => {
+      if (document.visibilityState === 'visible') setSituacao(situacaoDoAparelho())
+    }
+    document.addEventListener('visibilitychange', reler)
+    window.addEventListener('focus', reler)
+    let status: PermissionStatus | null = null
+    navigator.permissions
+      ?.query({ name: 'notifications' as PermissionName })
+      .then((s) => {
+        status = s
+        s.onchange = reler
+      })
+      .catch(() => undefined)
+    return () => {
+      document.removeEventListener('visibilitychange', reler)
+      window.removeEventListener('focus', reler)
+      if (status) status.onchange = null
+    }
+  }, [])
+
   async function executar(acao: 'ativar' | 'testar' | 'desativar') {
     if (!clinicId) return
     setAviso(null)
@@ -141,7 +166,7 @@ export default function NotificacoesNoCelular({ clinicId }: { clinicId: string |
               : abertoComoApp()
                 ? 'Segure o ícone da Central na tela inicial → Informações do app → Notificações → ative. Se não resolver: Chrome → ⋮ → Configurações → Configurações do site → Notificações → drapatriciazerbini.com.br → Permitir.'
                 : 'No Chrome, toque no ícone à esquerda do endereço (cadeado ou ajustes) → Permissões → Notificações → Permitir.'}{' '}
-            Depois volte aqui e ative.
+            Depois volte aqui e ative. Se continuar aparecendo, feche a Central de vez (tire da lista de apps abertos) e abra de novo.
           </p>
         )}
 
