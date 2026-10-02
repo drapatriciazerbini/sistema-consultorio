@@ -224,4 +224,23 @@ caso('pedido de agendamento traz os botoes de informacao, sem Agendar', () => {
   assert.ok(!d.botoes.some((b) => b.payload === 'AGENDAR' || b.payload === 'EQUIPE'))
 })
 
+caso('post do anuncio compartilhado sem texto: calado, a pergunta vem logo depois', () => {
+  assert.equal(decidirResposta({ texto: '', respostas, estado: novo, soCompartilhamento: true, agora }), null)
+  assert.equal(decidirResposta({ texto: '', respostas, estado: novo, agora }).menu, true)
+})
+
+caso('ja conversando: "preciso de mais informacoes" ganha os botoes sem novo Ola', () => {
+  const estado = { ...novo, respostasSeguidas: 2 }
+  const d = decidirResposta({ texto: 'Não, preciso de mais informações.', respostas, estado, agora })
+  assert.match(d.texto, /^Claro!/)
+  assert.equal(d.botoes.length, BOTOES.length)
+})
+
+caso('ja conversando: pergunta que o robo nao sabe vai para a equipe, sem novo Ola', () => {
+  const estado = { ...novo, respostasSeguidas: 3 }
+  const d = decidirResposta({ texto: 'Tem desconto pra 2 pessoas?', respostas, estado, agora })
+  assert.equal(d.avisar, true)
+  assert.ok(!/^Olá/.test(d.texto))
+})
+
 console.log(`instagram: ${ok} casos ok`)

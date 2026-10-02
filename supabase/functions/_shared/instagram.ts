@@ -48,6 +48,8 @@ export const BOTOES: BotaoRapido[] = [
   { titulo: 'Convênio', payload: 'CONVENIO' },
   { titulo: 'Consulta em casa', payload: 'CASA' },
   { titulo: 'Endereço', payload: 'ENDERECO' },
+  // 02/10/2026: "quanto tempo dura?" apareceu em duas conversas do Direct.
+  { titulo: 'Como é a consulta', payload: 'COMO' },
   { titulo: 'Agendar', payload: 'AGENDAR' },
   { titulo: 'Falar com a equipe', payload: 'EQUIPE' },
 ]
@@ -58,6 +60,7 @@ const PERGUNTA_DO_BOTAO: Record<string, string> = {
   CONVENIO: 'atende convenio',
   CASA: 'consulta em casa domicilio',
   ENDERECO: 'qual o endereco do consultorio',
+  COMO: 'quanto tempo dura a primeira consulta e o que levar',
 }
 
 export type EstadoDaConversa = {
@@ -80,6 +83,13 @@ export type Decisao = {
 } | null
 
 const SAUDACAO = 'Olá! Aqui é o consultório da Dra. Patrícia Zerbini. Toque numa das opções abaixo ou escreva a sua dúvida:'
+
+/** Já conversando e a pessoa pede "mais informações": botões, sem novo "Olá!". */
+const MAIS_INFORMACOES = 'Claro! Sobre o que você quer saber? Toque numa das opções abaixo ou escreva a sua dúvida:'
+
+function pediuMaisInformacoes(texto: string): boolean {
+  return /\b(mais informac|informac|saber mais|mais detalhes|tenho duvida|outra duvida|ajuda|nao entendi)/.test(normalizar(texto))
+}
 
 const AGENDAR =
   'Que bom! A equipe vai combinar o horário com você aqui mesmo, pelo Direct.\n\n' +
@@ -161,6 +171,8 @@ export function decidirResposta(opcoes: {
   payload?: string | null
   respostas: RespostaPronta[]
   estado: EstadoDaConversa
+  /** Só o post/anúncio compartilhado, sem texto (vem antes da pergunta). */
+  soCompartilhamento?: boolean
   agora?: Date
 }): Decisao {
   const agora = opcoes.agora ?? new Date()
@@ -197,6 +209,10 @@ export function decidirResposta(opcoes: {
   if (payload === 'EQUIPE') return { texto: EQUIPE, avisar: true, calarDepois: true }
 
   const pergunta = payload && PERGUNTA_DO_BOTAO[payload] ? PERGUNTA_DO_BOTAO[payload] : texto
+  // Quem responde a um anúncio às vezes manda o post compartilhado e, logo
+  // depois, a pergunta. O post sozinho não pede resposta (02/10/2026: a
+  // pessoa recebia o "Olá!" com os botões e, em seguida, a resposta do valor).
+  if (!pergunta && opcoes.soCompartilhamento) return null
   if (!pergunta) {
     // Foto, áudio, figurinha: o robô não lê. Na primeira vez se apresenta; depois, espera a equipe.
     return menuRecente ? null : { texto: SAUDACAO, botoes: BOTOES, menu: true }
@@ -223,8 +239,16 @@ export function decidirResposta(opcoes: {
     }
   }
 
+  // Já conversando (o robô respondeu nas últimas 24 horas): nada de "Olá!" de
+  // novo. "Preciso de mais informações" ganha os botões; pergunta que o robô
+  // não sabe ("tem desconto pra 2 pessoas?") vai para a equipe (02/10/2026).
+  const jaConversou = estado.respostasSeguidas > 0
+  if (pediuMaisInformacoes(pergunta) && (jaConversou || menuRecente)) {
+    return { texto: MAIS_INFORMACOES, botoes: BOTOES, menu: true }
+  }
+
   // Primeira mensagem (ou a primeira do dia): apresentação com os botões.
-  if (!menuRecente) return { texto: SAUDACAO, botoes: BOTOES, menu: true }
+  if (!menuRecente && !jaConversou) return { texto: SAUDACAO, botoes: BOTOES, menu: true }
 
   // Já se apresentou e mesmo assim não entendeu: passa para a equipe e espera.
   return { texto: NAO_ENTENDI, avisar: true, calarDepois: true }
@@ -385,9 +409,11 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
 
       const respostas = await carregarRespostas(admin, clinicId)
       const seguidas = seguidasQueContam(Number(conversa.bot_replies_in_row ?? 0), conversa.last_bot_reply_at ?? null, agora)
+      const anexos = (mensagem.attachments ?? []) as Array<{ type?: string }>
       const decisao = decidirResposta({
         texto: mensagem.text ?? '',
         payload: mensagem.quick_reply?.payload ?? null,
+        soCompartilhamento: anexos.length > 0 && anexos.every((a) => !['image', 'audio', 'video', 'file'].includes(String(a?.type ?? ''))),
         respostas,
         estado: {
           menuEnviadoEm: conversa.menu_sent_at ?? null,
