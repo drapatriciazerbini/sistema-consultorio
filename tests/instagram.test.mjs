@@ -10,6 +10,8 @@ import {
   BOTOES,
   CONVITE_PARA_AGENDAR,
   TETO_SEGUIDAS,
+  ESPERANDO_EQUIPE,
+  seguidasQueContam,
   hostDoToken,
 } from './instagram.build.mjs'
 
@@ -181,6 +183,29 @@ caso('eco: o do robo nao conta como resposta da equipe', () => {
 caso('chave do login do Instagram vai para graph.instagram.com; de Pagina, graph.facebook.com', () => {
   assert.equal(hostDoToken('IGAAx123'), 'graph.instagram.com')
   assert.equal(hostDoToken('EAAB123'), 'graph.facebook.com')
+})
+
+caso('no teto, botao tocado e "quero agendar" ainda passam; texto solto nao', () => {
+  const estado = { ...jaApresentado, respostasSeguidas: TETO_SEGUIDAS }
+  assert.match(decidirResposta({ texto: 'Endereço', payload: 'ENDERECO', respostas, estado, agora }).texto, /Tolentino/)
+  assert.equal(decidirResposta({ texto: 'quero agendar', respostas, estado, agora }).motivo, 'agendar')
+  assert.equal(decidirResposta({ texto: 'Qual o valor?', respostas, estado, agora }), null)
+})
+
+caso('a conta de respostas seguidas zera um dia depois da ultima resposta', () => {
+  assert.equal(seguidasQueContam(TETO_SEGUIDAS, '2026-10-01T14:00:00Z', new Date('2026-10-01T20:00:00Z')), TETO_SEGUIDAS)
+  assert.equal(seguidasQueContam(TETO_SEGUIDAS, '2026-10-01T14:00:00Z', new Date('2026-10-02T15:00:00Z')), 0)
+  assert.equal(seguidasQueContam(ESPERANDO_EQUIPE, '2026-10-01T14:00:00Z', new Date('2026-10-02T15:00:00Z')), 0)
+})
+
+caso('esperando a equipe: o que a pessoa escreve e para a equipe; so botao de informacao responde', () => {
+  const estado = { ...jaApresentado, respostasSeguidas: ESPERANDO_EQUIPE }
+  assert.equal(decidirResposta({ texto: 'quero marcar em casa, terça de manhã', respostas, estado, agora }), null)
+  assert.equal(decidirResposta({ texto: 'Agendar', payload: 'AGENDAR', respostas, estado, agora }), null)
+  const d = decidirResposta({ texto: 'Valores', payload: 'VALOR', respostas, estado, agora })
+  assert.match(d.texto, /R\$ 600,00/)
+  assert.ok(!d.texto.includes(CONVITE_PARA_AGENDAR))
+  assert.ok(!d.botoes.some((b) => b.payload === 'AGENDAR' || b.payload === 'EQUIPE'))
 })
 
 console.log(`instagram: ${ok} casos ok`)

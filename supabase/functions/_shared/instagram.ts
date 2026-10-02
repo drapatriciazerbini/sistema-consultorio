@@ -18,7 +18,10 @@
  *  - alguém da equipe respondeu há menos de HORAS_DE_SILENCIO horas (pelo
  *    Business Suite ou pelo app do Instagram: a Meta devolve um "eco" de toda
  *    mensagem enviada pela conta, e o eco que não é do robô é de gente);
- *  - ele já respondeu TETO_SEGUIDAS vezes sem ninguém da equipe no meio;
+ *  - ele já respondeu TETO_SEGUIDAS vezes sem ninguém da equipe no meio
+ *    (botão tocado, "quero agendar" e "quero falar com alguém" passam mesmo
+ *    assim: robô nenhum toca botão; e a conta zera HORAS_DO_MENU depois da
+ *    última resposta, para a pessoa que volta no outro dia não achar o robô mudo);
  *  - depois de não entender: avisa que a equipe responde e espera.
  */
 
@@ -28,6 +31,12 @@ import { avisarEquipe } from './push-da-equipe.ts'
 
 export const HORAS_DE_SILENCIO = 12
 export const TETO_SEGUIDAS = 4
+/**
+ * Marca de "passou para a equipe" (pediu para agendar, pediu gente, saúde, não
+ * entendeu). Nesse estado o robô só responde botão de informação, sem convidar
+ * de novo para agendar: o que a pessoa escrever é resposta para a equipe.
+ */
+export const ESPERANDO_EQUIPE = 99
 /** Depois disso a saudação com os botões aparece de novo. */
 export const HORAS_DO_MENU = 24
 
@@ -124,6 +133,11 @@ function horasDesde(iso: string | null, agora: Date): number {
   return (agora.getTime() - new Date(iso).getTime()) / 3_600_000
 }
 
+/** Respostas seguidas que ainda contam: a conta zera um dia depois da última resposta do robô. */
+export function seguidasQueContam(seguidas: number, roboRespondeuEm: string | null, agora: Date = new Date()): number {
+  return horasDesde(roboRespondeuEm, agora) < HORAS_DO_MENU ? seguidas : 0
+}
+
 /** Os botões menos o que acabou de ser respondido. */
 function outrosBotoes(payload: string | null): BotaoRapido[] {
   return BOTOES.filter((b) => b.payload !== payload)
@@ -147,8 +161,20 @@ export function decidirResposta(opcoes: {
 
   // A equipe está na conversa: quem fala é gente.
   if (horasDesde(estado.humanoRespondeuEm, agora) < HORAS_DE_SILENCIO) return null
-  // Já falou demais sem ninguém da equipe no meio.
-  if (estado.respostasSeguidas >= TETO_SEGUIDAS) return null
+  // Já falou demais sem ninguém da equipe no meio. Pedido claro passa: botão
+  // do próprio robô, querer marcar ou querer gente (outro robô não faz isso).
+  const botaoDeInformacao = Boolean(payload && PERGUNTA_DO_BOTAO[payload])
+  const esperandoEquipe = estado.respostasSeguidas >= ESPERANDO_EQUIPE
+  if (esperandoEquipe) {
+    if (!botaoDeInformacao) return null
+    const achada = acharResposta(PERGUNTA_DO_BOTAO[payload as string], opcoes.respostas, 1)
+    return achada
+      ? { texto: adaptarTexto(achada.resposta), botoes: BOTOES.filter((b) => PERGUNTA_DO_BOTAO[b.payload] && b.payload !== payload) }
+      : null
+  }
+  const pedidoClaro = Boolean(payload && BOTOES.some((b) => b.payload === payload)) ||
+    (Boolean(texto) && (pediuAgendamento(texto) || pediuPessoa(texto)))
+  if (estado.respostasSeguidas >= TETO_SEGUIDAS && !pedidoClaro) return null
 
   const menuRecente = horasDesde(estado.menuEnviadoEm, agora) < HORAS_DO_MENU
 
@@ -343,6 +369,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
       if (!settings.whatsapp_autoreply_enabled) continue
 
       const respostas = await carregarRespostas(admin, clinicId)
+      const seguidas = seguidasQueContam(Number(conversa.bot_replies_in_row ?? 0), conversa.last_bot_reply_at ?? null, agora)
       const decisao = decidirResposta({
         texto: mensagem.text ?? '',
         payload: mensagem.quick_reply?.payload ?? null,
@@ -350,7 +377,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         estado: {
           menuEnviadoEm: conversa.menu_sent_at ?? null,
           humanoRespondeuEm: conversa.last_human_reply_at ?? null,
-          respostasSeguidas: Number(conversa.bot_replies_in_row ?? 0),
+          respostasSeguidas: seguidas,
         },
         agora,
       })
@@ -370,7 +397,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         .update({
           last_bot_reply_at: agora.toISOString(),
           last_bot_message_id: enviada,
-          bot_replies_in_row: decisao.calarDepois ? TETO_SEGUIDAS : Number(conversa.bot_replies_in_row ?? 0) + 1,
+          bot_replies_in_row: decisao.calarDepois || seguidas >= ESPERANDO_EQUIPE ? ESPERANDO_EQUIPE : Math.min(seguidas + 1, TETO_SEGUIDAS),
           ...(decisao.menu ? { menu_sent_at: agora.toISOString() } : {}),
         })
         .eq('id', conversa.id)
