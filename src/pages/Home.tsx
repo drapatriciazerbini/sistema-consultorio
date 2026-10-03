@@ -7,6 +7,7 @@ import {
   CircleUserRound,
   HeartHandshake,
   LogOut,
+  MessageCircle,
   MessageCircleHeart,
   MessagesSquare,
   Plus,
@@ -39,6 +40,7 @@ import { useAuth } from '@/auth/AuthProvider'
 import { useDialogos } from '@/components/dialogos-contexto'
 import { apagarParametrosDoEndereco, parametrosDoEndereco } from '@/lib/endereco'
 import { registrarServiceWorker } from '@/lib/notificacoes'
+import { ligarModoWhatsApp } from '@/lib/modo-whatsapp'
 import ConviteParaAvisos from '@/components/ConviteParaAvisos'
 
 type Tab = 'dashboard' | 'agenda' | 'followups' | 'conversas' | 'pacientes' | 'config' | 'admin'
@@ -621,6 +623,21 @@ export default function Home() {
             <div className="h-8" aria-hidden="true" />
           )}
           <div className="flex items-center gap-2">
+            {/* Modo WhatsApp (02/10/2026, igual ao do Dr. Marcello): leva a
+                Respostas ja em tela cheia, lista e conversa como no app.
+                "Chat normal", la dentro, volta ao visual da clinica. */}
+            <button
+              type="button"
+              onClick={() => {
+                ligarModoWhatsApp()
+                setTab('conversas')
+              }}
+              aria-label="Abrir conversas no modo WhatsApp"
+              title="Modo WhatsApp"
+              className="pulso-whatsapp flex h-10 w-10 items-center justify-center rounded-xl bg-[#2f7f74] text-white"
+            >
+              <MessageCircle className="h-[19px] w-[19px]" />
+            </button>
             <button
               type="button"
               onClick={() => setAvisosAbertos((aberto) => !aberto)}
