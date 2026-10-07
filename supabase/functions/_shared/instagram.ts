@@ -26,7 +26,7 @@
  */
 
 import { acharResposta, assuntoClinico, carregarRespostas, type RespostaPronta } from './respostas.ts'
-import { parecePergunta, pediuAgendamento, soAgradecimento } from './atendimento.ts'
+import { pediuAgendamento, soAgradecimento } from './atendimento.ts'
 import { avisarEquipe } from './push-da-equipe.ts'
 
 export const HORAS_DE_SILENCIO = 12
@@ -81,7 +81,7 @@ export type Decisao = {
   /** Título do aviso no celular da equipe. */
   motivo?: 'agendar' | 'equipe'
   /** O que contar na aba Instagram da Visão geral (instagram_bot_events). */
-  evento?: { tipo: 'menu' | 'resposta' | 'agendar' | 'equipe' | 'agradecimento'; detalhe?: string }
+  evento?: { tipo: 'menu' | 'resposta' | 'agendar' | 'equipe' | 'agradecimento' | 'retomada'; detalhe?: string }
 } | null
 
 const SAUDACAO = 'Olá! Aqui é o consultório da Dra. Patrícia Zerbini. Toque numa das opções abaixo ou escreva a sua dúvida:'
@@ -111,6 +111,18 @@ const CLINICO =
 
 const NAO_ENTENDI = 'Não consegui entender por aqui. Alguém da equipe vai te responder neste Direct.'
 
+/**
+ * "Acho melhor aguardar para conversar em horário comercial" (Alfredo,
+ * 04/10/2026): tinha "horário" e virou pedido de agendamento. Quem avisa que
+ * vai esperar quer gente, no horário dela.
+ */
+const VAI_ESPERAR =
+  'Combinado! A equipe responde aqui no Direct em horário comercial. Se quiser, já deixe escrita a sua dúvida que ela vê assim que abrir.'
+
+export function vaiEsperar(texto: string): boolean {
+  return /\b(horario comercial|horario de atendimento|vou aguardar|melhor aguardar|aguardar para|prefiro aguardar|vou esperar|melhor esperar|prefiro esperar|falo depois|converso depois|volto a falar|retorno depois|depois eu (falo|retorno|chamo|ligo)|amanha eu (falo|retorno|chamo|ligo))/.test(normalizar(texto))
+}
+
 /** Botões que só informam (sem Agendar e sem Falar com a equipe). */
 const BOTOES_DE_INFORMACAO = (): BotaoRapido[] => BOTOES.filter((b) => PERGUNTA_DO_BOTAO[b.payload])
 
@@ -120,6 +132,15 @@ const PARA_AGENDAR: Decisao = { texto: AGENDAR, avisar: true, calarDepois: true,
 function respostaDoAgendamento(texto: string): boolean {
   if (texto.includes('?')) return false
   return /\b(casa|domicilio|consultorio|gonzaga|manha|tarde|noite|segunda|terca|quarta|quinta|sexta|sabado|amanha|hoje|dia|semana|horario)\b/.test(normalizar(texto))
+}
+
+/**
+ * Esperando a equipe, só pergunta de verdade: com "?" ou começando por palavra
+ * de pergunta. "Ela tem 85 anos" é recado para a equipe, não dúvida, mesmo
+ * tendo "tem" no meio (06/10/2026).
+ */
+function perguntaDireta(texto: string): boolean {
+  return texto.includes('?') || /^(qual|quais|quanto|quanta|quantos|como|onde|quando|aceita|aceitam|atende|atendem|tem|teria|faz|fazem|e particular)\b/.test(normalizar(texto))
 }
 
 function normalizar(texto: string): string {
@@ -194,7 +215,7 @@ export function decidirResposta(opcoes: {
     let pergunta: string | null = null
     if (botaoDeInformacao) pergunta = PERGUNTA_DO_BOTAO[payload as string]
     else if (!payload && texto && !respostaDoAgendamento(texto) && !assuntoClinico(texto) &&
-      (parecePergunta(texto) || texto.split(/\s+/).length <= 2)) pergunta = texto
+      (perguntaDireta(texto) || texto.split(/\s+/).length <= 2)) pergunta = texto
     if (!pergunta) return null
     const achada = acharResposta(pergunta, opcoes.respostas, 1)
     return achada
@@ -230,6 +251,8 @@ export function decidirResposta(opcoes: {
     return menuRecente ? { texto: 'Por nada! Qualquer outra dúvida, é só chamar por aqui.', evento: { tipo: 'agradecimento' } } : null
   }
 
+  if (!payload && vaiEsperar(pergunta)) return { texto: VAI_ESPERAR, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'vai_esperar' } }
+
   if (!payload && pediuAgendamento(pergunta)) return PARA_AGENDAR
 
   const achada = acharResposta(pergunta, opcoes.respostas, 1)
@@ -255,6 +278,123 @@ export function decidirResposta(opcoes: {
 
   // Já se apresentou e mesmo assim não entendeu: passa para a equipe e espera.
   return { texto: NAO_ENTENDI, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'nao_entendeu' } }
+}
+
+// ---------------------------------------------------------------------------
+// Retomada (07/10/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Quem pergunta o valor pelo anúncio, recebe a resposta e some ganha UMA
+ * mensagem de retomada. A Meta só deixa a conta escrever até 24 horas depois
+ * da última mensagem da pessoa: a retomada sai entre HORAS_PARA_RETOMAR e
+ * JANELA_DA_META horas, e só em horário comercial.
+ */
+export const HORAS_PARA_RETOMAR = 3
+export const JANELA_DA_META = 23
+export const HORARIO_DA_RETOMADA = { inicio: 9, fim: 20 }
+
+export const RETOMADA: NonNullable<Decisao> = {
+  texto: 'Oi! Ficou alguma dúvida? Se quiser marcar, toque em Agendar que a equipe combina o melhor horário com você aqui no Direct.',
+  botoes: BOTOES.filter((b) => ['AGENDAR', 'COMO', 'EQUIPE'].includes(b.payload)),
+  evento: { tipo: 'retomada' },
+}
+
+export type ConversaParaRetomar = {
+  ultimoTipo: string | null
+  roboEm: string | null
+  entradaEm: string | null
+  humanoEm: string | null
+  retomadaEm: string | null
+  seguidas: number
+}
+
+/** A conversa pede a retomada agora? Pura, coberta pelo teste. */
+export function deveRetomar(c: ConversaParaRetomar, agora: Date, horaLocal: number): boolean {
+  if (horaLocal < HORARIO_DA_RETOMADA.inicio || horaLocal >= HORARIO_DA_RETOMADA.fim) return false
+  // Só depois de resposta pronta ou da apresentação. Agendar e equipe já
+  // estão com gente; agradecimento é despedida.
+  if (c.ultimoTipo !== 'resposta' && c.ultimoTipo !== 'menu') return false
+  if (c.seguidas >= ESPERANDO_EQUIPE) return false
+  if (!c.roboEm || !c.entradaEm) return false
+  const robo = new Date(c.roboEm).getTime()
+  const entrada = new Date(c.entradaEm).getTime()
+  // A pessoa escreveu de novo depois da resposta: a conversa não parou.
+  if (entrada > robo) return false
+  // Alguém da equipe falou depois do robô: é com ela.
+  if (c.humanoEm && new Date(c.humanoEm).getTime() >= robo) return false
+  // Uma retomada por mensagem da pessoa.
+  if (c.retomadaEm && new Date(c.retomadaEm).getTime() >= entrada) return false
+  if (horasDesde(c.roboEm, agora) < HORAS_PARA_RETOMAR) return false
+  return horasDesde(c.entradaEm, agora) < JANELA_DA_META
+}
+
+function horaNoFuso(timezone: string, agora: Date): number {
+  return Number(agora.toLocaleString('en-US', { timeZone: timezone, hour: '2-digit', hour12: false })) % 24
+}
+
+/**
+ * Manda as retomadas devidas. Chamada de hora em hora pelo appointment-reminders.
+ * Erro numa conversa não para as outras.
+ */
+export async function retomarConversasDoInstagram(admin: Admin, agora: Date = new Date()) {
+  const resumo = { candidatas: 0, enviadas: 0, falhas: 0 }
+  const { data: clinicas, error } = await admin
+    .from('clinic_settings')
+    .select('clinic_id,instagram_account_ids,whatsapp_autoreply_enabled,clinics(timezone)')
+    .eq('whatsapp_autoreply_enabled', true)
+  if (error) throw error
+
+  for (const clinica of clinicas ?? []) {
+    if (!(clinica.instagram_account_ids ?? []).length) continue
+    const fuso = (clinica.clinics as { timezone?: string } | null)?.timezone || 'America/Sao_Paulo'
+    const hora = horaNoFuso(fuso, agora)
+    if (hora < HORARIO_DA_RETOMADA.inicio || hora >= HORARIO_DA_RETOMADA.fim) continue
+
+    const { data: conversas, error: erroDaLista } = await admin
+      .from('instagram_conversations')
+      .select('id,ig_user_id,last_bot_kind,last_bot_reply_at,last_inbound_at,last_human_reply_at,followup_sent_at,bot_replies_in_row')
+      .eq('clinic_id', clinica.clinic_id)
+      .in('last_bot_kind', ['resposta', 'menu'])
+      .lt('last_bot_reply_at', new Date(agora.getTime() - HORAS_PARA_RETOMAR * 3_600_000).toISOString())
+      .gt('last_inbound_at', new Date(agora.getTime() - JANELA_DA_META * 3_600_000).toISOString())
+      .limit(50)
+    if (erroDaLista) throw erroDaLista
+
+    for (const conversa of conversas ?? []) {
+      const pronta = deveRetomar({
+        ultimoTipo: conversa.last_bot_kind ?? null,
+        roboEm: conversa.last_bot_reply_at ?? null,
+        entradaEm: conversa.last_inbound_at ?? null,
+        humanoEm: conversa.last_human_reply_at ?? null,
+        retomadaEm: conversa.followup_sent_at ?? null,
+        seguidas: seguidasQueContam(Number(conversa.bot_replies_in_row ?? 0), conversa.last_bot_reply_at ?? null, agora),
+      }, agora, hora)
+      if (!pronta) continue
+      resumo.candidatas++
+      try {
+        // Marca antes de enviar: o eco da Meta não pode parecer gente da equipe,
+        // e uma segunda passada do cron não pode mandar de novo.
+        const { error: erroDaMarca } = await admin
+          .from('instagram_conversations')
+          .update({ last_bot_reply_at: agora.toISOString(), last_bot_kind: 'retomada', followup_sent_at: agora.toISOString() })
+          .eq('id', conversa.id)
+        if (erroDaMarca) throw erroDaMarca
+        const enviada = await enviar(conversa.ig_user_id, RETOMADA)
+        if (!enviada) {
+          resumo.falhas++
+          continue
+        }
+        await admin.from('instagram_conversations').update({ last_bot_message_id: enviada }).eq('id', conversa.id)
+        await contar(admin, clinica.clinic_id, conversa.id, 'retomada')
+        resumo.enviadas++
+      } catch (erro) {
+        console.error('Instagram: retomada falhou', conversa.id, erro instanceof Error ? erro.message : erro)
+        resumo.falhas++
+      }
+    }
+  }
+  return resumo
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +603,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         .update({
           last_bot_reply_at: agora.toISOString(),
           last_bot_message_id: enviada,
+          last_bot_kind: decisao.evento?.tipo ?? null,
           bot_replies_in_row: decisao.calarDepois || seguidas >= ESPERANDO_EQUIPE ? ESPERANDO_EQUIPE : Math.min(seguidas + 1, TETO_SEGUIDAS),
           ...(decisao.menu ? { menu_sent_at: agora.toISOString() } : {}),
         })

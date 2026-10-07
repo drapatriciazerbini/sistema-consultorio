@@ -4,6 +4,7 @@ import { cadastrarDaFicha } from '../_shared/cadastro.ts'
 import { janelaDeLembrete } from '../_shared/lembrete.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
 import { chaveDoWhatsApp, foraDaListaDeTeste, listaDeTeste } from '../_shared/whatsapp-teste.ts'
+import { retomarConversasDoInstagram } from '../_shared/instagram.ts'
 
 /**
  * Lembrete automatico de consulta.
@@ -75,6 +76,16 @@ Deno.serve(async (req) => {
   try {
     const admin = adminClient()
     const graphVersion = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
+
+    // Retomada do Direct do Instagram (07/10/2026): pega carona nesta passada
+    // de hora em hora. Falha aqui não segura os lembretes de consulta.
+    let instagram: { candidatas: number; enviadas: number; falhas: number } | { erro: string }
+    try {
+      instagram = await retomarConversasDoInstagram(admin)
+    } catch (erro) {
+      console.error('Retomada do Instagram falhou', erro)
+      instagram = { erro: erro instanceof Error ? erro.message : String(erro) }
+    }
 
     const { data: linhas, error: settingsError } = await admin
       .from('clinic_settings')
@@ -348,7 +359,7 @@ Deno.serve(async (req) => {
     }
 
     console.log('appointment-reminders', JSON.stringify(resumo))
-    return json({ ok: true, ...resumo, detalhes })
+    return json({ ok: true, ...resumo, detalhes, instagram })
   } catch (error) {
     console.error(error)
     return json({ error: 'Falha no envio dos lembretes.' }, 500)

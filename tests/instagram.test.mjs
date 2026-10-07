@@ -13,6 +13,8 @@ import {
   ESPERANDO_EQUIPE,
   seguidasQueContam,
   hostDoToken,
+  deveRetomar,
+  RETOMADA,
 } from './instagram.build.mjs'
 
 let ok = 0
@@ -47,6 +49,21 @@ const respostas = [
     id: 'e', assunto: 'Endereço do consultório', perguntarUnidade: false,
     palavras: ['endereco', 'endereço', 'onde', 'consultorio', 'gonzaga'],
     resposta: '📍 *Consultório*\n\nRua Dr. Tolentino Filgueiras, 119, Gonzaga, Santos - SP.\n\nDigite *2* para agendar.',
+  },
+  {
+    id: 'i', assunto: 'Idade atendida', perguntarUnidade: false,
+    palavras: ['idade', 'idoso', 'idosa', 'adulto', 'crianca', 'pediatra', 'anos'],
+    resposta: '👵 *Quem a Dra. Patrícia atende*\n\nAdultos, com atenção especial à pessoa idosa.',
+  },
+  {
+    id: 'esp', assunto: 'Especialidade da Dra. Patrícia', perguntarUnidade: false,
+    palavras: ['especialidade', 'especialid', 'especialista', 'geriatra', 'geriatr', 'geriatria', 'clinico', 'formacao', 'rqe'],
+    resposta: '🩺 *Especialidade da Dra. Patrícia*\n\nA Dra. Patrícia Zerbini é Geriatra: médica de Clínica Médica (RQE 20357).',
+  },
+  {
+    id: 'psi', assunto: 'Psicoterapia e psicólogo', perguntarUnidade: false,
+    palavras: ['psicoterapia', 'psicoter', 'psicoterapeuta', 'psicoterapeutico', 'psicologo', 'psicolog', 'terapia', 'terapeuta'],
+    resposta: '🧠 *Psicoterapia*\n\nA Dra. Patrícia é médica geriatra e não faz psicoterapia.',
   },
 ]
 
@@ -89,7 +106,7 @@ caso('primeira mensagem sem assunto conhecido recebe a apresentacao com os botoe
 })
 
 caso('depois da apresentacao, o que nao entende vai para a equipe e o robo cala', () => {
-  const d = decidirResposta({ texto: 'minha mae tem 82 anos e mora sozinha', respostas, estado: jaApresentado, agora })
+  const d = decidirResposta({ texto: 'minha mae mora sozinha no litoral', respostas, estado: jaApresentado, agora })
   assert.equal(d.avisar, true)
   assert.equal(d.calarDepois, true)
 })
@@ -250,6 +267,67 @@ caso('cada resposta diz o que contar na aba Instagram', () => {
   assert.deepEqual(decidirResposta({ texto: 'quero agendar', respostas, estado: novo, agora }).evento, { tipo: 'agendar' })
   assert.deepEqual(decidirResposta({ texto: 'minha mãe está com febre', respostas, estado: novo, agora }).evento, { tipo: 'equipe', detalhe: 'saude' })
   assert.deepEqual(decidirResposta({ texto: 'quero falar com uma pessoa', respostas, estado: novo, agora }).evento, { tipo: 'equipe', detalhe: 'pediu' })
+})
+
+// 06/10/2026, conversas reais do Direct.
+caso('"Qual a especialidade?" depois do valor responde a especialidade, nao "nao entendi"', () => {
+  const d = decidirResposta({ texto: 'Qual a especialidade?', respostas, estado: jaApresentado, agora })
+  assert.match(d.texto, /Geriatra/)
+  assert.equal(d.evento.detalhe, 'Especialidade da Dra. Patrícia')
+})
+
+caso('idoso procurando psicoterapia recebe a resposta de psicoterapia, nao a de idade', () => {
+  const d = decidirResposta({ texto: 'Moro em Santos sou idoso tenho algumas comorbidades porém no momento estou na busca de um atendimento psicoterapeutico', respostas, estado: jaApresentado, agora })
+  assert.match(d.texto, /não faz psicoterapia/)
+})
+
+caso('"melhor aguardar para conversar em horário comercial" chama a equipe, nao vira agendamento', () => {
+  const d = decidirResposta({ texto: 'Bem acho melhor aguardar para conversar em horário comercial', respostas, estado: jaApresentado, agora })
+  assert.match(d.texto, /horário comercial/)
+  assert.ok(!/Que bom/.test(d.texto))
+  assert.equal(d.avisar, true)
+  assert.equal(d.calarDepois, true)
+  assert.deepEqual(d.evento, { tipo: 'equipe', detalhe: 'vai_esperar' })
+})
+
+caso('"quais os horarios disponiveis?" continua sendo agendamento', () => {
+  assert.deepEqual(decidirResposta({ texto: 'Quais são os horários disponíveis para consulta?', respostas, estado: novo, agora }).evento, { tipo: 'agendar' })
+})
+
+// Retomada (07/10/2026): quem perguntou o valor e sumiu.
+const agoraR = new Date('2026-10-07T18:00:00Z')
+const h = (horas) => new Date(agoraR.getTime() - horas * 3_600_000).toISOString()
+const sumiu = { ultimoTipo: 'resposta', roboEm: h(4), entradaEm: h(4.01), humanoEm: null, retomadaEm: null, seguidas: 1 }
+
+caso('retomada: respondeu o valor ha 4 horas e a pessoa sumiu', () => {
+  assert.equal(deveRetomar(sumiu, agoraR, 15), true)
+  assert.match(RETOMADA.texto, /Ficou alguma dúvida/)
+  assert.deepEqual(RETOMADA.botoes.map((b) => b.payload), ['COMO', 'AGENDAR', 'EQUIPE'])
+  assert.deepEqual(RETOMADA.evento, { tipo: 'retomada' })
+})
+
+caso('retomada: nao sai cedo, fora do horario, nem fora da janela da Meta', () => {
+  assert.equal(deveRetomar({ ...sumiu, roboEm: h(1), entradaEm: h(1.01) }, agoraR, 15), false)
+  assert.equal(deveRetomar(sumiu, agoraR, 8), false)
+  assert.equal(deveRetomar(sumiu, agoraR, 20), false)
+  assert.equal(deveRetomar({ ...sumiu, roboEm: h(23.5), entradaEm: h(23.6) }, agoraR, 15), false)
+})
+
+caso('retomada: nao sai se a pessoa escreveu de novo, se a equipe falou, ou se ja foi', () => {
+  assert.equal(deveRetomar({ ...sumiu, entradaEm: h(3.5) }, agoraR, 15), false)
+  assert.equal(deveRetomar({ ...sumiu, humanoEm: h(3.9) }, agoraR, 15), false)
+  assert.equal(deveRetomar({ ...sumiu, retomadaEm: h(1) }, agoraR, 15), false)
+  assert.equal(deveRetomar({ ...sumiu, ultimoTipo: 'retomada' }, agoraR, 15), false)
+})
+
+caso('retomada: so depois de resposta ou apresentacao, nunca de agendar, equipe ou agradecimento', () => {
+  assert.equal(deveRetomar({ ...sumiu, ultimoTipo: 'menu' }, agoraR, 15), true)
+  for (const tipo of ['agendar', 'equipe', 'agradecimento', null]) assert.equal(deveRetomar({ ...sumiu, ultimoTipo: tipo }, agoraR, 15), false)
+  assert.equal(deveRetomar({ ...sumiu, seguidas: ESPERANDO_EQUIPE }, agoraR, 15), false)
+})
+
+caso('retomada de dias atras: vale de novo depois de uma mensagem nova da pessoa', () => {
+  assert.equal(deveRetomar({ ...sumiu, retomadaEm: h(48) }, agoraR, 15), true)
 })
 
 console.log(`instagram: ${ok} casos ok`)
