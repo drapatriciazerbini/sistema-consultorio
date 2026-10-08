@@ -15,6 +15,8 @@ import {
   hostDoToken,
   deveRetomar,
   RETOMADA,
+  primeiroNome,
+  comNome,
 } from './instagram.build.mjs'
 
 let ok = 0
@@ -328,6 +330,27 @@ caso('retomada: so depois de resposta ou apresentacao, nunca de agendar, equipe 
 
 caso('retomada de dias atras: vale de novo depois de uma mensagem nova da pessoa', () => {
   assert.equal(deveRetomar({ ...sumiu, retomadaEm: h(48) }, agoraR, 15), true)
+})
+
+// Primeiro nome (08/10/2026).
+caso('primeiro nome: so o primeiro, com maiuscula certa; marca, emoji e numero ficam sem nome', () => {
+  assert.equal(primeiroNome('MARIA DA SILVA'), 'Maria')
+  assert.equal(primeiroNome('hermínia Cristina Ladaga'), 'Hermínia')
+  assert.equal(primeiroNome('Lojinha123'), '')
+  assert.equal(primeiroNome('🌸 Bete'), '')
+  assert.equal(primeiroNome('J'), '')
+  assert.equal(primeiroNome('Dra. Ana'), '')
+  assert.equal(primeiroNome(null), '')
+})
+
+caso('com nome: exclamacao de abertura, emoji no inicio e frase comum', () => {
+  assert.equal(comNome('Que bom! A equipe vai combinar.', 'Maria'), 'Que bom, Maria! A equipe vai combinar.')
+  assert.equal(comNome('Olá! Aqui é o consultório da Dra. Patrícia Zerbini.', 'Bete'), 'Olá, Bete! Aqui é o consultório da Dra. Patrícia Zerbini.')
+  assert.equal(comNome('Oi! Ficou alguma dúvida?', 'Sueli'), 'Oi, Sueli! Ficou alguma dúvida?')
+  assert.equal(comNome('💚 Valores da consulta, com retorno incluso:', 'Clarice'), '💚 Clarice, valores da consulta, com retorno incluso:')
+  assert.equal(comNome('Não consegui entender por aqui.', 'Julia'), 'Julia, não consegui entender por aqui.')
+  assert.equal(comNome('Dra. Patrícia atende em casa.', 'Ana'), 'Ana, Dra. Patrícia atende em casa.')
+  assert.equal(comNome('Qualquer coisa', ''), 'Qualquer coisa')
 })
 
 console.log(`instagram: ${ok} casos ok`)

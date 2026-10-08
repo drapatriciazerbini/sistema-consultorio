@@ -281,6 +281,75 @@ export function decidirResposta(opcoes: {
 }
 
 // ---------------------------------------------------------------------------
+// Primeiro nome (08/10/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * O primeiro nome que dá para usar, a partir do nome do perfil do Instagram.
+ * Nome de marca, apelido com número, emoji ou letra solta: melhor sem nome do
+ * que "Oi, Lojinha123!". Devolve '' quando não serve.
+ */
+export function primeiroNome(nomeDoPerfil: string | null | undefined): string {
+  const primeiro = String(nomeDoPerfil ?? '').trim().split(/\s+/)[0] ?? ''
+  if (!/^[\p{L}]{2,20}$/u.test(primeiro)) return ''
+  const minusculo = primeiro.toLocaleLowerCase('pt-BR')
+  if (['dra', 'dr', 'sr', 'sra', 'consultorio', 'consultório', 'clinica', 'clínica', 'loja'].includes(minusculo)) return ''
+  return minusculo.charAt(0).toLocaleUpperCase('pt-BR') + minusculo.slice(1)
+}
+
+/** Palavras que continuam com maiúscula depois do "Maria, ". */
+const MANTEM_MAIUSCULA = /^(Dra?\.?|Patrícia|Zerbini|CRM|RQE|SAMU|Pix|WhatsApp|Instagram|Direct|Gonzaga|Santos|São)\b/u
+
+/**
+ * Põe o primeiro nome na mensagem do robô:
+ *  "Que bom! A equipe..."      -> "Que bom, Maria! A equipe..."
+ *  "💚 Valores da consulta..." -> "💚 Maria, valores da consulta..."
+ *  "Não consegui entender..."  -> "Maria, não consegui entender..."
+ */
+export function comNome(texto: string, nome: string): string {
+  if (!nome) return texto
+  const exclamacao = texto.match(/^([\p{L} ]{2,20})!/u)
+  if (exclamacao) return `${exclamacao[1]}, ${nome}!${texto.slice(exclamacao[0].length)}`
+  const inicio = texto.match(/^([^\p{L}\d]*?)(\p{L})/u)
+  if (!inicio) return `${nome}, ${texto}`
+  const prefixo = inicio[1]
+  const resto = texto.slice(prefixo.length)
+  const ajustado = MANTEM_MAIUSCULA.test(resto) ? resto : resto.charAt(0).toLocaleLowerCase('pt-BR') + resto.slice(1)
+  return `${prefixo}${nome}, ${ajustado}`
+}
+
+/** A decisão com o nome da pessoa no texto. */
+function personalizar(decisao: NonNullable<Decisao>, nome: string | null | undefined): NonNullable<Decisao> {
+  return nome ? { ...decisao, texto: comNome(decisao.texto, nome) } : decisao
+}
+
+/**
+ * Lê o nome do perfil na Graph API, uma vez por conversa, e guarda só o
+ * primeiro nome. Falhou a leitura: segue sem nome, sem travar a resposta.
+ */
+async function nomeDaConversa(admin: Admin, conversaId: string, pessoa: string, guardado: string | null): Promise<string> {
+  if (guardado !== null && guardado !== undefined) return guardado
+  let nome = ''
+  const token = Deno.env.get('INSTAGRAM_PAGE_TOKEN')?.trim()
+  if (token) {
+    try {
+      const versao = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
+      const resposta = await fetch(`https://${hostDoToken(token)}/${versao}/${encodeURIComponent(pessoa)}?fields=name`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const corpo = await resposta.json().catch(() => ({}))
+      if (resposta.ok) nome = primeiroNome(corpo?.name)
+      else console.warn('Instagram: nao li o nome do perfil', resposta.status, corpo?.error?.message ?? '')
+    } catch (erro) {
+      console.warn('Instagram: nao li o nome do perfil', erro instanceof Error ? erro.message : erro)
+    }
+  }
+  const { error } = await admin.from('instagram_conversations').update({ first_name: nome }).eq('id', conversaId)
+  if (error) console.warn('Instagram: nao guardei o primeiro nome', error.message)
+  return nome
+}
+
+// ---------------------------------------------------------------------------
 // Retomada (07/10/2026)
 // ---------------------------------------------------------------------------
 
@@ -353,7 +422,7 @@ export async function retomarConversasDoInstagram(admin: Admin, agora: Date = ne
 
     const { data: conversas, error: erroDaLista } = await admin
       .from('instagram_conversations')
-      .select('id,ig_user_id,last_bot_kind,last_bot_reply_at,last_inbound_at,last_human_reply_at,followup_sent_at,bot_replies_in_row')
+      .select('id,ig_user_id,first_name,last_bot_kind,last_bot_reply_at,last_inbound_at,last_human_reply_at,followup_sent_at,bot_replies_in_row')
       .eq('clinic_id', clinica.clinic_id)
       .in('last_bot_kind', ['resposta', 'menu'])
       .lt('last_bot_reply_at', new Date(agora.getTime() - HORAS_PARA_RETOMAR * 3_600_000).toISOString())
@@ -380,7 +449,7 @@ export async function retomarConversasDoInstagram(admin: Admin, agora: Date = ne
           .update({ last_bot_reply_at: agora.toISOString(), last_bot_kind: 'retomada', followup_sent_at: agora.toISOString() })
           .eq('id', conversa.id)
         if (erroDaMarca) throw erroDaMarca
-        const enviada = await enviar(conversa.ig_user_id, RETOMADA)
+        const enviada = await enviar(conversa.ig_user_id, personalizar(RETOMADA, conversa.first_name))
         if (!enviada) {
           resumo.falhas++
           continue
@@ -541,7 +610,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
       const { data: conversa, error: erroDaConversa } = await admin
         .from('instagram_conversations')
         .upsert({ clinic_id: clinicId, ig_user_id: pessoa }, { onConflict: 'clinic_id,ig_user_id', ignoreDuplicates: false })
-        .select('id,menu_sent_at,last_human_reply_at,last_bot_reply_at,last_bot_message_id,bot_replies_in_row')
+        .select('id,menu_sent_at,last_human_reply_at,last_bot_reply_at,last_bot_message_id,bot_replies_in_row,first_name')
         .single()
       if (erroDaConversa) throw erroDaConversa
 
@@ -595,7 +664,8 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         .update({ last_bot_reply_at: agora.toISOString() })
         .eq('id', conversa.id)
 
-      const enviada = await enviar(pessoa, decisao)
+      const nome = await nomeDaConversa(admin, conversa.id, pessoa, conversa.first_name ?? null)
+      const enviada = await enviar(pessoa, personalizar(decisao, nome))
       if (!enviada) continue
 
       const { error: erroDoEstado } = await admin
