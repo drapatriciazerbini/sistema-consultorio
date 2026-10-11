@@ -17,6 +17,7 @@ import {
   RETOMADA,
   primeiroNome,
   comNome,
+  respostaRepetida,
 } from './instagram.build.mjs'
 
 let ok = 0
@@ -351,6 +352,23 @@ caso('com nome: exclamacao de abertura, emoji no inicio e frase comum', () => {
   assert.equal(comNome('Não consegui entender por aqui.', 'Julia'), 'Julia, não consegui entender por aqui.')
   assert.equal(comNome('Dra. Patrícia atende em casa.', 'Ana'), 'Ana, Dra. Patrícia atende em casa.')
   assert.equal(comNome('Qualquer coisa', ''), 'Qualquer coisa')
+})
+
+// 11/10/2026, conversas reais.
+caso('com nome: resposta com titulo leva o nome no texto, nao no titulo', () => {
+  assert.equal(comNome('💳 Convênios\n\nO atendimento é particular.', 'Filomena'), '💳 Convênios\n\nFilomena, o atendimento é particular.')
+  assert.equal(comNome('🏠 Consulta em casa\n\nA Dra. Patrícia atende em casa.', 'Olive'), '🏠 Consulta em casa\n\nOlive, a Dra. Patrícia atende em casa.')
+  assert.equal(comNome('💚 Valores da consulta, com retorno incluso:\n\n• Consultório', 'Rita'), '💚 Rita, valores da consulta, com retorno incluso:\n\n• Consultório')
+})
+
+caso('mesma resposta pronta em menos de 15 minutos nao sai de novo', () => {
+  const d = { texto: 'x', evento: { tipo: 'resposta', detalhe: 'Valor e pagamento' } }
+  const agoraX = new Date('2026-10-11T14:10:00Z')
+  assert.equal(respostaRepetida({ detalhe: 'Valor e pagamento', em: '2026-10-11T14:08:00Z' }, d, agoraX), true)
+  assert.equal(respostaRepetida({ detalhe: 'Valor e pagamento', em: '2026-10-11T13:40:00Z' }, d, agoraX), false)
+  assert.equal(respostaRepetida({ detalhe: 'Convênios', em: '2026-10-11T14:08:00Z' }, d, agoraX), false)
+  assert.equal(respostaRepetida(null, d, agoraX), false)
+  assert.equal(respostaRepetida({ detalhe: 'Valor e pagamento', em: '2026-10-11T14:08:00Z' }, { texto: 'y', evento: { tipo: 'agendar' } }, agoraX), false)
 })
 
 console.log(`instagram: ${ok} casos ok`)

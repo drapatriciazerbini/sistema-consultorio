@@ -310,12 +310,36 @@ export function comNome(texto: string, nome: string): string {
   if (!nome) return texto
   const exclamacao = texto.match(/^([\p{L} ]{2,20})!/u)
   if (exclamacao) return `${exclamacao[1]}, ${nome}!${texto.slice(exclamacao[0].length)}`
+  // Resposta pronta com título ("💳 Convênios" e um parágrafo embaixo): o nome
+  // vai no começo do texto, não no título (11/10/2026: "Filomena, convênios").
+  const titulo = texto.match(/^([^\n]{1,45})\n\n/)
+  if (titulo && !/[:.!?]\s*$/.test(titulo[1])) {
+    return `${titulo[0]}${comNome(texto.slice(titulo[0].length), nome)}`
+  }
   const inicio = texto.match(/^([^\p{L}\d]*?)(\p{L})/u)
   if (!inicio) return `${nome}, ${texto}`
   const prefixo = inicio[1]
   const resto = texto.slice(prefixo.length)
   const ajustado = MANTEM_MAIUSCULA.test(resto) ? resto : resto.charAt(0).toLocaleLowerCase('pt-BR') + resto.slice(1)
   return `${prefixo}${nome}, ${ajustado}`
+}
+
+/** Minutos em que a mesma resposta pronta não é mandada de novo. */
+export const MINUTOS_SEM_REPETIR = 15
+
+/**
+ * A mesma resposta pronta, de novo, em poucos minutos? (11/10/2026: quem vem
+ * do anúncio às vezes toca duas vezes em "Qual é o valor da consulta?" e
+ * recebia os valores duas vezes seguidas.)
+ */
+export function respostaRepetida(
+  ultima: { detalhe: string; em: string } | null,
+  decisao: NonNullable<Decisao>,
+  agora: Date,
+): boolean {
+  if (!ultima || decisao.evento?.tipo !== 'resposta' || !decisao.evento.detalhe) return false
+  if (ultima.detalhe !== decisao.evento.detalhe) return false
+  return (agora.getTime() - new Date(ultima.em).getTime()) / 60_000 < MINUTOS_SEM_REPETIR
 }
 
 /** A decisão com o nome da pessoa no texto. */
@@ -657,6 +681,18 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         agora,
       })
       if (!decisao) continue
+
+      if (decisao.evento?.tipo === 'resposta') {
+        const { data: ultima } = await admin
+          .from('instagram_bot_events')
+          .select('detalhe,criado_em')
+          .eq('conversation_id', conversa.id)
+          .eq('evento', 'resposta')
+          .order('criado_em', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (respostaRepetida(ultima ? { detalhe: ultima.detalhe, em: ultima.criado_em } : null, decisao, agora)) continue
+      }
 
       // Marca antes de enviar: o eco da Meta pode chegar antes do fim do envio.
       await admin
