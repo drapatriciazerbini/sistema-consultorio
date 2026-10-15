@@ -180,8 +180,17 @@ function messageBody(message: WebhookMessage) {
   const legenda = (midia?.caption ?? '').trim()
   if (legenda) return legenda
   if (midia?.filename) return midia.filename
+  // A Meta manda "unsupported" sem o conteudo (15/10/2026): codigo de
+  // verificacao de outra empresa (o do Facebook chegou assim), foto de
+  // visualizacao unica, enquete, mensagem editada. Nao ha como ler; o
+  // historico explica o que fazer em vez de mostrar "[unsupported]".
+  if (message.type === 'unsupported') return MENSAGEM_NAO_SUPORTADA
   return `[${message.type || 'mensagem'}]`
 }
+
+const MENSAGEM_NAO_SUPORTADA =
+  '⚠️ O WhatsApp não mostra esta mensagem para sistemas (pode ser código de verificação de outra empresa, foto de visualização única, enquete ou mensagem editada). Se precisar do conteúdo, peça para reenviar em texto.'
+
 
 
 /**
@@ -729,7 +738,9 @@ Deno.serve(async (req) => {
           // mais abaixo, que responde e entrega a conversa a equipe. Deixar o
           // menu falar antes mandava "como podemos ajudar hoje?" para quem
           // acabou de dizer que precisa de ajuda.
-          if (!optedOut && !respondeuLembrete && !isWell && !pediuAjuda && settings.whatsapp_autoreply_enabled) {
+          // Mensagem que a Meta nao entrega o conteudo: o robo nao responde. Costuma
+          // vir de outra empresa (codigo de verificacao) e a resposta falha.
+          if (!optedOut && !respondeuLembrete && !isWell && !pediuAjuda && message.type !== 'unsupported' && settings.whatsapp_autoreply_enabled) {
             const resultado = await tratarConversa({
               admin,
               clinicId,

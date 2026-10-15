@@ -123,6 +123,40 @@ export function vaiEsperar(texto: string): boolean {
   return /\b(horario comercial|horario de atendimento|vou aguardar|melhor aguardar|aguardar para|prefiro aguardar|vou esperar|melhor esperar|prefiro esperar|falo depois|converso depois|volto a falar|retorno depois|depois eu (falo|retorno|chamo|ligo)|amanha eu (falo|retorno|chamo|ligo))/.test(normalizar(texto))
 }
 
+/**
+ * "Não, obrigada" depois do "Ficou alguma dúvida?" (Sonia, 12/10/2026): virou
+ * "não consegui entender" e chamou a equipe. É despedida: fecha com gentileza,
+ * sem botões e sem chamar ninguém. Precisa ter um "não" e toda palavra da
+ * frase precisa ser de recusa ou cortesia ("não sei onde fica" passa direto).
+ */
+const DESPEDIDA = 'Tudo bem! Se precisar, é só chamar aqui no Direct.'
+
+export function recusaGentil(texto: string): boolean {
+  const palavras = normalizar(texto).replace(/[^a-z\s]/g, ' ').trim().split(/\s+/).filter(Boolean)
+  if (!palavras.length) return false
+  const negacao = new Set(['nao', 'n', 'nada', 'nenhuma', 'nenhum'])
+  const permitidas = new Set([
+    ...negacao, 'obrigado', 'obrigada', 'obg', 'brigado', 'brigada', 'valeu', 'grato', 'grata', 'agradeco',
+    'por', 'enquanto', 'no', 'momento', 'ora', 'agora', 'ainda', 'hoje', 'tudo', 'bem', 'certo', 'ta', 'esta',
+    'bom', 'ok', 'beleza', 'blz', 'so', 'isso', 'era', 'duvida', 'duvidas', 'precisa', 'preciso', 'tenho',
+    'mais', 'muito', 'mt', 'mto', 'de', 'a', 'o', 'e', 'deus', 'abencoe', 'mesmo', 'dia', 'tarde', 'noite', 'boa',
+  ])
+  return palavras.some((p) => negacao.has(p)) && palavras.every((p) => permitidas.has(p))
+}
+
+/**
+ * "Já ouviu falar??" com o vídeo de outro médico sobre vacina (Sonia,
+ * 12/10/2026): pedem a opinião da Dra. sobre algo que viram. Não é dúvida que
+ * o robô responda, nem motivo para mandar o menu: vai para a equipe.
+ */
+const OPINIAO =
+  'Boa pergunta! Esse tipo de assunto a Dra. Patrícia prefere conversar com calma, e não respondemos por mensagem automática.\n\n' +
+  'Alguém da equipe vai te responder aqui no Direct.'
+
+export function pedeOpiniao(texto: string): boolean {
+  return /\b(ja ouviu falar|ouviu falar disso|o que (voce|vc|voces|vcs|a dra|a doutora)\.? ?(patricia )?acha|que acha disso|e verdade|isso funciona|funciona mesmo|vale a pena (tomar|fazer|usar)|conhece (esse|essa|isso)|ja viu (isso|esse|essa)|sabia disso)/.test(normalizar(texto))
+}
+
 /** Botões que só informam (sem Agendar e sem Falar com a equipe). */
 const BOTOES_DE_INFORMACAO = (): BotaoRapido[] => BOTOES.filter((b) => PERGUNTA_DO_BOTAO[b.payload])
 
@@ -244,11 +278,19 @@ export function decidirResposta(opcoes: {
   // Saúde não se responde por robô, nem que exista resposta cadastrada.
   if (!payload && assuntoClinico(pergunta)) return { texto: CLINICO, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'saude' } }
 
+  if (!payload && pedeOpiniao(pergunta)) return { texto: OPINIAO, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'opiniao' } }
+
   if (!payload && pediuPessoa(pergunta)) return { texto: EQUIPE, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'pediu' } }
 
   if (!payload && soAgradecimento(pergunta)) {
     // "Obrigada" depois de uma resposta do robô: fecha com gentileza, sem menu.
     return menuRecente ? { texto: 'Por nada! Qualquer outra dúvida, é só chamar por aqui.', evento: { tipo: 'agradecimento' } } : null
+  }
+
+  if (!payload && recusaGentil(pergunta)) {
+    // "Não, obrigada" depois de resposta, apresentação ou retomada: despedida.
+    // Sem conversa antes, um "não" solto não pede nada: calado.
+    return menuRecente || estado.respostasSeguidas > 0 ? { texto: DESPEDIDA, evento: { tipo: 'agradecimento', detalhe: 'recusa' } } : null
   }
 
   if (!payload && vaiEsperar(pergunta)) return { texto: VAI_ESPERAR, avisar: true, calarDepois: true, evento: { tipo: 'equipe', detalhe: 'vai_esperar' } }

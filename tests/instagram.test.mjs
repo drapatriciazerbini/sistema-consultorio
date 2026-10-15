@@ -18,6 +18,8 @@ import {
   primeiroNome,
   comNome,
   respostaRepetida,
+  recusaGentil,
+  pedeOpiniao,
 } from './instagram.build.mjs'
 
 let ok = 0
@@ -369,6 +371,31 @@ caso('mesma resposta pronta em menos de 15 minutos nao sai de novo', () => {
   assert.equal(respostaRepetida({ detalhe: 'Convênios', em: '2026-10-11T14:08:00Z' }, d, agoraX), false)
   assert.equal(respostaRepetida(null, d, agoraX), false)
   assert.equal(respostaRepetida({ detalhe: 'Valor e pagamento', em: '2026-10-11T14:08:00Z' }, { texto: 'y', evento: { tipo: 'agendar' } }, agoraX), false)
+})
+
+caso('"Nao, obrigada" depois da retomada fecha com gentileza, sem chamar a equipe (Sonia, 12/10)', () => {
+  const d = decidirResposta({ texto: 'Não, obrigada 🙏', respostas, estado: jaApresentado, agora })
+  assert.match(d.texto, /Tudo bem/)
+  assert.equal(d.avisar, undefined)
+  assert.equal(d.calarDepois, undefined)
+  assert.equal(d.botoes, undefined)
+  assert.equal(d.evento.tipo, 'agradecimento')
+  for (const t of ['Não', 'nao obrigado', 'Por enquanto não, obrigada', 'Não, tudo certo', 'Nenhuma dúvida, obrigada', 'agora não']) {
+    assert.equal(recusaGentil(t), true, t)
+  }
+  for (const t of ['Não sei onde fica', 'Não atende convênio?', 'Sem dúvida!', 'Obrigada', 'Não tenho carro, ela vem em casa?']) {
+    assert.equal(recusaGentil(t), false, t)
+  }
+  assert.equal(decidirResposta({ texto: 'Não, obrigada', respostas, estado: novo, agora }), null)
+})
+
+caso('"Ja ouviu falar??" sobre video compartilhado vai para a equipe, sem menu (Sonia, 12/10)', () => {
+  const d = decidirResposta({ texto: 'Já ouviu falar?? ', respostas, estado: novo, agora })
+  assert.equal(d.menu, undefined)
+  assert.equal(d.avisar, true)
+  assert.equal(d.evento.detalhe, 'opiniao')
+  for (const t of ['O que a Dra acha disso?', 'o que vc acha?', 'Isso é verdade?', 'Vale a pena tomar essa vacina?']) assert.equal(pedeOpiniao(t), true, t)
+  assert.equal(pedeOpiniao('Qual o valor da consulta?'), false)
 })
 
 console.log(`instagram: ${ok} casos ok`)
