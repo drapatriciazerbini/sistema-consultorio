@@ -180,6 +180,7 @@ jobs:
         run: |
           supabase functions deploy whatsapp-send --project-ref "$PROJECT_REF"
           supabase functions deploy meta-webhook --project-ref "$PROJECT_REF"
+          supabase functions deploy instagram-responder --project-ref "$PROJECT_REF"
           supabase functions deploy whatsapp-dispatch --project-ref "$PROJECT_REF"
           supabase functions deploy whatsapp-reply --project-ref "$PROJECT_REF"
           supabase functions deploy whatsapp-reopen --project-ref "$PROJECT_REF"

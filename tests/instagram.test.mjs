@@ -20,6 +20,7 @@ import {
   respostaRepetida,
   recusaGentil,
   pedeOpiniao,
+  textoRecebido,
 } from './instagram.build.mjs'
 
 let ok = 0
@@ -396,6 +397,19 @@ caso('"Ja ouviu falar??" sobre video compartilhado vai para a equipe, sem menu (
   assert.equal(d.evento.detalhe, 'opiniao')
   for (const t of ['O que a Dra acha disso?', 'o que vc acha?', 'Isso é verdade?', 'Vale a pena tomar essa vacina?']) assert.equal(pedeOpiniao(t), true, t)
   assert.equal(pedeOpiniao('Qual o valor da consulta?'), false)
+})
+
+// Chat do Direct na Central (19/10/2026): o que vai para o historico.
+caso('texto da mensagem vai como veio; anexo sem texto vira rótulo', () => {
+  assert.equal(textoRecebido({ text: '  Qual o valor?  ' }), 'Qual o valor?')
+  assert.equal(textoRecebido({ attachments: [{ type: 'image' }] }), '[foto]')
+  assert.equal(textoRecebido({ attachments: [{ type: 'audio' }, { type: 'image' }] }), '[áudio] [foto]')
+  assert.equal(textoRecebido({ attachments: [{ type: 'ig_reel' }] }), '[reel compartilhado]')
+  assert.equal(textoRecebido({ attachments: [{ type: 'algo_novo' }] }), '[anexo]')
+  assert.equal(textoRecebido({}), '[mensagem sem texto]')
+  assert.equal(textoRecebido(undefined), '[mensagem sem texto]')
+  // Texto junto com anexo: vale o texto.
+  assert.equal(textoRecebido({ text: 'olha isso', attachments: [{ type: 'share' }] }), 'olha isso')
 })
 
 console.log(`instagram: ${ok} casos ok`)

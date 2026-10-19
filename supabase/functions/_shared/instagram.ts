@@ -521,6 +521,14 @@ export async function retomarConversasDoInstagram(admin: Admin, agora: Date = ne
           continue
         }
         await admin.from('instagram_conversations').update({ last_bot_message_id: enviada }).eq('id', conversa.id)
+        await registrarNoChat(admin, {
+          clinicId: clinica.clinic_id,
+          conversaId: conversa.id,
+          direcao: 'outbound',
+          autor: 'robo',
+          texto: personalizar(RETOMADA, conversa.first_name).texto,
+          mid: enviada,
+        }, agora)
         await contar(admin, clinica.clinic_id, conversa.id, 'retomada')
         resumo.enviadas++
       } catch (erro) {
@@ -685,6 +693,16 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         // antes de o id da resposta ser gravado (a Meta avisa em paralelo), por
         // isso tambem vale o eco que chega logo depois de o robo comecar a enviar.
         if (ecoDoRobo(mensagem.mid, conversa.last_bot_message_id ?? null, conversa.last_bot_reply_at ?? null, agora)) continue
+        // Resposta da equipe pelo Business Suite ou pelo app: entra no chat da
+        // Central. A que saiu pela propria Central ja esta gravada (mesmo mid).
+        await registrarNoChat(admin, {
+          clinicId,
+          conversaId: conversa.id,
+          direcao: 'outbound',
+          autor: 'equipe',
+          texto: textoRecebido(mensagem),
+          mid: mensagem.mid,
+        }, agora)
         const { error } = await admin
           .from('instagram_conversations')
           .update({ last_human_reply_at: agora.toISOString(), bot_replies_in_row: 0 })
@@ -698,6 +716,15 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         .from('instagram_conversations')
         .update({ last_inbound_at: agora.toISOString() })
         .eq('id', conversa.id)
+
+      await registrarNoChat(admin, {
+        clinicId,
+        conversaId: conversa.id,
+        direcao: 'inbound',
+        autor: 'pessoa',
+        texto: textoRecebido(mensagem),
+        mid: mensagem.mid,
+      }, agora)
 
       await contar(admin, clinicId, conversa.id, 'mensagem')
       if (mensagem.quick_reply?.payload) await contar(admin, clinicId, conversa.id, 'botao', mensagem.quick_reply.payload)
@@ -743,7 +770,17 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         .eq('id', conversa.id)
 
       const nome = await nomeDaConversa(admin, conversa.id, pessoa, conversa.first_name ?? null)
-      const enviada = await enviar(pessoa, personalizar(decisao, nome))
+      const final = personalizar(decisao, nome)
+      const enviada = await enviar(pessoa, final)
+      await registrarNoChat(admin, {
+        clinicId,
+        conversaId: conversa.id,
+        direcao: 'outbound',
+        autor: 'robo',
+        texto: final.texto,
+        mid: enviada,
+        ...(enviada ? {} : { status: 'falhou' as const, erro: 'A Meta recusou a resposta do robô.' }),
+      }, agora)
       if (!enviada) continue
 
       const { error: erroDoEstado } = await admin
@@ -771,4 +808,105 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Chat do Direct na Central (19/10/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pedido do Edu: ver a conversa do Direct dentro da Central e, se precisar,
+ * responder por la. O robo continua igual; a diferenca e que agora o texto de
+ * cada mensagem fica guardado em instagram_messages (antes, de proposito, nada
+ * era guardado e a conversa so existia no Business Suite).
+ *
+ * Gravar no chat nunca derruba o robo: erro aqui vira aviso no log e a
+ * resposta segue. Perder uma linha do historico e arranhao; o robo mudo e
+ * pessoa sem resposta.
+ */
+
+/** O texto que vai para o historico. Anexo sem texto vira um rotulo legivel. */
+export function textoRecebido(mensagem: { text?: string; attachments?: unknown[] } | undefined): string {
+  const texto = String(mensagem?.text ?? '').trim()
+  if (texto) return texto
+  const anexos = (mensagem?.attachments ?? []) as Array<{ type?: string }>
+  if (!anexos.length) return '[mensagem sem texto]'
+  const NOMES: Record<string, string> = {
+    image: '[foto]',
+    video: '[vídeo]',
+    audio: '[áudio]',
+    file: '[arquivo]',
+    share: '[post compartilhado]',
+    ig_reel: '[reel compartilhado]',
+    reel: '[reel compartilhado]',
+    story_mention: '[mencionou nos stories]',
+    ig_story: '[resposta a um story]',
+  }
+  return anexos.map((a) => NOMES[String(a?.type ?? '')] ?? '[anexo]').join(' ')
+}
+
+export type LinhaDoChat = {
+  clinicId: string
+  conversaId: string
+  direcao: 'inbound' | 'outbound'
+  autor: 'pessoa' | 'robo' | 'equipe'
+  texto: string
+  mid: string | null
+  status?: 'recebida' | 'enviada' | 'falhou'
+  erro?: string | null
+}
+
+/**
+ * Grava uma mensagem no historico e atualiza a conversa (ultima mensagem e,
+ * para o que a pessoa mandou, nao lidas). O mid e unico: o eco da Meta de uma
+ * mensagem que ja gravamos (robo ou Central) nao duplica.
+ */
+export async function registrarNoChat(admin: Admin, linha: LinhaDoChat, agora: Date = new Date()) {
+  try {
+    const { error } = await admin.from('instagram_messages').upsert(
+      {
+        clinic_id: linha.clinicId,
+        conversation_id: linha.conversaId,
+        direction: linha.direcao,
+        author: linha.autor,
+        body: linha.texto.slice(0, 4000),
+        mid: linha.mid,
+        status: linha.status ?? (linha.direcao === 'inbound' ? 'recebida' : 'enviada'),
+        error: linha.erro ?? null,
+        created_at: agora.toISOString(),
+      },
+      { onConflict: 'mid', ignoreDuplicates: true },
+    )
+    if (error) throw error
+    const mudanca: Record<string, unknown> = { last_message_at: agora.toISOString() }
+    if (linha.direcao === 'inbound') {
+      const { data } = await admin.from('instagram_conversations').select('unread_count').eq('id', linha.conversaId).maybeSingle()
+      mudanca.unread_count = Number((data as { unread_count?: number } | null)?.unread_count ?? 0) + 1
+    }
+    const { error: erroDaConversa } = await admin.from('instagram_conversations').update(mudanca).eq('id', linha.conversaId)
+    if (erroDaConversa) throw erroDaConversa
+  } catch (erro) {
+    console.warn('Instagram: nao gravei a mensagem no chat da Central', linha.autor, erro instanceof Error ? erro.message : erro)
+  }
+}
+
+/** Horas depois da ultima mensagem da pessoa em que a Meta deixa responder. */
+export const JANELA_DA_EQUIPE = 24
+
+/** Texto livre da equipe, pela Central. Devolve o id da mensagem ou o erro. */
+export async function enviarDaEquipe(destinatario: string, texto: string): Promise<{ mid: string | null; erro: string | null }> {
+  const token = Deno.env.get('INSTAGRAM_PAGE_TOKEN')?.trim()
+  if (!token) return { mid: null, erro: 'Falta o segredo INSTAGRAM_PAGE_TOKEN no servidor.' }
+  const versao = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
+  const resposta = await fetch(`https://${hostDoToken(token)}/${versao}/me/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipient: { id: destinatario }, messaging_type: 'RESPONSE', message: { text: texto } }),
+  })
+  const corpo = await resposta.json().catch(() => ({}))
+  if (!resposta.ok) {
+    console.error('Instagram: a Meta recusou o envio da equipe', resposta.status, corpo?.error?.message ?? '')
+    return { mid: null, erro: String(corpo?.error?.message ?? `A Meta recusou o envio (${resposta.status}).`) }
+  }
+  return { mid: String(corpo?.message_id ?? '') || null, erro: null }
 }

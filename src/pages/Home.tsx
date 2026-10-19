@@ -42,6 +42,7 @@ import { apagarParametrosDoEndereco, parametrosDoEndereco } from '@/lib/endereco
 import { registrarServiceWorker } from '@/lib/notificacoes'
 import { ligarModoWhatsApp } from '@/lib/modo-whatsapp'
 import ConviteParaAvisos from '@/components/ConviteParaAvisos'
+import InstagramInbox from '@/sections/InstagramInbox'
 
 type Tab = 'dashboard' | 'agenda' | 'followups' | 'conversas' | 'pacientes' | 'config' | 'admin'
 type Icon = ComponentType<{ className?: string; strokeWidth?: number }>
@@ -182,6 +183,8 @@ export default function Home() {
   })
   // Paciente cuja conversa deve abrir ao entrar em Respostas pelo atalho.
   const [conversaFoco, setConversaFoco] = useState<string | null>(null)
+  // Respostas mostra o WhatsApp ou o Direct do Instagram (19/10/2026).
+  const [canalDasRespostas, setCanalDasRespostas] = useState<'whatsapp' | 'instagram'>('whatsapp')
   /**
    * Conversa pedida pelo toque na notificacao do celular (28/09/2026). Vem
    * pelo endereco (?conversa=, app fechado) ou por mensagem do service worker
@@ -806,7 +809,24 @@ export default function Home() {
                 onCadastrarContato={(dados) => cadastrarContato(dados, 'agenda')}
               />
             )}
-            {tab === 'conversas' && (
+            {tab === 'conversas' && clinicaId && (
+              <div className="mb-3 flex gap-2">
+                {(['whatsapp', 'instagram'] as const).map((canal) => (
+                  <button
+                    key={canal}
+                    type="button"
+                    onClick={() => setCanalDasRespostas(canal)}
+                    className={`rounded-full px-4 py-1.5 text-[11px] font-extrabold transition ${
+                      canalDasRespostas === canal ? 'bg-[#193d36] text-white' : 'bg-white text-[#2f7f74] hover:bg-[#eaf2ef]'
+                    }`}
+                  >
+                    {canal === 'whatsapp' ? 'WhatsApp' : 'Instagram'}
+                  </button>
+                ))}
+              </div>
+            )}
+            {tab === 'conversas' && clinicaId && canalDasRespostas === 'instagram' && <InstagramInbox clinicId={clinicaId} />}
+            {tab === 'conversas' && !(clinicaId && canalDasRespostas === 'instagram') && (
               <Conversations
                 focoPatientId={conversaFoco}
                 focoConversa={conversaDoAviso}

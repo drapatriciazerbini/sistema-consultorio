@@ -50,6 +50,7 @@ import {
   resumoDoPaciente,
   resolveConversation,
   unresolveConversation,
+  marcarVeioDoGoogle,
   saveAutoReply,
   sendConversationReply,
   sendConversationMenu,
@@ -1070,6 +1071,19 @@ export default function Conversations({
     }
   }
 
+  // Conversa antiga que veio do anuncio do Google (19/10/2026): ver
+  // marcarVeioDoGoogle em lib/repository.ts.
+  async function alternarGoogle(conversationId: string, veio: boolean) {
+    try {
+      await marcarVeioDoGoogle(conversationId, veio)
+      setConversations((current) =>
+        current.map((item) => (item.id === conversationId ? { ...item, origemAnuncio: veio ? 'google' : null } : item)),
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível marcar a origem da conversa.')
+    }
+  }
+
   async function reabrir(conversationId: string) {
     try {
       await unresolveConversation(conversationId)
@@ -2048,6 +2062,22 @@ export default function Conversations({
                       </div>
                     )}
                   </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                  {(!selected.origemAnuncio || selected.origemAnuncio === 'google') && (
+                    <button
+                      type="button"
+                      onClick={() => void alternarGoogle(selected.id, selected.origemAnuncio !== 'google')}
+                      title={
+                        selected.origemAnuncio === 'google'
+                          ? 'Tira esta conversa da conta da aba Google da Visão geral'
+                          : 'Para quem chegou pelo anúncio do Google antes de o site mandar a frase do Google: entra na conta da aba Google'
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 px-3 py-1.5 text-[10px] font-extrabold text-[#16456b] transition hover:bg-[#eef5fd]"
+                    >
+                      <Search className="h-3.5 w-3.5" />
+                      {selected.origemAnuncio === 'google' ? 'Tirar do Google' : 'Veio do Google'}
+                    </button>
+                  )}
                   {selected.status === 'resolved' ? (
                     <button
                       type="button"
@@ -2075,6 +2105,7 @@ export default function Conversations({
                       Concluir conversa
                     </button>
                   )}
+                  </div>
                 </div>
 
                 {/* O bloco inteiro continua no rodape, junto da caixa de

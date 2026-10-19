@@ -2164,7 +2164,7 @@ export async function getReplyWindow(conversationId: string): Promise<string | n
  *
  * O `clone()` existe porque o corpo só pode ser lido uma vez.
  */
-async function motivoDaFuncao(causa: unknown, data: unknown, padrao: string): Promise<string> {
+export async function motivoDaFuncao(causa: unknown, data: unknown, padrao: string): Promise<string> {
   const contexto = (causa as { context?: unknown }).context
   if (contexto instanceof Response) {
     try {
@@ -2276,6 +2276,37 @@ export async function resolveConversation(conversationId: string) {
  * Nao reacende a bandeira de atencao nem mexe nas nao lidas: quem reabre esta
  * olhando para a conversa agora.
  */
+/**
+ * Marca (ou desmarca) na mao que a conversa veio do Google (19/10/2026).
+ *
+ * Para quem chegou pelo anuncio antes de o site mandar a frase do Google: o
+ * Edu acha a conversa pelo horario da conversao no Google Ads. A data que vale
+ * para a aba Google e a da primeira mensagem da pessoa, e nao a de hoje.
+ */
+export async function marcarVeioDoGoogle(conversationId: string, veio: boolean) {
+  let chegouEm = new Date().toISOString()
+  if (veio) {
+    const { data: primeira } = await supabase
+      .from('whatsapp_messages')
+      .select('created_at')
+      .eq('conversation_id', conversationId)
+      .eq('direction', 'inbound')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (primeira?.created_at) chegouEm = primeira.created_at
+  }
+  const { error } = await semTipo
+    .from('whatsapp_conversations')
+    .update(
+      veio
+        ? { origem_anuncio: 'google', origem_anuncio_em: chegouEm, origem_anuncio_titulo: 'Marcada pela equipe', origem_anuncio_url: null }
+        : { origem_anuncio: null, origem_anuncio_em: null, origem_anuncio_titulo: null, origem_anuncio_url: null },
+    )
+    .eq('id', conversationId)
+  if (error) throw new Error('Não consegui marcar a origem da conversa. ' + error.message)
+}
+
 export async function unresolveConversation(conversationId: string) {
   const { error } = await supabase
     .from('whatsapp_conversations')

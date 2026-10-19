@@ -16,6 +16,10 @@ verify_jwt = true
 # Resposta livre da equipe pela tela. Exige sessao de usuario e checa RLS.
 verify_jwt = true
 
+[functions.instagram-responder]
+# Resposta da equipe no Direct pela tela. Exige sessao de usuario e checa RLS.
+verify_jwt = true
+
 [functions.meta-webhook]
 # A Meta nao envia JWT. A funcao valida a assinatura com META_APP_SECRET.
 verify_jwt = false
