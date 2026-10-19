@@ -3344,6 +3344,12 @@ export async function tratarConversa(opcoes: {
    */
   podeIniciarMenu: boolean
   /**
+   * Titulo do botao ou item de lista que a pessoa tocou. Vazio quando ela
+   * digitou. O `texto` de um toque e o id ("2"), e com ele sozinho nao da para
+   * saber se o "2" foi tocado ou digitado.
+   */
+  tituloDoToque?: string
+  /**
    * A mensagem e um anexo: foto, documento, audio ou video.
    *
    * Quem manda a foto de um exame quer que alguem OLHE. Responder o menu a isso
@@ -3489,7 +3495,15 @@ export async function tratarConversa(opcoes: {
     // Ela escreveu "nao estou conseguindo marcar" e esperou 35 minutos. O
     // titulo exato do item so chega por toque (quem digita escreve outra
     // coisa), entao isto nao atropela conversa nenhuma: e pedido explicito.
-    if (normalizar(texto) === 'marcar uma consulta') {
+    //
+    // O toque chega com o id ("2"), e nao com o titulo (19/10/2026): o robo
+    // oferecia o botao, a pessoa tocava, e o "2" caia de novo no pedido de
+    // marcar, que mandava o mesmo botao outra vez. O titulo do toque fecha
+    // esse laco.
+    if (
+      normalizar(texto) === 'marcar uma consulta' ||
+      normalizar(opcoes.tituloDoToque ?? '') === 'marcar uma consulta'
+    ) {
       registrar('opcao_escolhida', '2')
       return await iniciarAgendamento(
         admin, clinicId, conversationId, opcoes.pacientes, opcoes.consultas,
@@ -3536,11 +3550,15 @@ export async function tratarConversa(opcoes: {
     // haver conversa humana em andamento); ele OFERECE um botao. Tocar nele
     // manda "Marcar uma consulta", que o bloco acima ja atende.
     //
-    // Vale mesmo com gente conversando: e so um botao, e em geral e a propria
-    // atendente que mandou a familia marcar pelo menu. O limite de respostas na
-    // espera continua valendo, para nao virar eco.
+    // Com gente conversando, silencio (19/10/2026). Antes o botao saia mesmo
+    // com a equipe na conversa: a atendente oferecia horarios, a paciente
+    // respondia "esse horario e muito tarde pra mim" e o robo entrava no meio
+    // com "toque em Marcar uma consulta", duas vezes seguidas. Quem esta
+    // conversando com a equipe e da equipe; o toque num botao antigo continua
+    // abrindo a agenda, pelo bloco acima. O limite de respostas na espera
+    // continua valendo, para nao virar eco.
     const querMarcar = pediuAgendamento(texto) || texto.trim() === '2'
-    if (querMarcar && jaRespondidas < LIMITE_NA_ESPERA) {
+    if (opcoes.podeIniciarMenu && querMarcar && jaRespondidas < LIMITE_NA_ESPERA) {
       const lista = await carregarRespostas(admin, clinicId)
       // "Marca consulta pra minha filha, e valor da consulta": as duas coisas.
       const junto = acharResposta(texto, lista, 2)

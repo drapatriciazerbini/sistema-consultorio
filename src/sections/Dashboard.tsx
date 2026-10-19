@@ -12,12 +12,14 @@ import {
   MessageCircle,
   UsersRound,
   Instagram,
+  Search,
 } from 'lucide-react'
 import type { Patient } from '@/types/patient'
 import type { PendingRequest } from '@/lib/repository'
 import { dueCount, idadeAnos, pendingFollowups } from '@/lib/followup'
 import { nomeDoCid } from '@/lib/cid'
 import NumerosDoWhatsApp from '@/sections/NumerosDoWhatsApp'
+import NumerosDosAnuncios from '@/sections/NumerosDosAnuncios'
 import NumerosDoInstagram from '@/sections/NumerosDoInstagram'
 
 const NAVY = '#193d36'
@@ -41,6 +43,8 @@ const ABAS = [
   { chave: 'whatsapp' as const, rotulo: 'WhatsApp', icone: MessageCircle },
   // 02/10/2026: o robô também responde o Direct; os números dele ficam aqui.
   { chave: 'instagram' as const, rotulo: 'Instagram', icone: Instagram },
+  // 19/10/2026: quem chegou pelo Google (frase do botao de WhatsApp do site).
+  { chave: 'google' as const, rotulo: 'Google', icone: Search },
 ]
 type Aba = (typeof ABAS)[number]['chave']
 
@@ -401,6 +405,8 @@ export default function Dashboard({
         <NumerosDoWhatsApp />
       ) : aba === 'instagram' ? (
         <NumerosDoInstagram />
+      ) : aba === 'google' ? (
+        <NumerosDosAnuncios canal="google" />
       ) : (
         <>
       <section className="soft-grid relative overflow-hidden rounded-[28px] bg-[#193d36] p-5 text-white shadow-[0_20px_45px_rgba(25,61,54,.16)] sm:p-7">

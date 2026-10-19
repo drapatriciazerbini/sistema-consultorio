@@ -9,6 +9,7 @@ import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
 import { montarAviso } from '../_shared/aviso-da-equipe.ts'
 import { avisarEquipe } from '../_shared/push-da-equipe.ts'
 import { tratarInstagram } from '../_shared/instagram.ts'
+import { origemDoAnuncio, type Indicacao } from '../_shared/origem-do-anuncio.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
 // Fora dele (teste local) cai no await comum.
@@ -47,6 +48,8 @@ type WebhookMessage = {
   }
   /** Em qual mensagem nossa estava o botao tocado. */
   context?: { id?: string; from?: string }
+  /** Anuncio ou post da Meta que trouxe a pessoa (so na primeira mensagem). */
+  referral?: Indicacao
   location?: { latitude?: number; longitude?: number; name?: string; address?: string; url?: string }
   contacts?: {
     name?: { formatted_name?: string; first_name?: string }
@@ -675,6 +678,28 @@ Deno.serve(async (req) => {
           }
           if (messageError) throw messageError
 
+          // De onde veio (19/10/2026, ver origem-do-anuncio.ts): Google pela
+          // frase do site, ou anuncio da Meta pelo referral. Coluna nova,
+          // gravada a parte: sem ela o atendimento segue igual, so a aba Google
+          // da Visao geral fica sem esta conversa - e o aviso grita.
+          const origem = origemDoAnuncio(message.referral, body)
+          if (origem) {
+            try {
+              const { error: erroOrigem } = await admin
+                .from('whatsapp_conversations')
+                .update({
+                  origem_anuncio: origem.origem,
+                  origem_anuncio_em: receivedAt,
+                  origem_anuncio_titulo: origem.titulo,
+                  origem_anuncio_url: origem.url,
+                })
+                .eq('id', conversation.id)
+              if (erroOrigem) throw erroOrigem
+            } catch (erro) {
+              console.warn('Nao gravei de onde a conversa veio', origem.origem, erro)
+            }
+          }
+
           if (patient?.id && optedOut) {
             await admin.from('patients').update({ whatsapp_opt_out_at: receivedAt }).eq('id', patient.id)
           }
@@ -749,6 +774,7 @@ Deno.serve(async (req) => {
               opcoesAtuais: conversaAnterior?.booking_options ?? null,
               unidadeEmAndamento: conversaAnterior?.booking_unit_id ?? null,
               podeIniciarMenu: !respondendoEnvioNosso && !equipeFalouRecentemente,
+              tituloDoToque: message.type === 'interactive' ? body : '',
               texto: escolhido,
               telefone: waId,
               pacientes,

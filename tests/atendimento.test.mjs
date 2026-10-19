@@ -314,8 +314,13 @@ async function caso(titulo, passos, opcoes = {}) {
   // Serve para simular alguém da equipe entrando no meio da conversa, que é
   // quando o robô precisa se calar.
   let ajustes = {}
-  for (const [texto, esperado, mudanca] of passos) {
+  for (const [passo, esperado, mudanca] of passos) {
     if (mudanca) ajustes = { ...ajustes, ...mudanca }
+    // "[TOQUE 2] Marcar uma consulta": a pessoa tocou no botao. Chega como no
+    // webhook de verdade, com o id no texto e o titulo a parte.
+    const toque = /^\[TOQUE (\S+)\] (.+)$/.exec(passo)
+    const texto = toque ? toque[1] : passo
+    const tituloDoToque = toque ? toque[2] : ''
     consultas = consultas.filter((c) => !canceladas.includes(c.id))
     const r = await tratarConversa({
       admin,
@@ -348,6 +353,7 @@ async function caso(titulo, passos, opcoes = {}) {
       // se aquela mensagem e a primeira da conversa.
       jaViuOMenu: Boolean(conversa.menu_sent_at),
       podeIniciarMenu: ajustes.podeIniciarMenu ?? opcoes.podeIniciarMenu ?? true,
+      tituloDoToque,
       texto: texto === '[ANEXO]' ? '' : texto,
       telefone: opcoes.telefone ?? '5511999999999',
       pacientes: opcoes.pacientes ?? [],
@@ -1819,12 +1825,31 @@ await caso('Texto solto na fila com equipe conversando continua sem robô', [
 ], { estadoInicial: { booking_state: 'atendente' }, podeIniciarMenu: false })
 
 // 24/09/2026: a atendente disse "basta escolher a opção 2"; a mãe escreveu
-// "Pode agendar" e "2" e o robô ficou mudo por 35 minutos. Agora ela recebe o
-// botão, mesmo com a equipe na conversa.
+// "Pode agendar" e "2" e o robô ficou mudo por 35 minutos. Na fila sem
+// ninguém conversando, ela recebe o botão.
 await caso('"Pode agendar" na fila recebe o botão de marcar', [
   ['Pode agendar', 'Marcar uma consulta'],
-  ['2', 'Marcar uma consulta'],
   ['Marcar uma consulta', 'Em qual unidade'],
+], { estadoInicial: { booking_state: 'atendente' } })
+
+// 19/10/2026: com a equipe conversando, o robô se cala. A atendente oferecia
+// horários, a paciente respondeu "esse horário é muito tarde pra mim" e o
+// robô entrou no meio com o botão de marcar, duas vezes.
+await caso('Com a equipe conversando, pedido de horário não recebe o botão', [
+  ['Esse horário é muito tarde pra mim', null],
+  ['Pode agendar', null],
+  ['2', null],
+], { estadoInicial: { booking_state: 'atendente' }, podeIniciarMenu: false })
+
+// O toque chega com o id "2". Antes ele caía de novo no pedido de marcar e o
+// robô mandava o mesmo botão outra vez (19/10/2026).
+await caso('Tocar no botão de marcar abre a agenda, e não repete o botão', [
+  ['Pode agendar', 'Marcar uma consulta'],
+  ['[TOQUE 2] Marcar uma consulta', 'Em qual unidade'],
+], { estadoInicial: { booking_state: 'atendente' } })
+
+await caso('Toque no botão antigo com a equipe conversando também abre a agenda', [
+  ['[TOQUE 2] Marcar uma consulta', 'Em qual unidade'],
 ], { estadoInicial: { booking_state: 'atendente' }, podeIniciarMenu: false })
 
 // "Marca consulta pra minha filha, e valor da consulta" (24/09/2026): recebia
