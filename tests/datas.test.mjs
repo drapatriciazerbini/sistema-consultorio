@@ -5,7 +5,8 @@
 // Memed recusa a receita.
 //
 // PARA PROVAR QUE ESTE TESTE PEGA O DEFEITO: troque `(\d{2}|\d{4})` por
-// `(\d{4})` em _shared/datas.ts. Os casos de dois digitos caem.
+// `(\d{4})` em _shared/datas.ts, ou volte a regra pediatrica do ano curto
+// (sempre 2000 + ano). Os casos de dois digitos caem.
 import { dataDeNascimentoIso } from './datas.build.mjs'
 
 let passou = 0
@@ -17,16 +18,20 @@ const conferir = (titulo, condicao, detalhe = '') => {
 const HOJE = new Date('2026-09-22T12:00:00Z')
 const ler = (t) => dataDeNascimentoIso(t, HOJE)
 
-conferir('Caso real: "25/07/23" vira 2023-07-25', ler('25/07/23') === '2023-07-25', `veio ${ler('25/07/23')}`)
-conferir('Quatro digitos continuam valendo', ler('22/06/2020') === '2020-06-22')
-conferir('Dia e mes de um digito', ler('5/3/2019') === '2019-03-05')
-conferir('Separador com ponto', ler('05.03.2019') === '2019-03-05')
-conferir('Separador com traco', ler('05-03-19') === '2019-03-05')
-conferir('"10" e 2010: adolescente ainda e paciente', ler('01/01/10') === '2010-01-01')
-conferir('"26" e 2026: bebe deste ano', ler('01/01/26') === '2026-01-01')
+// Ano com dois digitos na geriatria (27/10/2026): a regra que veio da
+// pediatria lia "45" como 2045 (futuro, sem data) e "23" como 2023 (um bebe no
+// prontuario de uma senhora).
+conferir('"12/03/45" e 1945', ler('12/03/45') === '1945-03-12', `veio ${ler('12/03/45')}`)
+conferir('"25/07/23" e 1923, senhora de 103 anos', ler('25/07/23') === '1923-07-25', `veio ${ler('25/07/23')}`)
+conferir('"05" e 2005: adulto de 21 anos, nao 121', ler('01/01/05') === '2005-01-01', `veio ${ler('01/01/05')}`)
+conferir('"30" e 1930', ler('01/01/30') === '1930-01-01')
+conferir('Quatro digitos continuam valendo', ler('22/06/1940') === '1940-06-22')
+conferir('Dia e mes de um digito', ler('5/3/1950') === '1950-03-05')
+conferir('Separador com ponto', ler('05.03.1950') === '1950-03-05')
+conferir('Separador com traco', ler('05-03-50') === '1950-03-05')
 
 // O que NAO pode virar data no prontuario.
-conferir('"30" em 2026 nao vira 1930 nem 2030', ler('01/01/30') === null)
+conferir('"20" fica sem data: 106 anos ou 6 anos', ler('01/01/20') === null)
 conferir('31/02 nao existe', ler('31/02/2020') === null)
 conferir('29/02 em ano bissexto existe', ler('29/02/2020') === '2020-02-29')
 conferir('29/02 em ano comum nao existe', ler('29/02/2021') === null)

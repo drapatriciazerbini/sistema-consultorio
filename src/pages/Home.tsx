@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react'
 import {
   Bell,
   CalendarDays,
@@ -221,7 +221,12 @@ export default function Home() {
       voltarPara?: Tab
     } | null
   >(null)
-  const pendentes = dueCount(db.patients)
+  // Painel e acompanhamento so com quem ja foi atendido (porte do sistema do
+  // Dr. Marcello, 25/10/2026; ver lib/paciente-atendido.ts). Sem a marca, todo
+  // mundo, como antes. A Agenda e a lista de Pacientes continuam recebendo
+  // todos.
+  const atendidos = useMemo(() => db.patients.filter((p) => p.atendido !== false), [db.patients])
+  const pendentes = dueCount(atendidos)
   const [solicitacoes, setSolicitacoes] = useState<PendingRequest[]>([])
   // Clinica atual, para o logo do menu (ver lib/marca.ts). Comeca pela ultima
   // vista neste navegador para o menu nao piscar a cada recarga.
@@ -786,14 +791,14 @@ export default function Home() {
           <div key={tab} className="animate-enter">
             {tab === 'dashboard' && (
               <Dashboard
-                patients={db.patients}
+                patients={atendidos}
                 solicitacoes={solicitacoes}
                 onAbrirAgenda={() => setTab('agenda')}
               />
             )}
             {tab === 'followups' && (
               <Followups
-                patients={db.patients}
+                patients={atendidos}
                 templates={db.templates}
                 setFollowup={setFollowup}
                 onAbrirConversa={(patientId) => {

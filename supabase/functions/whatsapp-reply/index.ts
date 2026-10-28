@@ -3,6 +3,7 @@ import { iniciarQuestionario, mostrarMenu } from '../_shared/atendimento.ts'
 import { montarConteudo } from '../_shared/conteudo.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
 import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
+import { postarNaMeta } from '../_shared/meta-tentativa.ts'
 
 /**
  * Resposta livre da equipe para um paciente, a partir da tela de Conversas.
@@ -331,7 +332,9 @@ Deno.serve(async (req) => {
       corpoNoHistorico = texto || arquivo.name || 'Arquivo'
     }
 
-    const resposta = await fetch(
+    // Erro passageiro da Meta tenta de novo antes de virar "falhou" na tela
+    // (26/10/2026, ver _shared/meta-tentativa.ts).
+    const resposta = await postarNaMeta(
       `https://graph.facebook.com/${graphVersion}/${settings.whatsapp_phone_number_id}/messages`,
       {
         method: 'POST',

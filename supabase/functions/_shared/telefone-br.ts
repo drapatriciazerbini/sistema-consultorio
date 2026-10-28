@@ -36,6 +36,33 @@ export function variantesDoTelefone(numero: string): string[] {
   return [...variantes].filter((v) => v.length >= 8)
 }
 
+/**
+ * Celular sem o nono digito ganha o 9; o resto volta so com os digitos.
+ *
+ * Porte do sistema do Dr. Marcello (16/10/2026): la um paciente cadastrado com
+ * o celular em 8 digitos, sem o 9, ficou sem os acompanhamentos - a Meta
+ * devolvia "Message undeliverable". Desde 2016 todo celular brasileiro tem 9
+ * digitos, entao 8 digitos comecando por 6 a 9 e celular faltando o 9. O 55
+ * fica como veio.
+ */
+export function comNonoDigito(numero: string): string {
+  const digitos = String(numero ?? '').replace(/\D/g, '')
+  const comPais = digitos.startsWith('55') && digitos.length >= 12
+  const semPais = comPais ? digitos.slice(2) : digitos
+  if (semPais.length !== 10 || !/^[6-9]/.test(semPais.slice(2))) return digitos
+  return `${comPais ? '55' : ''}${semPais.slice(0, 2)}9${semPais.slice(2)}`
+}
+
+/**
+ * O numero para mandar a Meta: 55 + DDD + celular com o 9 (28/10/2026, para
+ * os celulares do aviso do pedido). O 55 so e codigo do pais quando sobram 12
+ * ou 13 digitos: "55991234567" e DDD 55 (Santa Maria), e nao o Brasil.
+ */
+export function paraEnvio(numero: string): string {
+  const digitos = comNonoDigito(numero)
+  return digitos.startsWith('55') && digitos.length >= 12 ? digitos : `55${digitos}`
+}
+
 /** Os dois numeros sao o mesmo telefone? */
 export function mesmoTelefone(a: string, b: string): boolean {
   const deA = new Set(variantesDoTelefone(a))

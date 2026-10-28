@@ -33,6 +33,7 @@ import {
   getCurrentMembership,
   getSchedulePreferences,
   confirmAppointment,
+  registrarPresencaConfirmada,
   notifyAppointmentConfirmed,
   listAppointments,
   listAppointmentHistory,
@@ -56,6 +57,7 @@ import {
 } from '@/lib/repository'
 import { useDialogos } from '@/components/dialogos-contexto'
 import { avisoDoBloqueio, consultasDeUmDia } from '@/lib/bloqueio-de-dia'
+import { telefoneDoLembrete } from '@/lib/telefone-do-lembrete'
 import {
   DURACOES_DO_DOMICILIO,
   consultasNaJanela,
@@ -125,20 +127,6 @@ function diaEHora(iso: string) {
  * medico (outro consultorio, compromisso). Nasce pela tela, sem cadastro nem
  * telefone - e isso que a distingue de uma solicitacao pelo WhatsApp.
  */
-/**
- * O telefone que vai receber o lembrete da vespera.
- *
- * Vem do cadastro quando a consulta tem paciente, e do contato quando alguem
- * marcou sem cadastro. Vazio nos dois casos significa uma coisa so: essa pessoa
- * nao vai receber lembrete nenhum, e a tela precisa dizer isso antes da
- * vespera, e nao depois da falta.
- */
-function telefoneDoLembrete(item: Appointment, patients: Patient[]) {
-  if (item.patientId) {
-    return patients.find((p) => p.id === item.patientId)?.telefone?.trim() ?? ''
-  }
-  return item.contactPhone.trim()
-}
 
 /** Consulta marcada para alguem de fora da base, sem telefone utilizavel. */
 function telefoneCurto(escolha: { patientId: string; telefone: string }) {
@@ -2431,6 +2419,36 @@ export default function Agenda({
                     Confirmar consulta
                   </button>
                 )}
+                {/* O paciente confirmou fora do lembrete (porte de 20/10/2026):
+                    por ligacao, pela filha no balcao, ou por uma palavra que o
+                    robo nao entendeu. So registra, nao manda mensagem. Ver
+                    registrarPresencaConfirmada. */}
+                {emEdicao.status === 'scheduled' &&
+                  (emEdicao.confirmedAt ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = emEdicao.id
+                        setEmEdicao(null)
+                        void acao(() => registrarPresencaConfirmada(id, false), 'Confirmação de presença desfeita.')
+                      }}
+                      className="rounded-xl px-3 py-2.5 text-[11px] font-extrabold text-slate-500 transition hover:bg-slate-100"
+                    >
+                      Desfazer presença confirmada
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = emEdicao.id
+                        setEmEdicao(null)
+                        void acao(() => registrarPresencaConfirmada(id, true), 'Presença confirmada registrada.')
+                      }}
+                      className="rounded-xl border border-[#557f75]/30 bg-[#eef3f2] px-4 py-2.5 text-[11px] font-extrabold text-[#456a61] transition hover:bg-[#e5efec]"
+                    >
+                      Paciente confirmou presença
+                    </button>
+                  ))}
                 <button
                   type="button"
                   onClick={() => {

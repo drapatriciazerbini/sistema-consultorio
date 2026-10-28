@@ -32,6 +32,7 @@ import { linhaDoTempo } from '@/lib/linha-do-tempo'
 import { CHAVE_DO_VISUAL, EVENTO_MODO_WHATSAPP } from '@/lib/modo-whatsapp'
 import { VisualizadorDeArquivo, type ArquivoAberto } from '@/components/VisualizadorDeArquivo'
 import { marcaSemClinicaConhecida } from '@/lib/marca'
+import { respostaDeValor, valoresJaEnviados } from '@/lib/valores-enviados'
 import {
   getAutoReply,
   getCurrentMembership,
@@ -86,12 +87,14 @@ const ETAPA_DO_ROBO: Record<string, string> = {
   pedido_periodos: 'escolhendo os períodos',
   pedido_restricao: 'contando as restrições',
   pedido_quando: 'dizendo a partir de quando',
+  pedido_valor: 'lendo o valor da consulta',
   pedido_nome: 'informando o nome do paciente',
   pedido_nascimento: 'informando o nascimento',
   visita_endereco: 'informando o endereço da visita',
   visita_periodos: 'escolhendo os períodos da visita',
   visita_restricao: 'contando as restrições da visita',
   visita_quando: 'dizendo a partir de quando',
+  visita_valor: 'lendo o valor da visita',
   atendente: 'aguardando a equipe',
 }
 
@@ -1215,6 +1218,24 @@ export default function Conversations({
   )
   const selected = conversations.find((item) => item.id === selectedId) ?? null
 
+  // Pessoa sem cadastro que ainda nao leu o valor (27/10/2026, caso de
+  // 19/10 - ver lib/valores-enviados). So para quem nao e paciente: quem ja
+  // tem cadastro ja passou por uma consulta paga.
+  const prontaDeValor = useMemo(() => respostaDeValor(prontas), [prontas])
+  const faltaValor = Boolean(
+    selected &&
+      !selected.patientId &&
+      !loadingMessages &&
+      messages.length > 0 &&
+      !valoresJaEnviados(messages, prontaDeValor?.resposta),
+  )
+  const colocarValorNaResposta = () => {
+    if (!prontaDeValor) return
+    setResposta((atual) =>
+      atual.trim() ? `${atual.trimEnd()}\n\n${prontaDeValor.resposta}` : prontaDeValor.resposta,
+    )
+  }
+
   // Resumo do paciente da conversa aberta. Some quando o contato nao tem
   // cadastro: sem paciente nao ha historico para contar.
   useEffect(() => {
@@ -2321,6 +2342,26 @@ export default function Conversations({
                       <p className="mt-1.5 text-[10px] font-bold text-[#b42318]">{erroDasNotas}</p>
                     )}
                   </div>
+                  {janelaAberta && faltaValor && (
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-[#e0a33b]/50 bg-[#fff8eb] px-3 py-2">
+                      <p className="text-[11px] font-bold text-[#8a5a00]">
+                        💳 Esta pessoa ainda não recebeu os valores. Antes de confirmar horário, avise que a consulta é particular.
+                      </p>
+                      {prontaDeValor ? (
+                        <button
+                          type="button"
+                          onClick={colocarValorNaResposta}
+                          className="shrink-0 rounded-lg border border-[#e0a33b]/60 bg-white px-2.5 py-1 text-[10px] font-extrabold text-[#8a5a00] transition hover:bg-[#fff1d6]"
+                        >
+                          Colocar os valores na resposta
+                        </button>
+                      ) : (
+                        <p className="text-[10px] font-semibold text-[#8a5a00]/80">
+                          Cadastre a resposta pronta de valor em Preferências.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {janelaAberta ? (
                     <>
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2891,6 +2932,16 @@ export default function Conversations({
                   {reabrindo ? 'Enviando convite...' : 'Só convidar a responder'}
                 </button>
                 {avisoRetomada && <p className="mt-1 font-semibold text-[#b42318]">{avisoRetomada}</p>}
+              </div>
+            )}
+            {janelaAberta && faltaValor && (
+              <div className="mx-1 mb-1.5 rounded-[10px] bg-[#fff8eb] px-3 py-2 text-[12.5px] text-[#8a5a00] shadow-[0_1px_0.5px_rgba(12,26,23,.13)]">
+                <p>💳 Esta pessoa ainda não recebeu os valores. Avise que a consulta é particular antes de confirmar.</p>
+                {prontaDeValor && (
+                  <button type="button" onClick={colocarValorNaResposta} className="mt-1 font-semibold text-[#008069]">
+                    Colocar os valores na resposta
+                  </button>
+                )}
               </div>
             )}
             {arquivo && janelaAberta && (

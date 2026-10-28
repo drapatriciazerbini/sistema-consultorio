@@ -125,6 +125,9 @@ function fazerAdmin({ pacientes = [], teleAtiva = true }) {
     select: () => chain(resultado),
     eq: (_c, valor) => chain(resultado._porId ? { ...resultado, single: resultado._porId(valor) } : resultado),
     is: () => chain(resultado),
+    // A busca de remarcacao pendente (porte de 20/10/2026) filtra com not e gt.
+    not: () => chain(resultado),
+    gt: () => chain(resultado),
     order: () => chain(resultado),
     limit: () => chain(resultado),
     maybeSingle: async () => ({ data: resultado.single ?? null, error: null }),

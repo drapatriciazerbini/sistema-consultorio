@@ -3215,6 +3215,22 @@ export default function PatientRecord({
                     Dados do paciente
                   </p>
                   <p className="mt-2 text-sm font-extrabold leading-tight text-[#193d36]">{patient.nome}</p>
+                  {/* Nome que veio do contato do WhatsApp, e nao da ficha
+                      (porte de 18/10/2026): aqui quase sempre e o de quem
+                      escreveu, a filha ou o cuidador. Vermelho, como a alergia,
+                      porque receita e atestado saem com este nome. */}
+                  {patient.nomeDoContatoEm && (
+                    <div
+                      role="alert"
+                      className="mt-2 flex items-start gap-1.5 rounded-xl border border-[#b42318]/25 bg-[#fceceb] px-2.5 py-2 text-[11px] font-bold leading-snug text-[#b42318]"
+                    >
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        Nome a confirmar: a ficha do WhatsApp ficou sem o nome do paciente, e o cadastro usa o nome do
+                        contato (pode ser o de um familiar ou cuidador). Confirme e corrija em Editar cadastro.
+                      </span>
+                    </div>
+                  )}
 
                   <dl className="mt-3 space-y-2">
                     {[

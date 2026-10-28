@@ -74,6 +74,30 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
       'Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini.\n\n{{2}}\n\n' +
       'Se precisar, é só responder por aqui.',
   },
+  // Os dois avisos no WhatsApp pessoal da Dra. Patricia (28/10/2026), itens 6
+  // e 7 de MODELOS-META.md. Nao vao para paciente: saem quando alguem pede
+  // consulta ou visita pelo robo (ver alerta-de-urgencia.ts), e a resposta
+  // dela volta ao paciente por resposta-ao-alerta.ts. {{1}} quem, {{2}} a hora
+  // de Brasilia, {{3}} o resumo do pedido numa linha so.
+  //
+  // Na Meta, os dois com periodo de validade personalizado de 12 horas
+  // (licao do sistema do Dr. Marcello): com o celular desligado, o aviso
+  // espera, em vez de sumir calado.
+  aviso_pedido_consulta: {
+    corpo:
+      '📅 Novo pedido de consulta na Central de Cuidado.\n\n' +
+      '{{1}} escreveu às {{2}}:\n"{{3}}"\n\n' +
+      'Para responder, escreva a mensagem em cima deste aviso: eu mostro antes de enviar e repasso ao paciente como mensagem sua. Ou toque num botão.',
+    botoes: ['Eu respondo', 'Mandar os valores'],
+  },
+  // A reserva sem botoes: enquanto o de cima estiver em analise, ou se a Meta
+  // recusar os botoes, o envio cai neste sozinho.
+  aviso_pedido_consulta_simples: {
+    corpo:
+      '📅 Novo pedido de consulta na Central de Cuidado.\n\n' +
+      '{{1}} escreveu às {{2}}:\n"{{3}}"\n\n' +
+      'Para responder, escreva a mensagem em cima deste aviso: eu mostro antes de enviar e repasso ao paciente como mensagem sua.',
+  },
 }
 
 /**

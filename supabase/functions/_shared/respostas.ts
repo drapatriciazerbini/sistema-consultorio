@@ -191,6 +191,26 @@ export function acharResposta(
   return melhorPonto >= minimoDePontos ? melhor : null
 }
 
+/**
+ * O texto da resposta pronta de valor, ou null quando ela nao serve.
+ *
+ * Um lugar so para o preco (27/10/2026, depois do caso de 19/10/2026: um
+ * paciente pediu consulta pelo robo, a equipe confirmou o horario a mao e
+ * ninguem falou de valor nem de particular). O robo le daqui
+ * antes de pedir o nome de quem ainda nao e paciente, e o botao "Mandar os
+ * valores" do aviso no WhatsApp da Dra. Patricia (28/10/2026) manda isto ao
+ * paciente. Sem a resposta, ou com "R$ ___" ainda no texto, nada de inventar
+ * numero: quem chamou diz que falta cadastrar.
+ */
+export function valorCadastrado(respostas: RespostaPronta[]): string | null {
+  const deValor =
+    respostas.find((r) => /\bvalor/.test(normalizar(r.assunto).trim())) ??
+    respostas.find((r) => r.palavras.some((p) => normalizar(p).trim() === 'valor'))
+  const texto = deValor?.resposta.trim() ?? ''
+  if (!texto || texto.includes('___')) return null
+  return texto
+}
+
 type Admin = {
   from: (table: string) => any // eslint-disable-line @typescript-eslint/no-explicit-any
 }

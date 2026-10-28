@@ -72,7 +72,18 @@ export function equipeFalouRecentemente(
  * `escolhido` e o id do botao quando ela tocou, ou o proprio texto quando ela
  * digitou - os dois entram pelo mesmo caminho de proposito.
  */
-export function interpretarResposta(escolhido: string, dentroDaJanela: boolean): Resposta {
+export function interpretarResposta(
+  escolhido: string,
+  dentroDaJanela: boolean,
+  /**
+   * A ultima mensagem nossa foi o LEMBRETE (modelo de lembrete ligado a uma
+   * consulta, sem acompanhamento). Separado de dentroDaJanela, que tambem vale
+   * depois do acompanhamento: "sim" ali e "estamos bem", nao confirmacao de
+   * consulta. Na origem este e o 4o parametro (o 3o, comLembreteRecente, nao
+   * veio para ca).
+   */
+  ultimaFoiLembrete = false,
+): Resposta {
   const r = normalizarResposta(escolhido)
 
   // Palavra CONTIDA na resposta, e nao a resposta inteira.
@@ -124,14 +135,34 @@ export function interpretarResposta(escolhido: string, dentroDaJanela: boolean):
   // Remarcar pode: ele nao muda nada na agenda, so chama a equipe.
   const duvida = /(^|\s)nao sei(\s|$)/.test(r)
 
+  // "Confirma" e o "sim" (porte do sistema do Dr. Marcello, 20/10/2026). La
+  // um paciente respondeu o lembrete digitando "Confirma": a lista so tinha
+  // confirmar/confirmo/confirmado, e na agenda a consulta seguiu "lembrete
+  // enviado, sem resposta". "confirma" contido cobre confirma, confirmada,
+  // confirmamos; "confirmei" vem a parte. Aqui vale ainda mais: o idoso
+  // responde como fala, e "Confirma" ou "Sim" e o jeito mais comum.
+  //
+  // O lembrete pergunta se a pessoa vem, e "sim", "ok", "vou sim", "estaremos
+  // la" respondem isso. So com o lembrete como ultima mensagem nossa (fora
+  // dela "ok" e so um ok), sem "nao" na frase, e nunca por cima de um pedido de
+  // remarcar ou cancelar na mesma mensagem.
+  const so = r.replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  const afirma =
+    dentroDaJanela &&
+    ultimaFoiLembrete &&
+    !/\bnao\b/.test(so) &&
+    (/^(sim|ok|okay|certo|combinado|positivo|claro|com certeza|perfeito|beleza)\b/.test(so) ||
+      /^(sim )?(vou|vamos|estarei|estaremos|irei|iremos)( sim)?( la| ai| presente| presentes)?( sim)?( obrigad[oa])?$/.test(so))
   // O numero so vale dentro da janela para nao roubar as opcoes do menu.
-  const confirma =
-    dentroDaJanela && !duvida && (r === '1' || semNegacao('confirmar', 'confirmo', 'confirmado'))
+  const confirmaAntes =
+    dentroDaJanela && !duvida && (r === '1' || semNegacao('confirma', 'confirmo', 'confirmei') || afirma)
   const remarca =
     dentroDaJanela &&
     (r === '2' || semNegacao('remarcar', 'reagendar', 'trocar a data', 'outro horario'))
   const cancela =
     dentroDaJanela && !duvida && (r === '3' || semNegacao('cancelar', 'cancelo', 'desmarcar'))
+  // "Sim, mas preciso remarcar": o pedido manda, o "sim" so respondia a pergunta.
+  const confirma = confirmaAntes && !remarca && !cancela
 
   const pediuAjuda = tem('preciso de ajuda', 'preciso falar')
 

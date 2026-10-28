@@ -22,14 +22,19 @@ export function dataDeNascimentoIso(texto: string, hoje = new Date()): string | 
   const mes = Number(m[2])
   let ano = Number(m[3])
 
-  // Ano com dois digitos. Isto e uma clinica de pediatria e a data e da
-  // CRIANCA: "23" so pode ser 2023. Um ano de dois digitos maior que o atual
-  // ("30" em 2026) seria 1930 - impossivel para um paciente daqui, e por isso
-  // fica sem data em vez de virar um idoso no prontuario.
+  // Ano com dois digitos. A regra veio do sistema do Dr. Marcello, onde a data
+  // e de crianca e "23" so podia ser 2023. Aqui e o contrario (27/10/2026): a
+  // Dra. Patricia atende adulto e idoso, e "12/03/45" e 1945. A regra pediatrica
+  // gravava 2045 como "futuro" e jogava fora, ou 2023 como bebe no prontuario
+  // de uma senhora de 103 anos.
+  //  - 1900 + ano, se der ate 105 anos;
+  //  - senao 2000 + ano, se der adulto (18 anos ou mais): "05" e 2005;
+  //  - senao fica sem data ("20": 106 anos ou 6 anos, nenhum e paciente daqui).
   if (m[3].length === 2) {
-    const anoAtual = hoje.getFullYear() % 100
-    if (ano > anoAtual) return null
-    ano += 2000
+    const anoAtual = hoje.getFullYear()
+    if (anoAtual - (1900 + ano) <= 105) ano += 1900
+    else if (anoAtual - (2000 + ano) >= 18) ano += 2000
+    else return null
   }
 
   if (mes < 1 || mes > 12 || dia < 1) return null

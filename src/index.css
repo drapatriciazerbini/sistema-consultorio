@@ -44,6 +44,16 @@
     background: #f7f5ef;
   }
 
+  /* Nada pode alargar a pagina no celular (porte do sistema do Dr. Marcello,
+     19/10/2026): as quatro abas da Visao geral passavam da tela, a pagina
+     inteira corria para o lado e o menu de baixo so aparecia depois de rolar.
+     clip, e nao hidden: nao cria area de rolagem, entao o topo grudado
+     (sticky) continua funcionando. */
+  html,
+  body {
+    overflow-x: clip;
+  }
+
   body {
     @apply bg-background text-foreground;
     min-width: 320px;

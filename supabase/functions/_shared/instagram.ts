@@ -569,7 +569,8 @@ type EventoDoDirect = {
 
 type Registro = {
   registrar(chave: string, tipo: string, payload: unknown): Promise<'novo' | 'repetido'>
-  concluir(): void
+  /** Grava a conclusao do evento anterior (ver eventos-do-webhook.ts). */
+  concluir(): void | Promise<void>
 }
 
 /**
@@ -653,7 +654,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
   for (const bruto of payload.entry ?? []) {
     const entrada = bruto as { id?: string; messaging?: EventoDoDirect[] }
     for (const evento of entrada.messaging ?? []) {
-      registro.concluir()
+      await registro.concluir()
       const mensagem = evento.message
       if (!mensagem?.mid || mensagem.is_deleted || mensagem.is_unsupported) continue
 

@@ -12,6 +12,15 @@ import type {
 import type { PatientDraft } from '@/lib/store'
 import type { Database } from '@/types/database'
 import { buscarTodas } from '@/lib/paginar'
+import {
+  consultasQueNaoAconteceram,
+  diaEmSaoPaulo,
+  temProntuario,
+  type ConsultaDaAgenda,
+  type ConsultaDoAcompanhamento,
+  type HorarioDaAgenda,
+} from '../../supabase/functions/_shared/consulta-aconteceu.ts'
+import { pacientesAtendidos } from '@/lib/paciente-atendido'
 
 type PatientInsert = Database['public']['Tables']['patients']['Insert']
 type PatientUpdate = Database['public']['Tables']['patients']['Update']
@@ -64,6 +73,8 @@ type FollowupRow = {
   followup_key: FollowupKey
   status: 'pending' | 'opened' | 'completed' | 'pendente' | 'enviado' | 'concluido'
   opened_at: string | null
+  consultation_id?: string | null
+  semConsulta?: boolean
 }
 
 type SettingsRow = {
@@ -142,6 +153,7 @@ function mapPatient(row: PatientRow, followupRows: FollowupRow[]): Patient {
       id: item.id,
       status: toUiStatus(item.status),
       enviadoEm: item.opened_at ?? undefined,
+      ...(item.semConsulta ? { semConsulta: true } : {}),
     }
   }
 
@@ -163,6 +175,9 @@ function mapPatient(row: PatientRow, followupRows: FollowupRow[]): Patient {
     observacoes: row.notes ?? '',
     criadoEm: row.created_at,
     criadoAutomaticamenteEm: (row as { auto_created_at?: string | null }).auto_created_at ?? '',
+    // Coluna nova (20261027110000). Vem do select('*') de toda leitura de
+    // paciente: banco sem a coluna so deixa o campo vazio, sem recusar nada.
+    nomeDoContatoEm: (row as { name_from_contact_at?: string | null }).name_from_contact_at ?? '',
     followups,
   }
 }
@@ -1372,6 +1387,28 @@ export async function notifyAppointmentConfirmed(
   }
 }
 
+/**
+ * A equipe registra que o paciente confirmou presenca.
+ *
+ * Ate aqui so o lembrete gravava confirmed_at. No sistema do Dr. Marcello
+ * (20/10/2026) um paciente respondeu "Confirma" - palavra que o robo ainda nao
+ * reconhecia - e a consulta ficou "lembrete enviado, sem resposta" na vespera,
+ * sem botao nenhum para a equipe corrigir. Aqui serve tambem para quem
+ * confirma por ligacao, ou pela filha que avisa no balcao. Diferente de
+ * confirmAppointment, que e a clinica aceitando a marcacao e avisando o
+ * paciente: aqui ninguem e avisado, so fica registrado. So vale para consulta
+ * ainda marcada. confirmed_at existe desde 20260825120000; vai pelo cliente sem
+ * tipo porque os tipos gerados nao conhecem a coluna.
+ */
+export async function registrarPresencaConfirmada(appointmentId: string, confirmada: boolean) {
+  const { error } = await semTipo
+    .from('appointments')
+    .update(confirmada ? { confirmed_at: new Date().toISOString(), reschedule_requested_at: null } : { confirmed_at: null })
+    .eq('id', appointmentId)
+    .eq('status', 'scheduled')
+  if (error) fail(error)
+}
+
 /** A recepcao aceita a solicitacao feita pelo WhatsApp por quem nao tem cadastro. */
 export async function confirmAppointment(appointmentId: string) {
   const { error } = await supabase
@@ -2315,6 +2352,94 @@ export async function unresolveConversation(conversationId: string) {
   if (error) fail(error)
 }
 
+/**
+ * Marca os acompanhamentos pendentes cuja consulta nao aconteceu: o envio
+ * automatico os segura (whatsapp-dispatch), e a tela dizia "sai automatico".
+ * Mesma regra do servidor (consultasQueNaoAconteceram). Porte do sistema do Dr.
+ * Marcello, 23/10/2026. Leitura a parte e em try/catch: se falhar, a tela fica
+ * como antes - e o console diz.
+ */
+async function marcarSemConsulta(clinicId: string, linhas: FollowupRow[]) {
+  try {
+    const pendentes = linhas.filter((l) => toUiStatus(l.status) === 'pendente' && l.consultation_id)
+    const ids = [...new Set(pendentes.map((l) => String(l.consultation_id)))]
+    if (!ids.length) return
+    const consultas: ConsultaDaAgenda[] = []
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data, error } = await semTipo
+        .from('consultations')
+        .select('id,clinic_id,patient_id,consultation_date,chief_complaint,clinical_history,assessment,plan')
+        .eq('clinic_id', clinicId)
+        .in('id', ids.slice(i, i + 100))
+      if (error) throw error
+      consultas.push(...((data ?? []) as ConsultaDaAgenda[]))
+    }
+    const pacientes = [...new Set(consultas.map((c) => c.patient_id))]
+    const agenda: HorarioDaAgenda[] = []
+    for (let i = 0; i < pacientes.length; i += 100) {
+      const { data, error } = await semTipo
+        .from('appointments')
+        .select('patient_id,clinic_id,starts_at,status')
+        .eq('clinic_id', clinicId)
+        .in('patient_id', pacientes.slice(i, i + 100))
+      if (error) throw error
+      agenda.push(...((data ?? []) as HorarioDaAgenda[]))
+    }
+    const fora = consultasQueNaoAconteceram(consultas, agenda)
+    for (const l of pendentes) if (fora.has(String(l.consultation_id))) l.semConsulta = true
+  } catch (erro) {
+    console.warn('Nao consegui conferir as consultas dos acompanhamentos; a etiqueta "nao sai sozinho" fica de fora', erro)
+  }
+}
+
+/**
+ * Separa atendidos de pre-agendados (ver lib/paciente-atendido.ts).
+ *
+ * Leitura a parte e em try/catch: se falhar, ninguem e marcado e a tela fica
+ * como antes, todo mundo junto - perder a separacao e arranhao, perder a lista
+ * de pacientes nao. O prontuario so e lido de quem a agenda nao resolveu, e so
+ * volta para quem enxerga consultas (a recepcao recebe vazio, sem erro).
+ */
+async function marcarAtendidos(clinicId: string, pacientes: Patient[]) {
+  try {
+    const { data: agenda, error } = await buscarTodas((de, ate) =>
+      supabase
+        .from('appointments')
+        .select('patient_id,starts_at,status')
+        .eq('clinic_id', clinicId)
+        .not('patient_id', 'is', null)
+        .order('id')
+        .range(de, ate),
+    )
+    if (error) throw error
+    const horarios = ((agenda ?? []) as { patient_id: string; starts_at: string; status: string }[]).map((a) => ({
+      patientId: a.patient_id,
+      startsAt: a.starts_at,
+      status: a.status,
+    }))
+    const hoje = diaEmSaoPaulo(new Date().toISOString())
+    let atendidos = pacientesAtendidos(pacientes, horarios, new Set(), hoje)
+
+    const restantes = pacientes.filter((p) => !atendidos.has(p.id)).map((p) => p.id)
+    const comProntuario = new Set<string>()
+    for (let i = 0; i < restantes.length; i += 100) {
+      const { data: consultas, error: erroDasConsultas } = await semTipo
+        .from('consultations')
+        .select('patient_id,chief_complaint,clinical_history,assessment,plan')
+        .eq('clinic_id', clinicId)
+        .in('patient_id', restantes.slice(i, i + 100))
+      if (erroDasConsultas) throw erroDasConsultas
+      for (const c of (consultas ?? []) as (ConsultaDoAcompanhamento & { patient_id: string })[]) {
+        if (temProntuario(c)) comProntuario.add(c.patient_id)
+      }
+    }
+    if (comProntuario.size) atendidos = pacientesAtendidos(pacientes, horarios, comProntuario, hoje)
+    for (const p of pacientes) p.atendido = atendidos.has(p.id)
+  } catch (erro) {
+    console.warn('Nao consegui separar atendidos de pre-agendados; a lista fica toda junta', erro)
+  }
+}
+
 export async function fetchDb(
   clinicId: string,
   defaults: Record<FollowupKey, string>,
@@ -2337,7 +2462,8 @@ export async function fetchDb(
     buscarTodas((de, ate) =>
       supabase
         .from('followups')
-        .select('id,patient_id,followup_key,status,opened_at')
+        // consultation_id existe desde 20260817122816: nao e coluna nova.
+        .select('id,patient_id,followup_key,status,opened_at,consultation_id')
         .eq('clinic_id', clinicId)
         .is('archived_at', null)
         .order('id')
@@ -2355,6 +2481,7 @@ export async function fetchDb(
   if (settingsResult.error) fail(settingsResult.error)
 
   const followupRows = (followupsResult.data ?? []) as FollowupRow[]
+  await marcarSemConsulta(clinicId, followupRows)
   const byPatient = new Map<string, FollowupRow[]>()
   for (const item of followupRows) {
     const list = byPatient.get(item.patient_id) ?? []
@@ -2363,10 +2490,12 @@ export async function fetchDb(
   }
 
   const settings = settingsResult.data as SettingsRow | null
+  const patients = ((patientsResult.data ?? []) as PatientRow[]).map((patient) =>
+    mapPatient(patient, byPatient.get(patient.id) ?? []),
+  )
+  await marcarAtendidos(clinicId, patients)
   return {
-    patients: ((patientsResult.data ?? []) as PatientRow[]).map((patient) =>
-      mapPatient(patient, byPatient.get(patient.id) ?? []),
-    ),
+    patients,
     templates: {
       d15: (settings as { template_d15?: string } | null)?.template_d15 ?? defaults.d15,
       d30: settings?.template_d30 ?? defaults.d30,
@@ -2517,6 +2646,18 @@ export async function editConsultation(
 }
 
 export async function editPatient(clinicId: string, id: string, patch: Partial<Patient>) {
+  // Salvou o nome pela tela: o aviso de "nome a confirmar" sai (ver a migration
+  // 20261027110000). Em consulta separada, antes do UPDATE principal: coluna
+  // nova que o banco ainda nao tem recusaria o UPDATE inteiro, e o cadastro nao
+  // salvaria. Perder o aviso e arranhao; perder a edicao, nao.
+  if (patch.nome !== undefined) {
+    const { error: erroDoAviso } = await supabase
+      .from('patients')
+      .update({ name_from_contact_at: null } as PatientUpdate)
+      .eq('clinic_id', clinicId)
+      .eq('id', id)
+    if (erroDoAviso) console.warn('Nao consegui tirar o aviso de nome a confirmar', erroDoAviso)
+  }
   const { data, error } = await supabase
     .from('patients')
     .update(patientUpdatePayload(patch) as PatientUpdate)

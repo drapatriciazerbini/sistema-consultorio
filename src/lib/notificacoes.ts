@@ -189,3 +189,15 @@ export async function testarNotificacao(clinicId: string): Promise<{ enviados: n
   const r = data as { enviados?: number; falhas?: string[] }
   return { enviados: r?.enviados ?? 0, falhas: r?.falhas ?? [] }
 }
+
+/**
+ * O aviso de pedido de teste, no WhatsApp dos numeros salvos (28/10/2026). Ver
+ * supabase/functions/_shared/alerta-de-urgencia.ts. A nota diz se chegou e,
+ * se nao, por que.
+ */
+export async function testarAvisoDoPedido(clinicId: string): Promise<{ nota: string; falhou: boolean }> {
+  const { data, error } = await supabase.functions.invoke('notificar-equipe', { body: { acao: 'aviso_teste', clinicId } })
+  if (error) throw new Error(await erroDaFuncao(error))
+  const r = data as { nota?: string; falhou?: boolean }
+  return { nota: r?.nota ?? 'Sem resposta do servidor.', falhou: Boolean(r?.falhou) }
+}

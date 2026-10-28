@@ -1,8 +1,9 @@
 # Modelos da Meta, consultório da Dra. Patrícia Zerbini
 
-Cinco modelos para submeter no WhatsApp Manager, em Ferramentas de conta,
+Sete modelos para submeter no WhatsApp Manager, em Ferramentas de conta,
 Modelos de mensagem, Criar modelo. Idioma **Português (BR)**, categoria
-**Utilidade** nos cinco.
+**Utilidade** em todos. Os modelos 6 e 7 (27/10/2026) são os do aviso no
+WhatsApp pessoal da Dra. Patrícia e ainda não foram submetidos.
 
 O texto aqui é o mesmo que está em
 `supabase/functions/_shared/modelos.ts`. Se a Meta pedir alteração, ou você
@@ -158,6 +159,90 @@ resolveu.
 Serve para reabrir a conversa depois de 24 horas em silêncio. Ele não trata do
 assunto: quando o paciente responde, a janela de 24 horas volta a contar e a
 equipe escreve o que precisar.
+
+---
+
+## 6. aviso_pedido_consulta
+
+Nome: `aviso_pedido_consulta`
+Categoria: Utilidade
+Idioma: Português (BR)
+
+Vai para o WhatsApp pessoal da Dra. Patrícia, não para paciente. Sai quando
+alguém pede consulta ou visita pelo robô, a qualquer hora. Com ele, a Dra.
+responde o paciente pelo próprio celular: o que ela escrever em cima do aviso
+o sistema mostra para ela confirmar e depois manda ao paciente pelo número do
+consultório.
+
+**Corpo**
+
+```
+📅 Novo pedido de consulta na Central de Cuidado.
+
+{{1}} escreveu às {{2}}:
+"{{3}}"
+
+Para responder, escreva a mensagem em cima deste aviso: eu mostro antes de enviar e repasso ao paciente como mensagem sua. Ou toque num botão.
+```
+
+Sem rodapé.
+
+**Botões** (resposta rápida, nesta ordem)
+
+```
+Eu respondo
+Mandar os valores
+```
+
+- **Eu respondo**: o paciente recebe "A Dra. Patrícia viu o seu pedido e vai falar com você por aqui."
+- **Mandar os valores**: o paciente recebe a resposta pronta de valor cadastrada em Preferências (assunto com "valor"). Se ela não existir ou ainda tiver "___", nada sai e a Dra. é avisada.
+
+**Exemplos que a Meta pede**
+
+- {{1}} = Maria Aparecida
+- {{2}} = 14:32
+- {{3}} = Primeira consulta no consultório, a partir da próxima semana, só à tarde.
+
+---
+
+## 7. aviso_pedido_consulta_simples
+
+Nome: `aviso_pedido_consulta_simples`
+Categoria: Utilidade
+Idioma: Português (BR)
+
+O mesmo aviso sem botões. Serve de reserva: enquanto o modelo 6 estiver em
+análise, ou se a Meta recusar os botões, o sistema manda este e o aviso chega
+do mesmo jeito. Foi o que salvou o sistema do Dr. Marcello em 17/10/2026,
+quando o modelo com botões ficou dias em análise.
+
+**Corpo**
+
+```
+📅 Novo pedido de consulta na Central de Cuidado.
+
+{{1}} escreveu às {{2}}:
+"{{3}}"
+
+Para responder, escreva a mensagem em cima deste aviso: eu mostro antes de enviar e repasso ao paciente como mensagem sua.
+```
+
+Sem rodapé e sem botões. Mesmos exemplos do modelo 6.
+
+**Antes de submeter os dois**
+
+- **Período de validade da mensagem**: nos dois, marque "Definir período de
+  validade personalizado" e escolha **12 horas**. Com o celular dela desligado,
+  o aviso espera até 12 horas em vez de sumir calado (lição do sistema do
+  Dr. Marcello, 17/10/2026). É configuração do modelo na Meta, não do código.
+- Os botões do modelo 6 são de resposta rápida, sem texto fixo de retorno: o
+  sistema manda em cada envio um código que diz de qual pedido é o aviso.
+- O celular da Dra. Patrícia fica salvo no sistema (Preferências, cartão
+  "Aviso no WhatsApp da Dra."), não no código. O primeiro número da lista é o
+  dela; os outros respondem como equipe.
+- O {{3}} sai sem CPF, e-mail e telefone, e sem quebra de linha (a Meta
+  recusa o envio inteiro quando o parâmetro tem quebra de linha).
+- Cada aviso é uma mensagem de Utilidade cobrada pela Meta, como o lembrete.
 
 ---
 

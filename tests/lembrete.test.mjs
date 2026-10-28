@@ -411,6 +411,33 @@ conferir(
   )
 }
 
+// ---------------------------------------------------------------------------
+// "Confirma", "sim", "ok" (porte do sistema do Dr. Marcello, 20/10/2026)
+// ---------------------------------------------------------------------------
+
+// La um paciente digitou "Confirma" e a consulta ficou "sem resposta".
+for (const texto of ['Confirma', 'confirma!', 'Confirmada', 'confirmamos sim', 'Confirmei']) {
+  conferir(`"${texto}" depois do lembrete confirma`, interpretarResposta(texto, true, true).confirma === true)
+}
+// "Confirma" e palavra explicita: vale na janela mesmo sem o lembrete ser a
+// ultima mensagem (como "confirmar" ja valia).
+conferir('"Confirma" na janela confirma', interpretarResposta('Confirma', true, false).confirma === true)
+// O lembrete pergunta se a pessoa vem: "sim" responde.
+for (const texto of ['Sim', 'sim!', 'Ok', 'ok, obrigada', 'Sim, estaremos lá', 'Vou sim', 'estaremos lá', 'Com certeza 👍', 'Certo']) {
+  conferir(`"${texto}" logo depois do lembrete confirma`, interpretarResposta(texto, true, true).confirma === true)
+}
+// ... mas so depois do PROPRIO lembrete: depois do acompanhamento, "sim" e outra conversa.
+conferir('"Sim" depois do acompanhamento não confirma consulta', interpretarResposta('Sim', true, false).confirma === false)
+conferir('"Sim" depois do acompanhamento não vira resposta ao lembrete', interpretarResposta('Sim', true, false).respondeuLembrete === false)
+conferir('"ok" fora da janela não confirma', interpretarResposta('ok', false, true).confirma === false)
+// "nao" na frase e o pedido junto mandam mais que o "sim".
+conferir('"sim, não vou conseguir" não confirma', interpretarResposta('sim, não vou conseguir', true, true).confirma === false)
+conferir('"Sim, mas preciso remarcar" é remarcar', (() => { const r = interpretarResposta('Sim, mas preciso remarcar', true, true); return r.remarca && !r.confirma })())
+conferir('"Sim, quero cancelar" é cancelar', (() => { const r = interpretarResposta('Sim, quero cancelar', true, true); return r.cancela && !r.confirma })())
+conferir('"Não posso confirmar" continua não confirmando', interpretarResposta('Não posso confirmar', true, true).confirma === false)
+conferir('"sim" no meio de outra frase não confirma', interpretarResposta('tem estacionamento sim?', true, true).confirma === false)
+conferir('Sem o terceiro parametro, "sim" não confirma (comportamento antigo)', interpretarResposta('Sim', true).confirma === false)
+
 console.log(`VERIFICAÇÕES QUE PASSARAM: ${passou}`)
 console.log(`FALHAS: ${falhas.length}`)
 if (falhas.length) {

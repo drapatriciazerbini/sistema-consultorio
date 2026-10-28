@@ -33,6 +33,10 @@ const de = (id) => itens.find((i) => i.patient.id === id)
 confere('enviado vai para "aguardando", e nao atrasado', de('a')?.urgencia === 'aguardando', de('a')?.urgencia)
 confere('o que nao saiu continua atrasado', de('b')?.urgencia === 'atrasado', de('b')?.urgencia)
 confere('contador do menu nao conta o enviado', dueCount([enviado, naoSaiu]) === 1)
+// Acompanhamento arquivado (porte de 23/10/2026): a ficha guarda a data da
+// consulta, mas sem linha no banco nada sai - e a tela nao pode mostrar.
+const arquivado = paciente('c', consulta, { status: 'pendente' })
+confere('sem acompanhamento no banco nao entra na fila', !pendingFollowups([arquivado]).length && dueCount([arquivado]) === 0, JSON.stringify(pendingFollowups([arquivado]).map((i) => i.key)))
 
 confere('lida vence entregue', situacaoDoEnvio(['delivered', 'read', 'sent']) === 'lida')
 confere('entregue', situacaoDoEnvio(['sent', 'delivered']) === 'entregue')

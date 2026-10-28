@@ -28,7 +28,9 @@ import {
   assuntoClinico,
   carregarRespostas,
   medicamentoControlado,
+  valorCadastrado,
 } from './respostas.ts'
+import type { DadosDoPedido } from './alerta-de-urgencia.ts'
 
 /** Dias oferecidos de uma vez. Cabe a quinzena inteira numa mensagem so. */
 /**
@@ -82,6 +84,7 @@ export type Estado =
   | 'documento_farmacia'
   | 'visita_endereco'
   | 'visita_restricao'
+  | 'visita_valor'
   | 'visita_nome'
   | 'visita_nascimento'
   | 'visita_periodos'
@@ -90,6 +93,7 @@ export type Estado =
   | 'pedido_periodos'
   | 'pedido_restricao'
   | 'pedido_quando'
+  | 'pedido_valor'
   | 'pedido_nome'
   | 'pedido_nascimento'
 export type MotivoAtencao =
@@ -150,6 +154,13 @@ export type Resultado = {
   botoes?: Toque[]
   /** Lista tocavel: o rotulo abre o menu, as linhas sao as opcoes (max. 10). */
   lista?: { rotulo: string; linhas: Toque[] }
+  /**
+   * O pedido de consulta ou de visita que acabou de ser anotado (28/10/2026).
+   * O webhook manda o resumo dele ao WhatsApp da Dra. Patricia: ver
+   * alerta-de-urgencia.ts. Vem dos dados, e nao da mensagem ao paciente, que
+   * tem emoji, quebra de linha e o telefone do consultorio.
+   */
+  pedido?: DadosDoPedido
 } | null
 
 /**
@@ -238,6 +249,112 @@ export type ConsultaMarcada = {
 
 function normalizar(texto: string) {
   return texto.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
+}
+
+/**
+ * A pessoa diz que a consulta nao aconteceu.
+ *
+ * No sistema do Dr. Marcello (23/10/2026) o acompanhamento de 30 dias
+ * perguntou como o paciente estava "depois da consulta do dia 23/09"; a mae
+ * respondeu "Eu nao passei em consulta". A palavra "consulta" fez a frase
+ * parecer pedido de marcar, e ela recebeu horarios e preco em vez de um pedido
+ * de desculpas. Quem diz isso precisa da equipe: o cadastro esta errado. Pedido
+ * de marcar ("nao consegui marcar consulta") nao entra.
+ *
+ * Mais estreito que o da origem, de proposito. Aqui a resposta ao
+ * acompanhamento costuma ser sobre a saude de um idoso - "ela nao passou bem
+ * ai em casa", "nao teve melhora depois da consulta", "faltou ar" - e nada
+ * disso pode virar "desculpe, vou conferir o cadastro". Por isso "passar" so
+ * conta com o destino logo depois ("passei NA consulta", "passei COM a
+ * doutora"), e "ai"/"la" soltos nao bastam.
+ */
+export function negouConsulta(texto: string): boolean {
+  const t = normalizar(texto).replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!t) return false
+  const alvo = '(consulta|consultas|medica|medico|doutora|doutor|dra|dr|patricia|clinica|consultorio|visita)'
+  const negou =
+    new RegExp(`\\b(nao|nunca|nem) (cheguei a |chegamos a |chegou a )?(passei|passamos|passou) (em|na|no|com|pela|pelo)( a| o| uma| um)? ${alvo}\\b`).test(t) ||
+    new RegExp(`\\b(nao|nunca|nem) (cheguei a |chegamos a |chegou a )?(fui|fomos|foi) (a |na |no |ao |para a |pra |pro |em )?(essa |esta |uma )?${alvo}\\b`).test(t) ||
+    new RegExp(`\\b(nao|nunca) (tive|tivemos|teve|houve|existiu|fiz|fizemos|fez|recebi|recebemos|recebeu) (essa |esta |nenhuma |a |uma )?(consulta|visita)\\b`).test(t) ||
+    new RegExp(`\\b(nao|nunca) (levei|levamos|levou)\\b.{0,25}\\b${alvo}\\b`).test(t) ||
+    /\b(nao|nunca) (compareci|comparecemos|compareceu|consultei|consultamos)\b/.test(t) ||
+    // "Faltei" e "faltamos", mas nao "nao faltei" (o contrario) nem "faltou"
+    // ("faltou ar" e sintoma, nao falta a consulta).
+    (/\b(faltei|faltamos)\b/.test(t) && !/\bnao (faltei|faltamos)\b/.test(t)) ||
+    new RegExp(`\\bnao (deu para|deu pra|consegui|conseguimos|pude|pudemos) ir\\b.{0,25}\\b${alvo}\\b`).test(t)
+  if (!negou) return false
+  // "Nao fui na consulta, quero remarcar" e pedido de marcar: segue o caminho
+  // dele. So fica como negacao quando ela e explicita mesmo com o pedido.
+  if (/\b(marcar|agendar|remarcar)\b/.test(t)) {
+    return /\b(nao|nunca) (passei|passamos|fui|fomos|tive|tivemos|compareci|comparecemos)\b/.test(t)
+  }
+  return true
+}
+
+/**
+ * "Preciso remarcar" no lembrete ja abre o caminho da remarcacao.
+ *
+ * No sistema do Dr. Marcello (20/10/2026) o botao respondia "Ja avisei a
+ * nossa equipe para remarcar com voce" e a pessoa ficava esperando alguem:
+ * tocou "Reagendar" as 09:31 e a conversa parou ali. Aqui era igual. Agora e o
+ * mesmo caminho do REMARCAR do menu, para o mesmo paciente e o mesmo lugar da
+ * consulta: com a agenda por pedido (o caso da Dra. Patricia), o robo anota o
+ * pedido de nova data - periodos, restricoes - e a antiga continua marcada ate
+ * ela confirmar a nova; com a agenda de horarios, as datas da mesma unidade, e
+ * a antiga so cai quando a nova estiver marcada (booking_replaces_id).
+ *
+ * null quando nao da para abrir (consulta sem unidade, unidade sem vaga,
+ * leitura que falhou): quem chamou volta ao "avisei a equipe" de antes, que
+ * ainda chega a alguem.
+ */
+export async function remarcarPeloLembrete(
+  admin: Admin,
+  clinicId: string,
+  conversationId: string,
+  appointmentId: string,
+): Promise<Resultado | null> {
+  if (!appointmentId) return null
+  try {
+    const { data, error } = await admin
+      .from('appointments')
+      .select('starts_at,unit_id,modality,patient_id')
+      .eq('id', appointmentId)
+      .maybeSingle()
+    if (error) throw error
+    const consulta = data as { starts_at?: string | null; unit_id?: string | null; modality?: string | null; patient_id?: string | null } | null
+    const unidade: Unidade | null = consulta?.modality === 'telemedicina'
+      ? UNIDADE_TELE
+      : consulta?.unit_id ? await unidadePorId(admin, consulta.unit_id) : null
+    if (!consulta || !unidade) return null
+    await salvarEstado(admin, conversationId, {
+      booking_replaces_id: appointmentId,
+      booking_patient_id: consulta.patient_id ?? null,
+    })
+    const porPedido = await agendamentoPorPedido(admin, clinicId)
+    const abertura = unidade.is_home_visit
+      ? await iniciarVisita(admin, conversationId, unidade)
+      : porPedido
+        ? await iniciarPedidoDeConsulta(admin, clinicId, conversationId, unidade)
+        : await perguntarConvenioOuDia(admin, clinicId, conversationId, unidade)
+    // Sem vaga, ou agenda que nao abriu: a etapa ja foi entregue a equipe ou
+    // falhou. Volta ao "avisei a equipe", sem deixar a remarcacao pendurada.
+    if (!abertura || abertura.atencao) {
+      await limparEstado(admin, conversationId)
+      return null
+    }
+    const timezone = await fusoDaClinica(admin, clinicId)
+    const quando = consulta.starts_at ? ` de *${formatarData(consulta.starts_at, timezone)}*` : ''
+    const antiga = porPedido || unidade.is_home_visit
+      ? `A atual continua marcada até ${quemAtende(clinicId).o} confirmar a nova data.`
+      : 'A atual só é cancelada depois que a nova estiver marcada.'
+    return {
+      ...abertura,
+      resposta: `🔄 Vamos remarcar a consulta${quando}. ${antiga}\n\n` + abertura.resposta,
+    }
+  } catch (erro) {
+    console.warn('Remarcar pelo lembrete: nao abri a remarcacao; vai para a equipe', erro)
+    return null
+  }
 }
 
 /** Frases que abrem o agendamento sem passar pelo menu. */
@@ -1765,6 +1882,50 @@ async function perguntarHorario(
   }
 }
 
+/**
+ * Pediu para remarcar e depois agendou pelo menu.
+ *
+ * No sistema do Dr. Marcello (20/10/2026) uma paciente tocou "Reagendar" no
+ * lembrete, ouviu "ja avisei a equipe" e cinco minutos depois marcou outra
+ * data pelo menu, como consulta nova. A antiga continuou marcada com "pediu
+ * para remarcar": duas consultas, a vespera pedindo para ligar para ela e um
+ * horario que ninguem ia usar. Quem tem consulta futura com pedido de remarcar
+ * e agenda de novo para o MESMO paciente esta remarcando: a nova substitui
+ * aquela, e ela so cai depois que a nova estiver gravada, como no REMARCAR do
+ * menu. Sem cadastro, vale o mesmo telefone e consulta tambem sem paciente -
+ * outro paciente do mesmo telefone (o marido, a mae) nao entra na conta.
+ *
+ * So vale na agenda com horarios (marcar). Com a agenda por pedido, ligada
+ * para a Dra. Patricia desde 30/09/2026, a remarcacao vira pedido e quem
+ * cancela a antiga e ela, ao confirmar a nova.
+ */
+async function remarcacaoPendente(
+  admin: Admin,
+  clinicId: string,
+  paciente: Paciente | null,
+  telefone: string,
+  novoInicio: string,
+): Promise<string | null> {
+  try {
+    let busca = admin
+      .from('appointments')
+      .select('id,starts_at,reschedule_requested_at')
+      .eq('clinic_id', clinicId)
+      .eq('status', 'scheduled')
+      .not('reschedule_requested_at', 'is', null)
+      .gt('starts_at', new Date().toISOString())
+    busca = paciente?.id ? busca.eq('patient_id', paciente.id) : busca.is('patient_id', null).eq('contact_phone', telefone)
+    const { data, error } = await busca.order('starts_at').limit(1)
+    if (error) throw error
+    const alvo = ((data ?? []) as { id: string; starts_at: string }[])[0]
+    if (!alvo || alvo.starts_at === novoInicio) return null
+    return alvo.id
+  } catch (erro) {
+    console.warn('Nao conferi se havia remarcacao pendente; marca como consulta nova', erro)
+    return null
+  }
+}
+
 async function marcar(
   admin: Admin,
   clinicId: string,
@@ -1775,7 +1936,7 @@ async function marcar(
   nomeDoPerfil: string,
   slot: Horario,
   /** Consulta antiga a cancelar assim que a nova entrar (remarcacao). */
-  substitui: string | null = null,
+  substituiPedida: string | null = null,
   /** Convenio escolhido na conversa. Vazio = particular. */
   convenio = '',
 ): Promise<Resultado> {
@@ -1793,7 +1954,9 @@ async function marcar(
   }
   const unidade = await unidadePorId(admin, unidadeDoHorario)
   const timezone = await fusoDaClinica(admin, clinicId)
-
+  // Quem pediu para remarcar e depois agendou pelo menu tambem esta remarcando
+  // (ver remarcacaoPendente).
+  const substitui = substituiPedida ?? (await remarcacaoPendente(admin, clinicId, paciente, telefone, slot.inicio))
 
   // Lido antes de inserir, porque a antiga so e cancelada la embaixo - e depois
   // de cancelada continuaria legivel, mas depender disso seria contar com uma
@@ -1863,7 +2026,11 @@ async function marcar(
   let { data: criada, error } = await admin
     .from('appointments').insert(linhaDaConsulta).select('id').maybeSingle()
 
-  if (error && (error as { code?: string }).code === '42703') {
+  // 42703 vem do Postgres; no INSERT o PostgREST costuma recusar antes, com
+  // PGRST204 ("coluna nao encontrada no cache"). Visto no porte de 27/10/2026:
+  // so com o 42703 o plano B nunca entrava e a consulta nao era marcada.
+  const codigo = (error as { code?: string } | null)?.code
+  if (error && (codigo === '42703' || codigo === 'PGRST204')) {
     const semAsNovas = { ...linhaDaConsulta }
     for (const coluna of COLUNAS_RECENTES_DA_CONSULTA) delete semAsNovas[coluna]
     console.warn('appointments sem alguma coluna recente; gravando sem ela', error)
@@ -2818,6 +2985,66 @@ async function perguntarRestricaoDaVisita(
   }
 }
 
+/**
+ * O valor antes do nome, para quem ainda nao e paciente.
+ *
+ * Existe desde 27/10/2026. Um paciente pediu consulta pelo robo em 19/10, a
+ * equipe confirmou o horario a mao, e em nenhum momento alguem disse que a
+ * consulta era particular nem quanto custava: o robo so fala de convenio
+ * quando a unidade aceita algum, e a Dra. Patricia nao aceita nenhum - entao o
+ * assunto simplesmente nao aparecia. Ele foi atendido e saiu achando que era
+ * pelo plano; ninguem percebeu ate o fim da consulta.
+ *
+ * Agora quem ainda nao e paciente le o valor e toca em "Entendi, seguir" antes
+ * de dar o nome. Quem ja e paciente nao passa por aqui: ja pagou consulta.
+ * O texto vem da resposta pronta de valor que a equipe cadastrou, para o preco
+ * ter um lugar so; enquanto ela estiver com "R$ ___", o robo nao inventa
+ * numero e manda a duvida para a equipe.
+ */
+async function textoDoValor(admin: Admin, clinicId: string): Promise<string> {
+  // A regra mora em respostas.ts desde 28/10/2026: o botao "Mandar os valores"
+  // do aviso no WhatsApp da Dra. le o mesmo texto, e os dois nao podem divergir.
+  return (
+    valorCadastrado(await carregarRespostas(admin, clinicId)) ??
+    'Para saber o valor, toque em *Tenho dúvida*: a equipe responde antes de seguir.'
+  )
+}
+
+const BOTOES_DO_VALOR: Toque[] = [
+  { id: '1', titulo: 'Entendi, seguir' },
+  { id: '2', titulo: 'Tenho dúvida' },
+]
+
+async function perguntarValor(
+  admin: Admin,
+  clinicId: string,
+  conversationId: string,
+  estado: 'pedido_valor' | 'visita_valor',
+  opcoes: { consulta: PedidoDeConsulta } | { visita: PedidoDeVisita },
+): Promise<Resultado> {
+  await salvarEstado(admin, conversationId, { booking_state: estado, booking_options: opcoes })
+  const titulo = estado === 'visita_valor' ? 'A consulta em casa é particular' : 'A consulta é particular'
+  return {
+    resposta:
+      `💳 *${titulo}*, sem convênio.\n\n` +
+      (await textoDoValor(admin, clinicId)) +
+      '\n\nPodemos seguir com o pedido?\n\n' +
+      '*1* Entendi, seguir\n*2* Tenho dúvida\n\n' +
+      SAIDAS,
+    botoes: BOTOES_DO_VALOR,
+  }
+}
+
+/** "Entendi, seguir" (true), "Tenho duvida" (false) ou nada que se leia (null). */
+function lerRespostaDoValor(texto: string): boolean | null {
+  const t = normalizar(texto).replace(/[.!]+$/, '')
+  if (/^(1|entendi,? seguir|entendi|seguir|pode seguir|ok|sim|certo|ta bom|ta certo|tudo bem|tudo certo|combinado|beleza|concordo)$/.test(t)) {
+    return true
+  }
+  if (/^(2|tenho duvida|tenho uma duvida|duvida)$/.test(t)) return false
+  return null
+}
+
 async function perguntarNomeDaVisita(
   admin: Admin,
   conversationId: string,
@@ -2882,6 +3109,7 @@ async function registrarVisita(
       ? `🗓️ Dias e horários: ${visita.restricao}`
       : '🗓️ Sem restrição de dia ou horário',
   )
+  linhas.push('💳 Consulta particular')
   if (substitui) linhas.push('🔄 No lugar da consulta que já estava marcada')
 
   return {
@@ -2893,6 +3121,15 @@ async function registrarVisita(
       avisoDeHorario() + '\n\n' +
       VOLTA,
     atencao: 'visita',
+    pedido: {
+      tipo: 'visita',
+      paciente: visita.nome ?? null,
+      endereco: visita.endereco,
+      periodos: visita.periodos,
+      aPartir: visita.aPartir,
+      restricao: visita.restricao,
+      substitui,
+    },
   }
 }
 
@@ -3275,6 +3512,9 @@ async function registrarPedidoDeConsulta(
   if (pedido.periodos?.length) linhas.push(`📅 ${pedido.periodos.join(' ou ')}`)
   if (pedido.aPartir) linhas.push(`⏳ A partir de: ${pedido.aPartir}`)
   linhas.push(pedido.restricao ? `⚠️ ${pedido.restricao}` : '⚠️ Sem restrição de dia ou horário')
+  // Repetido no resumo de proposito (caso de 19/10/2026, ver perguntarValor): e a
+  // mensagem que fica na conversa e que a equipe le antes de confirmar.
+  linhas.push('💳 Consulta particular')
   if (substitui) linhas.push('🔄 No lugar da consulta que já estava marcada')
 
   return {
@@ -3287,6 +3527,16 @@ async function registrarPedidoDeConsulta(
       avisoDeHorario() + '\n\n' +
       VOLTA,
     atencao: 'pedido_consulta',
+    pedido: {
+      tipo: 'consulta',
+      paciente: pedido.nome ?? null,
+      consulta: pedido.tipo,
+      unidade: pedido.unidadeNome,
+      periodos: pedido.periodos,
+      aPartir: pedido.aPartir,
+      restricao: pedido.restricao,
+      substitui,
+    },
   }
 }
 
@@ -3343,6 +3593,13 @@ export async function tratarConversa(opcoes: {
    * humana. Quem calcula e o webhook, que tem o historico em maos.
    */
   podeIniciarMenu: boolean
+  /**
+   * Alguem da equipe escreveu ha pouco (conversa humana em andamento). Separado
+   * de podeIniciarMenu porque aquele tambem e falso quando a pessoa responde
+   * um acompanhamento, e ali o robo deve responder a "nao passei em consulta"
+   * (ver negouConsulta). Ausente vale falso.
+   */
+  equipeConversando?: boolean
   /**
    * Titulo do botao ou item de lista que a pessoa tocou. Vazio quando ela
    * digitou. O `texto` de um toque e o id ("2"), e com ele sozinho nao da para
@@ -3659,6 +3916,21 @@ export async function tratarConversa(opcoes: {
 
   // ---- Sem etapa em andamento ----
   if (!estadoAtual) {
+    // "Eu nao passei em consulta" (ver negouConsulta): desculpas e a equipe,
+    // nunca a agenda. Antes do atalho de agendamento, que a palavra "consulta"
+    // poderia abrir. Nao fala por cima de uma conversa da equipe: ai o
+    // silencio de sempre acende a conversa para quem esta atendendo.
+    if (negouConsulta(texto) && !opcoes.equipeConversando) {
+      registrar('negou_consulta')
+      const chamada = await chamarEquipe(admin, conversationId)
+      return {
+        ...chamada,
+        resposta:
+          'Desculpe pela mensagem! 🙏 Já passei para a nossa equipe conferir o cadastro, ' +
+          `e ela responde por aqui. Se quiser marcar uma consulta com ${quemAtende(clinicId).o}, é só me dizer.`,
+      }
+    }
+
     // Atalho de agendamento so depois que a pessoa viu o menu.
     //
     // O botao do site manda "Vim pelo site e gostaria de agendar uma consulta"
@@ -4222,7 +4494,7 @@ export async function tratarConversa(opcoes: {
         Boolean(opcoes.consultaASubstituir),
       )
     }
-    return await perguntarNomeDaVisita(admin, conversationId, pronto)
+    return await perguntarValor(admin, clinicId, conversationId, 'visita_valor', { visita: pronto })
   }
 
   if (estadoAtual === 'visita_restricao') {
@@ -4248,7 +4520,26 @@ export async function tratarConversa(opcoes: {
         Boolean(opcoes.consultaASubstituir),
       )
     }
-    return await perguntarNomeDaVisita(admin, conversationId, pronto)
+    return await perguntarValor(admin, clinicId, conversationId, 'visita_valor', { visita: pronto })
+  }
+
+  // ---- Valor, para quem ainda nao e paciente (27/10/2026) ----
+  if (estadoAtual === 'visita_valor' || estadoAtual === 'pedido_valor') {
+    const entendeu = lerRespostaDoValor(texto)
+    // A duvida vai para gente: preco e convenio sao a conversa que a equipe
+    // tem que ter, e o robo ja disse tudo o que sabia.
+    if (entendeu === false) return await chamarEquipe(admin, conversationId)
+    if (entendeu === null) {
+      return {
+        resposta:
+          'Toque em *Entendi, seguir* para continuar o pedido, ou em *Tenho dúvida* para falar com a equipe.\n\n' +
+          SAIDAS,
+        botoes: BOTOES_DO_VALOR,
+      }
+    }
+    return estadoAtual === 'visita_valor'
+      ? await perguntarNomeDaVisita(admin, conversationId, visitaEmAndamento(opcoes.opcoesAtuais))
+      : await perguntarNomeDoPedido(admin, conversationId, pedidoEmAndamentoDaConsulta(opcoes.opcoesAtuais))
   }
 
   if (estadoAtual === 'visita_nome') {
@@ -4331,7 +4622,7 @@ export async function tratarConversa(opcoes: {
         Boolean(opcoes.consultaASubstituir),
       )
     }
-    return await perguntarNomeDoPedido(admin, conversationId, comRestricao)
+    return await perguntarValor(admin, clinicId, conversationId, 'pedido_valor', { consulta: comRestricao })
   }
 
   if (estadoAtual === 'pedido_quando') {
@@ -4348,7 +4639,7 @@ export async function tratarConversa(opcoes: {
         Boolean(opcoes.consultaASubstituir),
       )
     }
-    return await perguntarNomeDoPedido(admin, conversationId, pronto)
+    return await perguntarValor(admin, clinicId, conversationId, 'pedido_valor', { consulta: pronto })
   }
 
   if (estadoAtual === 'pedido_nome') {

@@ -71,3 +71,12 @@ tests/*.tmp
 tests/modelos.build.mjs
 tests/aviso-mudanca.build.mjs
 tmp-badge-prev.png
+tests/meta-tentativa.build.mjs
+tests/telefone-do-lembrete.build.mjs
+tests/sexo-pelo-nome.build.mjs
+tests/cadastro.build.mjs
+tests/consulta-aconteceu.build.mjs
+tests/paciente-atendido.build.mjs
+tests/valores-enviados.build.mjs
+tests/alerta-de-urgencia.build.mjs
+tests/resposta-ao-alerta.build.mjs

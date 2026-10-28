@@ -183,7 +183,9 @@ export function useDb() {
     const patient = await run(() => editPatient(requireClinic(), id, patch))
     setDb((current) => ({
       ...current,
-      patients: current.patients.map((item) => (item.id === id ? patient : item)),
+      // A marca de atendido so vem da leitura inteira (fetchDb): sem isto, o
+      // pre-agendado editado pulava para Atendidos ate a proxima recarga.
+      patients: current.patients.map((item) => (item.id === id ? { ...patient, atendido: item.atendido } : item)),
     }))
   }
 

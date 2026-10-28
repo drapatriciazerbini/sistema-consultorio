@@ -8,6 +8,11 @@ export interface FollowupState {
   id?: string
   status: FollowupStatus
   enviadoEm?: string
+  /**
+   * A consulta nao teve prontuario nem presenca na agenda: o envio automatico
+   * segura este acompanhamento. Ver consulta-aconteceu.ts.
+   */
+  semConsulta?: boolean
 }
 
 export interface Patient {
@@ -34,6 +39,19 @@ export interface Patient {
    * salva - e vazio tambem em todo cadastro feito por gente.
    */
   criadoAutomaticamenteEm: string
+  /**
+   * Quando o cadastro nasceu com o nome do contato do WhatsApp, porque a ficha
+   * ficou sem o nome do paciente. Aqui quase sempre e o nome de quem escreveu
+   * (a filha, o cuidador). Prontuario e lista mostram "Nome a confirmar" ate
+   * alguem salvar o nome conferido.
+   */
+  nomeDoContatoEm?: string
+  /**
+   * Ja foi atendido (presenca, prontuario ou ficha feita depois da consulta)
+   * ou so marcou - ver lib/paciente-atendido.ts. Indefinido quando a leitura
+   * da agenda falhou: ai a tela trata todo mundo como atendido, como antes.
+   */
+  atendido?: boolean
   followups: Record<FollowupKey, FollowupState>
 }
 

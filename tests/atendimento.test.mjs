@@ -9,7 +9,7 @@
 // O banco aqui e falso e mora neste arquivo. Isso e proposital: o objetivo e
 // exercitar as DECISOES do robo (o que responder, o que gravar, quando ficar
 // calado), e nao o Supabase.
-import { tratarConversa, iniciarQuestionario, colherEventos, periodosComData } from './atendimento.build.mjs'
+import { tratarConversa, iniciarQuestionario, colherEventos, periodosComData, negouConsulta, remarcarPeloLembrete } from './atendimento.build.mjs'
 import { readFileSync } from 'node:fs'
 
 // ---------------------------------------------------------------
@@ -36,6 +36,10 @@ function fazerAdmin({
   // Dias bloqueados e visitas em casa ja marcadas (agenda por pedido).
   bloqueios = [],
   domicilios = [],
+  // A consulta lida pelo id (remarcar pelo lembrete, porte de 20/10/2026).
+  daConsulta = {},
+  // Consultas futuras com pedido de remarcar (ver remarcacaoPendente).
+  remarcacoesPendentes = [],
 }) {
   const conversa = {
     booking_state: null,
@@ -60,6 +64,8 @@ function fazerAdmin({
     neq: () => chain(resultado),
     gte: () => chain(resultado),
     lt: () => chain(resultado),
+    gt: () => chain(resultado),
+    not: () => chain(resultado),
     order: () => chain(resultado),
     limit: () => chain(resultado),
     maybeSingle: async () => ({ data: resultado.single ?? null, error: resultado.erro ?? null }),
@@ -159,8 +165,9 @@ function fazerAdmin({
           // monta um comprovante. O horario e FUTURO de proposito, para o teste
           // do questionario manual provar que quem segura o comprovante e a
           // regra do "manual", e nao a data.
-          select: () =>
-            chain({
+          select: (colunas = '') => String(colunas).includes('reschedule_requested_at')
+            ? chain({ list: remarcacoesPendentes })
+            : chain({
               // Consultas lidas em lista (cadastro pela metade, 24/09/2026), e
               // as visitas em casa marcadas (agenda por pedido, 30/09/2026).
               list: [...consultasComFicha, ...domicilios],
@@ -169,6 +176,7 @@ function fazerAdmin({
                 starts_at: '2027-09-14T18:00:00Z',
                 modality: 'presencial',
                 clinic_units: { name: 'Livance Ibirapuera - São Paulo', address: 'Rua Y, 30' },
+                ...daConsulta,
               },
             }),
           // A consulta marcada e lida de volta: e o id dela que a ficha de
@@ -286,6 +294,8 @@ async function caso(titulo, passos, opcoes = {}) {
     regras: opcoes.regras ?? {},
     bloqueios: opcoes.bloqueios ?? [],
     domicilios: opcoes.domicilios ?? [],
+    daConsulta: opcoes.daConsulta ?? {},
+    remarcacoesPendentes: opcoes.remarcacoesPendentes ?? [],
   })
 
   // A conversa começa como se o menu já tivesse aparecido alguma vez.
@@ -301,6 +311,9 @@ async function caso(titulo, passos, opcoes = {}) {
   // Conversa que ja estava no meio de uma etapa quando o caso comeca - por
   // exemplo, parada numa pergunta que deixou de fazer sentido.
   Object.assign(conversa, opcoes.estadoInicial ?? {})
+  // O que acontece antes da primeira mensagem do caso (o webhook respondendo
+  // o lembrete, por exemplo), com o mesmo banco falso.
+  if (opcoes.antes) await opcoes.antes({ admin, conversa })
 
   const transcricao = []
   let ultimoToque = { resposta: '', botoes: undefined, lista: undefined }
@@ -353,6 +366,7 @@ async function caso(titulo, passos, opcoes = {}) {
       // se aquela mensagem e a primeira da conversa.
       jaViuOMenu: Boolean(conversa.menu_sent_at),
       podeIniciarMenu: ajustes.podeIniciarMenu ?? opcoes.podeIniciarMenu ?? true,
+      equipeConversando: ajustes.equipeConversando ?? opcoes.equipeConversando ?? false,
       tituloDoToque,
       texto: texto === '[ANEXO]' ? '' : texto,
       telefone: opcoes.telefone ?? '5511999999999',
@@ -362,7 +376,7 @@ async function caso(titulo, passos, opcoes = {}) {
     })
 
     const resposta = r?.resposta ?? null
-    ultimoToque = { resposta: r?.resposta ?? '', botoes: r?.botoes, lista: r?.lista, concluida: r?.concluida, atencao: r?.atencao }
+    ultimoToque = { resposta: r?.resposta ?? '', botoes: r?.botoes, lista: r?.lista, concluida: r?.concluida, atencao: r?.atencao, pedido: r?.pedido }
     transcricao.push(`  > ${texto}\n    ${resposta ? resposta.replace(/\n/g, '\n    ') : '(silêncio)'}`)
 
     if (esperado === null) {
@@ -677,6 +691,65 @@ await caso(
   [['agendar', 'Em qual unidade']],
   { podeIniciarMenu: false },
 )
+
+// No sistema do Dr. Marcello (23/10/2026) o acompanhamento falou da "consulta
+// do dia 23/09", que nunca aconteceu, e "Eu nao passei em consulta" recebeu
+// horarios e preco. Aqui o robo calava. Agora: desculpas e a equipe.
+await caso(
+  'Respondendo acompanhamento: "Eu não passei em consulta" pede desculpas e chama a equipe, sem agenda',
+  [['Eu não passei em consulta', ['Desculpe pela mensagem', 'Dra. Patrícia']]],
+  {
+    podeIniciarMenu: false,
+    pacientes: [ANA],
+    verificar: ({ ultimoToque, titulo }) => {
+      if (!ultimoToque.atencao) falhas.push(`${titulo} | equipe nao foi chamada`)
+      else passou++
+      if (/R\$|Em qual unidade|Responda com o número do horário/.test(ultimoToque.resposta)) falhas.push(`${titulo} | ofereceu agenda ou preco`)
+      else passou++
+    },
+  },
+)
+await caso(
+  'Fora do acompanhamento, "não fui na consulta" também pede desculpas',
+  [['Não fui na consulta, acho que é engano', 'Desculpe pela mensagem']],
+  { pacientes: [ANA] },
+)
+// Com a equipe conversando, o robo nao entra: o silencio acende a conversa.
+await caso(
+  'Equipe conversando: "não passei em consulta" fica com a equipe',
+  [['Eu não passei em consulta', null]],
+  { podeIniciarMenu: false, equipeConversando: true },
+)
+for (const frase of [
+  'Não fomos na consulta',
+  'nunca passei com a doutora',
+  'Acho que é engano, não tive consulta nenhuma aí',
+  'Faltamos, não deu pra ir',
+  'Não levei minha mãe na consulta',
+  'A doutora não veio, não teve visita nenhuma',
+  'Não recebemos a visita',
+]) {
+  if (negouConsulta(frase)) passou++
+  else falhas.push(`negouConsulta deveria reconhecer: ${frase}`)
+}
+// Resposta ao acompanhamento de um idoso costuma ser sobre a saude dele, e
+// nada disso pode virar "desculpe, vou conferir o cadastro".
+for (const frase of [
+  'Quero marcar uma consulta',
+  'Não consegui marcar consulta pelo site',
+  'Ele não passou bem essa semana',
+  'A consulta foi ótima',
+  'Ela não passou bem aí em casa',
+  'Minha mãe não passou bem, a doutora pediu exame?',
+  'Não teve melhora depois da consulta',
+  'Não consegui ir na farmácia',
+  'Eu não faltei, fui sim',
+  'Faltou ar nela ontem à noite',
+  'Não fui eu que marquei, foi minha filha',
+]) {
+  if (!negouConsulta(frase)) passou++
+  else falhas.push(`negouConsulta nao deveria reconhecer: ${frase}`)
+}
 
 // ---------------------------------------------------------------
 // 4. Bordas de texto
@@ -2895,10 +2968,12 @@ await caso('Visita em casa: pessoa nova passa endereço, dias, nome e nascimento
   ['2', ['Onde vai ser a consulta', 'Visita domiciliar (a equipe confirma o dia)']],
   ['2', ['Consulta em casa', 'Santos e São Vicente', 'endereço']],
   ['Rua das Flores, 100, Gonzaga, Santos', ['dia ou horário', 'Tanto faz']],
-  ['não pode às segundas, melhor de tarde', 'nome completo do paciente'],
+  ['não pode às segundas, melhor de tarde', ['consulta em casa é particular', 'Entendi, seguir']],
+  ['1', 'nome completo do paciente'],
   ['Maria Teste da Silva', 'data de nascimento'],
   ['01/02/1940', [
     'Pedido de visita registrado',
+    'Consulta particular',
     'Maria Teste da Silva (nasc. 01/02/1940)',
     'Rua das Flores, 100, Gonzaga, Santos',
     'não pode às segundas, melhor de tarde',
@@ -2921,7 +2996,8 @@ await caso('Visita em casa: pessoa nova passa endereço, dias, nome e nascimento
     ['2', 'Onde vai ser a consulta'],
     ['2', 'endereço'],
     ['Av. Fictícia, 50, Itararé, São Vicente', 'dia ou horário'],
-    ['tanto faz', 'nome completo'],
+    ['tanto faz', 'particular'],
+    ['Entendi, seguir', 'nome completo'],
     ['José Teste', 'nascimento'],
     ['1938', 'Sem restrição de dia ou horário'],
   ], {
@@ -3013,10 +3089,12 @@ const REGRAS_DA_DRA = {
     ['2', ['Em quais *períodos*', '*1* ', 'Outro dia (a combinar)', 'mais de um']],
     ['1, 3', ['restrição de dia ou horário', 'Não tenho']],
     // Periodo com data ja diz quando: nao pergunta "a partir de quando".
-    ['só depois das 9h30, dia 13 não posso', 'nome completo do paciente'],
+    ['só depois das 9h30, dia 13 não posso', ['A consulta é particular', 'Entendi, seguir']],
+    ['1', 'nome completo do paciente'],
     ['Maria Teste da Silva', 'data de nascimento'],
     ['01/02/1940', [
       'Pedido de consulta anotado',
+      'Consulta particular',
       'Maria Teste da Silva (nasc. 01/02/1940), retorno',
       'Consultório (Gonzaga)',
       ' ou ',
@@ -3042,6 +3120,113 @@ const REGRAS_DA_DRA = {
   else passou++
 }
 
+// "Preciso remarcar" no lembrete (porte do sistema do Dr. Marcello, 20/10/2026).
+// La o botao respondia "ja avisei a equipe" e a conversa parava. Aqui, com a
+// agenda por pedido, ele abre o pedido de nova data no mesmo lugar, para o
+// mesmo paciente, e o pedido sai dizendo que substitui a consulta marcada.
+{
+  let abertura = null
+  await caso('Lembrete: "Preciso remarcar" abre o pedido de nova data, e a antiga fica até a Dra. confirmar', [
+    ['2', 'períodos'],
+    ['2', 'restrição'],
+    ['não', ['Pedido de consulta anotado', 'Ana Paula Souza, retorno', 'No lugar da consulta que já estava marcada']],
+  ], {
+    unidades: CONSULTORIO_E_CASA,
+    slots: SLOTS_CONSULTORIO,
+    porPedido: true,
+    regras: REGRAS_DA_DRA,
+    pacientes: [ANA, PEDRO],
+    daConsulta: { unit_id: 'u-cons', patient_id: 'p1', starts_at: '2026-11-04T13:00:00Z' },
+    antes: async ({ admin, conversa }) => {
+      abertura = await remarcarPeloLembrete(admin, 'c1', 'conv1', 'a1')
+      const ok =
+        abertura &&
+        /Vamos remarcar a consulta de \*.+\*\. A atual continua marcada até a Dra\. Patrícia confirmar a nova data\./.test(abertura.resposta) &&
+        abertura.resposta.includes('Consulta em Consultório (Gonzaga)') &&
+        conversa.booking_replaces_id === 'a1' &&
+        conversa.booking_patient_id === 'p1'
+      if (ok) passou++
+      else falhas.push(`Lembrete remarcar | abertura errada: ${JSON.stringify({ resposta: abertura?.resposta, substitui: conversa.booking_replaces_id, paciente: conversa.booking_patient_id })}`)
+    },
+    verificar: ({ marcadas, canceladas, ultimoToque, titulo }) => {
+      if (marcadas.length === 0 && canceladas.length === 0 && ultimoToque.atencao === 'pedido_consulta') passou++
+      else falhas.push(`${titulo} | mexeu na agenda sozinho: ${JSON.stringify({ marcadas: marcadas.length, canceladas, atencao: ultimoToque.atencao })}`)
+    },
+  })
+}
+// Visita em casa: a remarcacao vai pelo caminho da visita.
+{
+  const { admin, conversa } = fazerAdmin({
+    unidades: CONSULTORIO_E_CASA, slotsPorUnidade: SLOTS_CONSULTORIO, porPedido: true,
+    daConsulta: { unit_id: 'u-casa', patient_id: 'p1' },
+  })
+  const r = await remarcarPeloLembrete(admin, 'c1', 'conv1', 'a1')
+  if (r && r.resposta.includes('Consulta em casa') && r.resposta.includes('Vamos remarcar') && conversa.booking_replaces_id === 'a1') passou++
+  else falhas.push(`Lembrete remarcar visita | ${JSON.stringify({ r: r?.resposta?.slice(0, 120), substitui: conversa.booking_replaces_id })}`)
+}
+// Agenda com horarios (por pedido desligado): abre as datas da mesma unidade,
+// e a antiga so cai quando a nova estiver marcada.
+await caso('Lembrete: "Preciso remarcar" com agenda aberta mostra as datas e substitui a antiga', [
+  ['1', 'Horários de'],
+  ['1', 'Consulta remarcada!'],
+], {
+  pacientes: [ANA, PEDRO],
+  daConsulta: { unit_id: 'u-santos', patient_id: 'p1' },
+  antes: async ({ admin, conversa }) => {
+    const abertura = await remarcarPeloLembrete(admin, 'c1', 'conv1', 'a1')
+    if (abertura && /A atual só é cancelada depois que a nova estiver marcada/.test(abertura.resposta) && abertura.resposta.includes('Datas disponíveis em Liferty') && conversa.booking_replaces_id === 'a1') passou++
+    else falhas.push(`Lembrete remarcar agenda | abertura errada: ${JSON.stringify({ resposta: abertura?.resposta?.slice(0, 160), substitui: conversa.booking_replaces_id })}`)
+  },
+  verificar: ({ marcadas, canceladas, titulo }) => {
+    const nova = marcadas[0] ?? {}
+    if (nova.patient_id === 'p1' && nova.rescheduled_from === 'a1' && canceladas.includes('a1')) passou++
+    else falhas.push(`${titulo} | remarcação errada: ${JSON.stringify({ paciente: nova.patient_id, de: nova.rescheduled_from, canceladas })}`)
+  },
+})
+{
+  // Consulta sem unidade: nao abre nada, e o webhook volta ao "avisei a equipe".
+  const { admin, conversa } = fazerAdmin({ unidades: TRES_UNIDADES, slotsPorUnidade: SLOTS_CHEIOS, daConsulta: { unit_id: null, modality: 'presencial' } })
+  const r = await remarcarPeloLembrete(admin, 'c1', 'conv1', 'a1')
+  if (r === null && !conversa.booking_replaces_id) passou++
+  else falhas.push(`Lembrete remarcar sem unidade deveria voltar para a equipe: ${JSON.stringify(r)}`)
+}
+{
+  // Unidade sem vaga: a etapa ja seria da secretaria; volta ao "avisei a equipe"
+  // sem deixar a remarcacao pendurada na conversa.
+  const { admin, conversa } = fazerAdmin({ unidades: TRES_UNIDADES, slotsPorUnidade: SLOTS_VAZIOS, daConsulta: { unit_id: 'u-santos', patient_id: 'p1' } })
+  const r = await remarcarPeloLembrete(admin, 'c1', 'conv1', 'a1')
+  if (r === null && !conversa.booking_replaces_id) passou++
+  else falhas.push(`Lembrete remarcar sem vaga deveria voltar para a equipe: ${JSON.stringify({ r: r?.resposta?.slice(0, 80), substitui: conversa.booking_replaces_id })}`)
+}
+// Pediu para remarcar e depois agendou pelo menu (porte de 20/10/2026): a
+// nova substitui a consulta com pedido de remarcar, e a antiga so cai depois.
+await caso('Agendar com remarcação pendente substitui a antiga', [
+  ['quero marcar', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'Consulta remarcada!'],
+], {
+  pacientes: [ANA],
+  remarcacoesPendentes: [{ id: 'a9', starts_at: '2026-11-21T19:00:00Z', reschedule_requested_at: '2026-10-20T12:31:00Z' }],
+  verificar: ({ marcadas, canceladas, titulo }) => {
+    const nova = marcadas[0] ?? {}
+    if (nova.rescheduled_from === 'a9' && canceladas.includes('a9')) passou++
+    else falhas.push(`${titulo} | a antiga ficou: ${JSON.stringify({ de: nova.rescheduled_from, canceladas })}`)
+  },
+})
+await caso('Sem remarcação pendente, consulta nova não cancela nada', [
+  ['quero marcar', 'Em qual unidade'],
+  ['1', 'Datas disponíveis'],
+  ['1', 'Horários de'],
+  ['1', 'Consulta marcada!'],
+], {
+  pacientes: [ANA],
+  verificar: ({ marcadas, canceladas, titulo }) => {
+    if (!(marcadas[0] ?? {}).rescheduled_from && canceladas.length === 0) passou++
+    else falhas.push(`${titulo} | cancelou sem pedido: ${JSON.stringify(canceladas)}`)
+  },
+})
+
 await caso('Pedido de consulta: sobe como motivo "pedido_consulta"', [
   ['Oi', 'Olá, Ana!'],
   ['2', 'Onde vai ser a consulta'],
@@ -3057,6 +3242,134 @@ await caso('Pedido de consulta: sobe como motivo "pedido_consulta"', [
   pacientes: [ANA],
   verificar: ({ ultimoToque, titulo }) => {
     if (ultimoToque.atencao !== 'pedido_consulta') falhas.push(`${titulo} | atenção ${ultimoToque.atencao}`)
+    else passou++
+  },
+})
+
+// O pedido anotado volta junto do resultado (28/10/2026): e dele que sai o
+// resumo do aviso no WhatsApp da Dra. (ver alerta-de-urgencia.ts), e nao da
+// mensagem ao paciente, que tem emoji, quebra de linha e telefone.
+await caso('Pedido de consulta: o resultado traz o pedido para o aviso da Dra.', [
+  ['Oi', 'Olá, Ana!'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+  ['2', 'períodos'],
+  ['1, 3', 'restrição'],
+  ['só à tarde', 'Pedido de consulta anotado'],
+], {
+  unidades: CONSULTORIO_E_CASA,
+  slots: SLOTS_CONSULTORIO,
+  porPedido: true,
+  regras: REGRAS_DA_DRA,
+  pacientes: [ANA],
+  verificar: ({ ultimoToque, titulo }) => {
+    const p = ultimoToque.pedido ?? {}
+    if (p.tipo === 'consulta' && p.paciente === 'Ana Paula Souza' && p.consulta === 'Retorno' && p.unidade === 'Consultório (Gonzaga)' && p.periodos?.length === 2 && p.restricao === 'só à tarde') passou++
+    else falhas.push(`${titulo} | pedido ${JSON.stringify(p)}`)
+  },
+})
+await caso('Visita em casa: o resultado traz o pedido para o aviso da Dra.', [
+  ['Oi', 'Olá, Ana!'],
+  ['2', 'Onde vai ser a consulta'],
+  ['2', 'endereço'],
+  ['Rua Fictícia, 10, Gonzaga, Santos', 'dia ou horário'],
+  ['Tanto faz', 'Pedido de visita registrado'],
+], {
+  unidades: CONSULTORIO_E_CASA,
+  slots: SLOTS_CONSULTORIO,
+  pacientes: [ANA],
+  verificar: ({ ultimoToque, titulo }) => {
+    const p = ultimoToque.pedido ?? {}
+    if (p.tipo === 'visita' && p.paciente === 'Ana Paula Souza' && p.endereco === 'Rua Fictícia, 10, Gonzaga, Santos' && !p.restricao) passou++
+    else falhas.push(`${titulo} | pedido ${JSON.stringify(p)}`)
+  },
+})
+
+// ---------------------------------------------------------------
+// Valor antes do nome (27/10/2026)
+// ---------------------------------------------------------------
+//
+// Em 19/10/2026 um paciente pediu consulta pelo robo, a equipe confirmou a mao e
+// ninguem falou que era particular: o robo so tocava em convenio quando a
+// unidade aceitava algum. Ele foi atendido achando que era pelo plano. Agora
+// quem ainda nao e paciente le o valor e confirma antes de dar o nome.
+
+await caso('Valor: pessoa nova lê o valor cadastrado antes de dar o nome', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+  ['1', 'restrição de dia ou horário'],
+  ['Não tenho', 'A partir de quando'],
+  ['Tanto faz', ['A consulta é particular', 'sem convênio', 'custa R$ 450,00', 'Entendi, seguir', 'Tenho dúvida']],
+  ['Entendi, seguir', 'nome completo do paciente'],
+  ['José Teste da Silva', 'data de nascimento'],
+  ['15/04/1950', ['Pedido de consulta anotado', 'Consulta particular']],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true, respostasProntas: RESPOSTAS })
+
+await caso('Valor: "Tenho dúvida" chama a equipe', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+  ['1', 'restrição de dia ou horário'],
+  ['Não tenho', 'A partir de quando'],
+  ['Tanto faz', 'A consulta é particular'],
+  ['2', 'direcionando você para um atendente'],
+], {
+  unidades: CONSULTORIO_E_CASA,
+  slots: SLOTS_CONSULTORIO,
+  porPedido: true,
+  respostasProntas: RESPOSTAS,
+  verificar: ({ conversa, titulo }) => {
+    if (conversa.booking_state !== 'atendente') falhas.push(`${titulo} | estado ${conversa.booking_state}`)
+    else passou++
+  },
+})
+
+await caso('Valor: resposta que não é sim nem dúvida repete a pergunta', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['2', 'endereço'],
+  ['Rua das Flores, 100, Gonzaga, Santos', 'dia ou horário'],
+  ['tanto faz', 'consulta em casa é particular'],
+  ['Maria Teste', ['Entendi, seguir', 'Tenho dúvida']],
+  ['ok', 'nome completo do paciente'],
+], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, respostasProntas: RESPOSTAS })
+
+// Enquanto a resposta pronta tiver "R$ ___", o robo nao manda o buraco nem
+// inventa preco: diz que e particular e oferece a equipe.
+await caso('Valor: resposta pronta sem preço preenchido não vai para a pessoa', [
+  ['Oi', 'Como podemos ajudar'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+  ['1', 'restrição de dia ou horário'],
+  ['Não tenho', 'A partir de quando'],
+  ['Tanto faz', ['A consulta é particular', 'Para saber o valor, toque em *Tenho dúvida*']],
+], {
+  unidades: CONSULTORIO_E_CASA,
+  slots: SLOTS_CONSULTORIO,
+  porPedido: true,
+  respostasProntas: [{ ...RESPOSTAS[0], answer: 'A consulta particular custa R$ ___.' }],
+  verificar: ({ transcricao, titulo }) => {
+    if (transcricao.some((t) => t.includes('___'))) falhas.push(`${titulo} | mandou o preço em branco`)
+    else passou++
+  },
+})
+
+await caso('Valor: quem já é paciente não passa pela etapa', [
+  ['Oi', 'Olá, Ana!'],
+  ['2', 'Onde vai ser a consulta'],
+  ['1', 'primeira consulta'],
+  ['1', 'restrição'],
+  ['não', 'A partir de quando'],
+  ['tanto faz', 'Pedido de consulta anotado'],
+], {
+  unidades: CONSULTORIO_E_CASA,
+  slots: SLOTS_CONSULTORIO,
+  porPedido: true,
+  pacientes: [ANA],
+  respostasProntas: RESPOSTAS,
+  verificar: ({ transcricao, titulo }) => {
+    if (transcricao.some((t) => t.includes('Entendi, seguir'))) falhas.push(`${titulo} | perguntou o valor a quem já é paciente`)
     else passou++
   },
 })
@@ -3098,7 +3411,8 @@ await caso('Visita em casa por pedido: períodos e a partir de quando', [
   ['2', 'endereço'],
   ['Rua das Flores, 100, Gonzaga, Santos', ['períodos', '*1* ', 'Outro dia (a combinar)']],
   ['1', 'dia ou horário'],
-  ['depois das 14h', 'nome completo'],
+  ['depois das 14h', 'consulta em casa é particular'],
+  ['1', 'nome completo'],
   ['José Teste', 'nascimento'],
   ['1938', [
     'Pedido de visita registrado',

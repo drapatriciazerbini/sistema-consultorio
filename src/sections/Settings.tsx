@@ -27,6 +27,7 @@ import DadosDaClinica from '@/sections/DadosDaClinica'
 import RespostasProntas from '@/sections/RespostasProntas'
 import InformacoesDoWhatsApp from '@/sections/InformacoesDoWhatsApp'
 import NotificacoesNoCelular from '@/sections/NotificacoesNoCelular'
+import AvisoNoWhatsAppDaDra from '@/sections/AvisoNoWhatsAppDaDra'
 
 interface Props {
   db: Db
@@ -172,6 +173,8 @@ export default function Settings({ db, importDb, clearAll }: Props) {
       <div className="space-y-5">
       {/* Primeiro da tela: no celular e o que a pessoa veio fazer aqui. */}
       <NotificacoesNoCelular clinicId={clinicId} />
+      {/* Pedido de consulta no WhatsApp pessoal da Dra. (28/10/2026). */}
+      <AvisoNoWhatsAppDaDra clinicId={clinicId} />
       <DadosDaClinica />
       <InformacoesDoWhatsApp />
       <RespostasProntas />

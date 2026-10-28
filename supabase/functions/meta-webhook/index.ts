@@ -1,6 +1,6 @@
 import '../_shared/whatsapp.ts'
 import { adminClient, digits, sha256HmacHex, safeEqual } from '../_shared/whatsapp.ts'
-import { colherEventos, type Estado, type Toque, tratarConversa } from '../_shared/atendimento.ts'
+import { colherEventos, type Estado, remarcarPeloLembrete, type Toque, tratarConversa } from '../_shared/atendimento.ts'
 import { montarConteudo } from '../_shared/conteudo.ts'
 import { RegistroDeEventos } from '../_shared/eventos-do-webhook.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
@@ -10,6 +10,9 @@ import { montarAviso } from '../_shared/aviso-da-equipe.ts'
 import { avisarEquipe } from '../_shared/push-da-equipe.ts'
 import { tratarInstagram } from '../_shared/instagram.ts'
 import { origemDoAnuncio, type Indicacao } from '../_shared/origem-do-anuncio.ts'
+import { postarNaMeta } from '../_shared/meta-tentativa.ts'
+import { deveAvisarPedido, enviarAviso, lerNumeros as lerNumerosDoAviso, quemDoPedido, resumoDoPedido } from '../_shared/alerta-de-urgencia.ts'
+import { papelDoNumero, tratarRespostaDaEquipe, whatsAppPelaApi } from '../_shared/resposta-ao-alerta.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
 // Fora dele (teste local) cai no await comum.
@@ -258,12 +261,26 @@ Deno.serve(async (req) => {
     registro = new RegistroDeEventos({
       inserir: (linha) => admin.from('whatsapp_webhook_events').insert(linha),
       apagar: (chave) => admin.from('whatsapp_webhook_events').delete().eq('event_key', chave),
+      concluir: (chave) =>
+        admin.from('whatsapp_webhook_events').update({ concluded_at: new Date().toISOString() }).eq('event_key', chave),
+      // Condicional: so a linha sem conclusao e gravada antes do corte. Dois
+      // reenvios ao mesmo tempo nao retomam juntos (o primeiro move processed_at).
+      retomar: (chave, gravadoAntesDe) =>
+        admin.from('whatsapp_webhook_events')
+          .update({ processed_at: new Date().toISOString() })
+          .eq('event_key', chave)
+          .is('concluded_at', null)
+          .lt('processed_at', gravadoAntesDe)
+          .select('event_key'),
     })
 
     // Direct do Instagram (01/10/2026): mesmo app da Meta, mesma assinatura,
     // outro objeto. Ver _shared/instagram.ts.
     if (payload.object === 'instagram') {
       await tratarInstagram(admin, payload, registro)
+      // O ultimo evento do Direct tambem terminou (ver eventos-do-webhook.ts:
+      // evento sem conclusao seria retomado num reenvio tardio da Meta).
+      await registro.concluir()
       return text('EVENT_RECEIVED')
     }
 
@@ -271,7 +288,7 @@ Deno.serve(async (req) => {
       for (const change of entry.changes ?? []) {
         // Tudo que veio antes terminou; um erro daqui ate o proximo registrar
         // nao pertence a nenhum evento.
-        registro.concluir()
+        await registro.concluir()
         if (change.field !== 'messages') continue
         const value = change.value ?? {}
         const phoneNumberId = String(value.metadata?.phone_number_id ?? '')
@@ -280,7 +297,9 @@ Deno.serve(async (req) => {
         const { data: settings } = await admin
           .from('clinic_settings')
           .select(
-            'clinic_id,whatsapp_autoreply_enabled,whatsapp_autoreply_text,whatsapp_autoreply_known_text,whatsapp_menu_info_text',
+            // whatsapp_reminder_template_name existe desde 20260825120000: nao e
+            // coluna nova, pode ir na consulta principal.
+            'clinic_id,whatsapp_autoreply_enabled,whatsapp_autoreply_text,whatsapp_autoreply_known_text,whatsapp_menu_info_text,whatsapp_reminder_template_name',
           )
           .eq('whatsapp_phone_number_id', phoneNumberId)
           .maybeSingle()
@@ -296,10 +315,13 @@ Deno.serve(async (req) => {
           const nome = String(contato?.profile?.name ?? '').trim()
           if (id && nome) nomePorWaId.set(id, nome.slice(0, 120))
         }
+        // Os celulares do aviso no WhatsApp da Dra. (28/10/2026): lidos na
+        // primeira mensagem do lote, e so uma vez.
+        let numerosDoAviso: string[] | null = null
 
         for (const message of value.messages ?? []) {
           // A mensagem anterior do lote terminou (inclusive pelos continue).
-          registro.concluir()
+          await registro.concluir()
           const externalId = String(message.id ?? '')
           if (!externalId) continue
 
@@ -324,6 +346,34 @@ Deno.serve(async (req) => {
           }
 
           const waId = digits(String(message.from ?? ''))
+
+          // A Dra. Patricia respondendo ao aviso do pedido pelo WhatsApp dela
+          // (28/10/2026, ver _shared/resposta-ao-alerta.ts): o toque ou o texto
+          // dela vai para o paciente, e nao para o robo, que responderia o menu
+          // como se ela fosse paciente. So quando o numero esta na lista E a
+          // mensagem e toque no aviso, resposta em cima dele ou texto com aviso
+          // nas ultimas 6 horas; fora disso, o robo de sempre. Falhando aqui,
+          // segue o caminho de sempre - e grita no log.
+          try {
+            numerosDoAviso ??= (await lerNumerosDoAviso(admin, clinicId)) ?? []
+            if (numerosDoAviso.length && papelDoNumero(waId, numerosDoAviso)) {
+              const tratada = await tratarRespostaDaEquipe(
+                {
+                  admin,
+                  clinicId,
+                  agora: new Date(),
+                  numeros: numerosDoAviso,
+                  enviarWhatsApp: whatsAppPelaApi(phoneNumberId, chaveDoWhatsApp(phoneNumberId)),
+                },
+                waId,
+                message,
+              )
+              if (tratada) continue
+            }
+          } catch (erro) {
+            console.error('Resposta ao aviso do pedido falhou; segue como mensagem comum', erro)
+          }
+
           // Com e sem o nono digito (ver telefone-br.ts): numero antigo chega
           // da Meta sem o 9, e o cadastro guarda com ele.
           const grafias = variantesDoTelefone(waId)
@@ -525,11 +575,15 @@ Deno.serve(async (req) => {
           // Id da nossa mensagem mais recente, para saber se um toque veio de
           // uma lista antiga. Ver oQueFoiEscolhido em _shared/lembrete.ts.
           let ultimoEnvioId: string | null = null
+          // A ultima mensagem nossa foi o lembrete em si (porte de 20/10/2026):
+          // so ai "sim" e "ok" confirmam. Ver interpretarResposta.
+          let ultimaFoiLembrete = false
           if (conversaAnterior?.id) {
             const [ultimoNossoResult, ultimoHumanoResult] = await Promise.all([
               admin
                 .from('whatsapp_messages')
-                .select('followup_id,appointment_id,created_at,external_message_id')
+                // template_name e status existem desde 20260822120000.
+                .select('followup_id,appointment_id,created_at,external_message_id,template_name,status')
                 .eq('conversation_id', conversaAnterior.id)
                 .eq('direction', 'outbound')
                 .order('created_at', { ascending: false })
@@ -547,6 +601,22 @@ Deno.serve(async (req) => {
             ])
 
             respondendoEnvioNosso = dentroDaJanelaDeResposta(ultimoNossoResult.data)
+            {
+              // O modelo do LEMBRETE, e nao o aviso de cancelamento (que tambem
+              // sai com appointment_id e modelo): "ok" ao aviso de que a
+              // consulta caiu nao pode confirmar nada. Envio que falhou nao
+              // chegou, entao ninguem esta respondendo a ele.
+              const u = ultimoNossoResult.data as {
+                appointment_id?: string | null
+                followup_id?: string | null
+                template_name?: string | null
+                status?: string | null
+              } | null
+              const modeloDoLembrete = String(settings.whatsapp_reminder_template_name ?? '') || 'lembrete_consulta'
+              ultimaFoiLembrete =
+                respondendoEnvioNosso &&
+                Boolean(u?.appointment_id && !u.followup_id && u.template_name === modeloDoLembrete && u.status !== 'failed')
+            }
             ultimoEnvioId = (ultimoNossoResult.data as { external_message_id?: string | null } | null)?.external_message_id ?? null
             equipeFalouRecentemente = equipeFalouHaPouco(ultimoHumanoResult.data)
 
@@ -592,7 +662,7 @@ Deno.serve(async (req) => {
               : idDoToque(message) || body
           // Uma chamada so, e a regra mora em _shared/lembrete.ts, coberta por
           // testes. Aqui ficou apenas o desempacotar.
-          const resposta = interpretarResposta(escolhido, respondendoEnvioNosso)
+          const resposta = interpretarResposta(escolhido, respondendoEnvioNosso, ultimaFoiLembrete)
           const { respondeuLembrete, optedOut, isWell, pediuAjuda, motivoAtencao } = resposta
           const receivedAt = message.timestamp
             ? new Date(Number(message.timestamp) * 1000).toISOString()
@@ -716,7 +786,8 @@ Deno.serve(async (req) => {
             const graphVersion = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
             const enviadoEm = new Date().toISOString()
 
-            const envio = await fetch(
+            // Erro passageiro da Meta tenta de novo (26/10/2026, ver meta-tentativa.ts).
+            const envio = await postarNaMeta(
               `https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`,
               {
                 method: 'POST',
@@ -774,6 +845,7 @@ Deno.serve(async (req) => {
               opcoesAtuais: conversaAnterior?.booking_options ?? null,
               unidadeEmAndamento: conversaAnterior?.booking_unit_id ?? null,
               podeIniciarMenu: !respondendoEnvioNosso && !equipeFalouRecentemente,
+              equipeConversando: equipeFalouRecentemente,
               tituloDoToque: message.type === 'interactive' ? body : '',
               texto: escolhido,
               telefone: waId,
@@ -963,6 +1035,56 @@ Deno.serve(async (req) => {
             } catch (erro) {
               console.warn('Notificacao no celular: nao consegui montar o aviso', erro)
             }
+
+            /**
+             * Aviso no WhatsApp pessoal da Dra. Patricia (28/10/2026), a qualquer
+             * hora. Ver _shared/alerta-de-urgencia.ts. So quando a conversa ENTRA
+             * no pedido de consulta ou de visita: as mensagens seguintes da mesma
+             * pessoa nao repetem o aviso, e o pedido refeito com a conversa ainda
+             * acesa so avisa se nao houve aviso nas ultimas 48 horas.
+             *
+             * Em segundo plano, como a notificacao acima: a resposta ao paciente
+             * ja saiu, e nada no aviso derruba o webhook. Se o aviso nao chegar a
+             * ninguem, a notificacao no celular da equipe grita de reserva.
+             */
+            try {
+              const entrada = deveAvisarPedido({
+                atencaoAntes: Boolean(conversaAnterior?.needs_attention),
+                motivoAntes: (conversaAnterior?.attention_reason as string | null) ?? null,
+                atencaoAgora: resultado?.atencao ?? null,
+              })
+              if (entrada) {
+                const quem = quemDoPedido({
+                  paciente: resultado?.pedido?.paciente,
+                  nomeDoPerfil: nomeDoPerfil || String(conversaAnterior?.profile_name ?? ''),
+                  pacientes,
+                  telefone: waId,
+                })
+                const aviso = enviarAviso(admin, {
+                  motivo: 'pedido',
+                  clinicId,
+                  quem,
+                  resumo: resultado?.pedido
+                    ? resumoDoPedido(resultado.pedido)
+                    : resultado?.atencao === 'visita' ? 'Visita em casa' : 'Pedido de consulta',
+                  agora: new Date(),
+                  conversaWhatsApp: conversation.id,
+                  repetido: entrada === 'repetido',
+                  reserva: (titulo, corpo) =>
+                    avisarEquipe(admin, clinicId, {
+                      titulo,
+                      corpo,
+                      etiqueta: `aviso-dra-${conversation.id}`,
+                      conversa: conversation.id,
+                      urgente: false,
+                    }),
+                })
+                if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(aviso)
+                else await aviso
+              }
+            } catch (erro) {
+              console.error('Aviso no WhatsApp da Dra.: nao consegui disparar', erro)
+            }
           }
 
           // Confirmar, remarcar ou cancelar referem-se sempre a ultima consulta
@@ -1047,9 +1169,22 @@ Deno.serve(async (req) => {
                 })
                 .eq('id', conversation.id)
             }
-            await responder(avisoDaResposta(resposta), null, {
-              botoes: resposta.cancela ? [{ id: '2', titulo: 'Escolher nova data' }] : undefined,
-            })
+            // "Preciso remarcar" ja abre a remarcacao (porte de 20/10/2026, ver
+            // remarcarPeloLembrete); sem como abrir, o "avisei a equipe" de
+            // antes. A bandeira de remarcacao acesa na conversa fica: se a
+            // pessoa parar no meio, a equipe ainda ve o pedido (a origem
+            // apagava a bandeira aqui; com a Dra. Patricia confirmando cada
+            // data, apagar seria esconder o pedido).
+            const remarcacao = resposta.remarca
+              ? await remarcarPeloLembrete(admin, clinicId, conversation.id, String(ultimoLembrete?.appointment_id ?? ''))
+              : null
+            if (remarcacao) {
+              await responder(remarcacao.resposta, null, { botoes: remarcacao.botoes, lista: remarcacao.lista })
+            } else {
+              await responder(avisoDaResposta(resposta), null, {
+                botoes: resposta.cancela ? [{ id: '2', titulo: 'Escolher nova data' }] : undefined,
+              })
+            }
 
             // Resposta ao lembrete tambem entra nos numeros (22/09/2026). Ate
             // aqui so o menu registrava eventos, e o painel nao sabia quantas
@@ -1121,7 +1256,7 @@ Deno.serve(async (req) => {
         }
 
         for (const delivery of value.statuses ?? []) {
-          registro.concluir()
+          await registro.concluir()
           const externalId = String(delivery.id ?? '')
           const status = String(delivery.status ?? '')
           if (!externalId || statusRank[status] === undefined) continue
@@ -1184,6 +1319,8 @@ Deno.serve(async (req) => {
       }
     }
 
+    // O ultimo evento do lote tambem terminou.
+    await registro.concluir()
     return text('EVENT_RECEIVED')
   } catch (error) {
     console.error(error)

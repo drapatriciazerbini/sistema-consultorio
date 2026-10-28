@@ -37,6 +37,7 @@ verify_jwt = false
 verify_jwt = true
 
 [functions.notificar-equipe]
-# Chamada pelo navegador com a sessao do usuario logado (chave publica e botao
-# de teste das notificacoes no celular). Mantem o JWT.
+# Chamada pelo navegador com a sessao do usuario logado (chave publica, botao
+# de teste das notificacoes no celular e aviso de teste no WhatsApp da Dra.).
+# Mantem o JWT.
 verify_jwt = true
