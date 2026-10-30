@@ -109,8 +109,9 @@ export default function AvisoNoWhatsAppDaDra({ clinicId }: { clinicId: string | 
             <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#1f5f55]">Pedidos de consulta</p>
             <h2 className="mt-1 text-base font-extrabold text-[#193d36]">Aviso no WhatsApp da Dra.</h2>
             <p className="mt-1 text-xs leading-relaxed text-[#4d6b63]">
-              Quando alguém pede consulta ou visita em casa pelo robô, a qualquer hora, estes celulares recebem no
-              WhatsApp quem pediu, o horário e o resumo do pedido. Um número por linha, com DDD.
+              Quando alguém pede consulta ou visita em casa, ou tem uma dúvida ou urgência que o atendimento automático não
+              resolve, estes celulares recebem no WhatsApp, a qualquer hora, quem é, o horário e o resumo. Um número por
+              linha, com DDD.
             </p>
           </div>
         </div>
@@ -166,7 +167,8 @@ export default function AvisoNoWhatsAppDaDra({ clinicId }: { clinicId: string | 
             </div>
             <p className="text-[10px] leading-relaxed text-slate-400">
               Usa os modelos <strong>aviso_pedido_consulta</strong> (com os botões) e{' '}
-              <strong>aviso_pedido_consulta_simples</strong> (reserva sem botões), que precisam estar aprovados na Meta.
+              <strong>aviso_pedido_consulta_simples</strong> (reserva sem botões), e <strong>aviso_duvida_paciente</strong>{' '}
+              nas dúvidas, que precisam estar aprovados na Meta.
               Se o aviso não chegar, a conversa do paciente ganha uma nota para avisar a Dra. por telefone.
             </p>
           </>

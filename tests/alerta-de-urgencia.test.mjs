@@ -5,13 +5,17 @@
 // repositorio e publico.
 import {
   descreverEnvio,
+  deveAvisarDuvida,
   deveAvisarPedido,
   enviarAviso,
+  MODELO_DA_DUVIDA,
   MODELO_DO_PEDIDO,
   MODELO_DO_PEDIDO_SIMPLES,
   numerosDoAlerta,
   parametrosDoAviso,
   quemDoPedido,
+  resumoDaDuvida,
+  resumoDaIA,
   resumoDoPedido,
 } from './alerta-de-urgencia.build.mjs'
 import { textoDoModelo } from './modelos.build.mjs'
@@ -263,6 +267,56 @@ const naoAprovado = { status: 404, corpo: { error: { code: 132001, message: 'Tem
 {
   const r = await enviarAviso(banco(), { ...pedido, motivo: 'urgencia' }, meta().buscar)
   confere('urgencia: ainda sem modelo, nada sai', r.length === 0)
+}
+
+// Duvida que o robo e a IA nao resolvem (30/10/2026).
+{
+  const entraD = (antes, agora) => deveAvisarDuvida({ atencaoAntes: antes.atencao, motivoAntes: antes.motivo, atencaoAgora: agora })
+  confere('duvida: passou para a equipe avisa', entraD({ atencao: false, motivo: null }, 'atendente') === 'novo')
+  confere('duvida: urgencia avisa', entraD({ atencao: false, motivo: null }, 'urgencia') === 'novo')
+  confere('duvida: de duvida para urgencia e aviso novo', entraD({ atencao: true, motivo: 'atendente' }, 'urgencia') === 'novo')
+  confere('duvida: com a conversa acesa e repetido', entraD({ atencao: true, motivo: 'atendente' }, 'atendente') === 'repetido')
+  confere('duvida: pedido, 2a via e anexo nao viram duvida', ['pedido_consulta', 'visita', 'documento', 'anexo', 'farmacia', null, undefined].every((m) => entraD({ atencao: false, motivo: null }, m) === null))
+
+  const nota = '🤖 Resumo da IA para a equipe: Quer saber se pode levar os exames antigos.'
+  confere('duvida: tira o rotulo da nota', resumoDaIA(nota) === 'Quer saber se pode levar os exames antigos.', resumoDaIA(nota))
+  confere('duvida: nota de outro tipo nao vira resumo', resumoDaIA('🚨 Sinal de risco de vida na mensagem') === null)
+  confere('duvida: o resumo da IA vale mais que o texto', resumoDaDuvida({ nota, texto: 'oi' }) === 'Quer saber se pode levar os exames antigos.')
+  confere('duvida: sem IA vai o que a pessoa escreveu', resumoDaDuvida({ texto: 'posso tomar com leite?' }) === 'posso tomar com leite?')
+  confere('duvida: urgencia aparece primeiro', resumoDaDuvida({ urgente: true, texto: 'ela caiu' }) === 'URGENTE: ela caiu')
+  confere('duvida: sem texto nao sai parametro vazio', resumoDaDuvida({ texto: '   ' }).length > 0)
+
+  const duvida = { ...pedido, motivo: 'duvida', quem: 'Maria Teste', resumo: 'Pergunta se pode levar os exames antigos.' }
+  const b = banco()
+  const m = meta((corpo, n) => ({ corpo: { messages: [{ id: `wamid.${n}` }] } }))
+  const r = await enviarAviso(b, duvida, m.buscar)
+  const t = m.enviados[0]?.corpo.template
+  confere('duvida: chega nos dois celulares, Dra. primeiro', r.length === 2 && r.every((e) => e.ok) && m.enviados[0].corpo.to === DRA && m.enviados[1].corpo.to === EQUIPE, JSON.stringify(r))
+  confere('duvida: modelo proprio e sem botoes', t?.name === MODELO_DA_DUVIDA && t.components.length === 1, JSON.stringify(t))
+  confere('duvida: registrada como duvida', b.db.alertas_de_urgencia[0]?.motivo === 'duvida')
+  const notaDoEnvio = b.db.conversation_notes[0]?.texto ?? ''
+  confere('duvida: a nota nao chama de pedido nem de reserva', notaDoEnvio.startsWith('📱 Aviso da dúvida enviado') && !notaDoEnvio.includes('sem os botões'), notaDoEnvio)
+  confere('duvida: evento proprio', b.db.whatsapp_bot_events.some((e) => e.evento === 'aviso_duvida' && e.detalhe === 'enviado 2/2'), JSON.stringify(b.db.whatsapp_bot_events))
+  confere('duvida: o modelo tem texto para a tela', Boolean(textoDoModelo(MODELO_DA_DUVIDA, ['Maria', '14:32', 'x'])?.includes('Maria')))
+
+  const semModelo = banco()
+  const mS = meta(() => naoAprovado)
+  const rS = await enviarAviso(semModelo, duvida, mS.buscar)
+  const notaS = semModelo.db.conversation_notes[0]?.texto ?? ''
+  confere('duvida: modelo nao aprovado grita', rS.every((e) => !e.ok) && notaS.startsWith('⚠️ O aviso da dúvida NÃO chegou') && notaS.includes(MODELO_DA_DUVIDA), notaS)
+
+  const agora = pedido.agora.getTime()
+  const horasAtras = (h) => new Date(agora - h * 3600 * 1000).toISOString()
+  const antigo = (h, motivo = 'duvida') => ({ id: 'a1', clinic_id: pedido.clinicId, motivo, conversa_whatsapp: pedido.conversaWhatsApp, resultado: 'enviado 2/2', criado_em: horasAtras(h) })
+  const m1 = meta()
+  await enviarAviso(banco({ alertas: [antigo(2)] }), { ...duvida, repetido: true }, m1.buscar)
+  confere('duvida: mensagens seguidas nao tocam o celular de novo', m1.enviados.length === 0)
+  const m2 = meta()
+  await enviarAviso(banco({ alertas: [antigo(7)] }), { ...duvida, repetido: true }, m2.buscar)
+  confere('duvida: depois de 6 horas sem resposta avisa de novo', m2.enviados.length === 2)
+  const m3 = meta()
+  await enviarAviso(banco({ alertas: [antigo(2, 'pedido')] }), { ...duvida, repetido: true }, m3.buscar)
+  confere('duvida: aviso do pedido nao segura o da duvida', m3.enviados.length === 2)
 }
 
 console.log(`aviso do pedido no WhatsApp da Dra.: ${ok} verificacoes ok`)

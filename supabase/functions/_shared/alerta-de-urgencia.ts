@@ -35,12 +35,13 @@ import { chaveDoWhatsApp } from './whatsapp-teste.ts'
  * equipe.
  */
 
-export type MotivoDoAlerta = 'pedido' | 'urgencia'
+export type MotivoDoAlerta = 'pedido' | 'urgencia' | 'duvida'
 /** O que o toque num botao do aviso pede. 'urgente' e 'aguardar' sao da urgencia, que ainda nao vem. */
 export type Veredito = 'responde' | 'valores' | 'urgente' | 'aguardar'
 
 export const MODELO_DO_PEDIDO = 'aviso_pedido_consulta'
 export const MODELO_DO_PEDIDO_SIMPLES = 'aviso_pedido_consulta_simples'
+export const MODELO_DA_DUVIDA = 'aviso_duvida_paciente'
 
 /** Os botoes do modelo, na ordem cadastrada na Meta. */
 export const BOTOES_DO_PEDIDO: { veredito: Veredito; titulo: string }[] = [
@@ -49,7 +50,8 @@ export const BOTOES_DO_PEDIDO: { veredito: Veredito; titulo: string }[] = [
 ]
 
 type ModelosDoMotivo = {
-  comBotoes: string
+  /** Nulo: este aviso so tem o modelo sem botoes. */
+  comBotoes: string | null
   semBotoes: string
   botoes: { veredito: Veredito; titulo: string }[]
   /** Como a nota chama o aviso: "aviso do pedido". */
@@ -63,6 +65,9 @@ type ModelosDoMotivo = {
  */
 const DO_MOTIVO: Partial<Record<MotivoDoAlerta, ModelosDoMotivo>> = {
   pedido: { comBotoes: MODELO_DO_PEDIDO, semBotoes: MODELO_DO_PEDIDO_SIMPLES, botoes: BOTOES_DO_PEDIDO, nome: 'aviso do pedido' },
+  // Um modelo so, sem botoes, de proposito: a resposta a uma duvida e sempre
+  // escrita, e um modelo a menos e menos tempo esperando a analise da Meta.
+  duvida: { comBotoes: null, semBotoes: MODELO_DA_DUVIDA, botoes: [], nome: 'aviso da dúvida' },
 }
 
 /**
@@ -109,8 +114,52 @@ export function motivoDoAvisoDoPedido(r: { atencao?: string | null; pedido?: { t
   return r?.atencao ?? null
 }
 
+/**
+ * Duvida que o robo e a IA nao resolvem (30/10/2026). Pedido do Edu: alem do
+ * pedido de consulta, o numero do robo avisa o celular da Dra. e o dele quando a
+ * conversa precisa de gente. Ate aqui isso so acendia a Central, que ela nao
+ * fica olhando. Urgencia entra junto: e o caso mais forte de "o robo nao resolve".
+ *
+ * 'documento' fica de fora: 2a via e passo do robo, com a equipe na Central. O
+ * pedido tem o aviso dele (ver motivoDoAvisoDoPedido), e quem chama nao manda os dois.
+ */
+export const MOTIVOS_DA_DUVIDA = ['atendente', 'urgencia'] as const
+
+export function deveAvisarDuvida(e: {
+  atencaoAntes: boolean
+  motivoAntes: string | null
+  atencaoAgora: string | null | undefined
+}): 'novo' | 'repetido' | null {
+  if (!e.atencaoAgora || !(MOTIVOS_DA_DUVIDA as readonly string[]).includes(e.atencaoAgora)) return null
+  return e.atencaoAntes && e.motivoAntes === e.atencaoAgora ? 'repetido' : 'novo'
+}
+
+const PREFIXO_DO_RESUMO = /^\S*\s*Resumo da IA para a equipe:\s*/
+
+/** O resumo que a IA deixou para a equipe, sem o rotulo da nota interna. */
+export function resumoDaIA(nota: string | null | undefined): string | null {
+  const texto = String(nota ?? '')
+  if (!PREFIXO_DO_RESUMO.test(texto)) return null
+  return texto.replace(PREFIXO_DO_RESUMO, '').trim() || null
+}
+
+/**
+ * A duvida numa frase, para o {{3}}: o resumo da IA quando ela deixou um; sem
+ * ele (robo de regras, IA fora do ar), o que a pessoa escreveu. Mensagem sem
+ * texto nao pode virar parametro vazio, que a Meta recusa.
+ */
+export function resumoDaDuvida(e: { urgente?: boolean; nota?: string | null; texto?: string | null }): string {
+  const base = resumoDaIA(e.nota) || String(e.texto ?? '').trim() || 'Pediu para falar com a equipe'
+  return e.urgente ? `URGENTE: ${base}` : base
+}
+
 /** A espera do pedido: a mesma das 48 horas do webhook e de liberar_conversas_travadas. */
 export const ESPERA_DO_PEDIDO_MS = 48 * 3600 * 1000
+/**
+ * Na duvida, a janela em que a resposta dela vale sem citar o aviso. Quem manda
+ * cinco mensagens seguidas com a conversa acesa nao toca o celular cinco vezes.
+ */
+export const ESPERA_DA_DUVIDA_MS = 6 * 3600 * 1000
 
 /**
  * Houve aviso desta conversa nas ultimas 48 horas, que nao tenha falhado? O
@@ -118,15 +167,15 @@ export const ESPERA_DO_PEDIDO_MS = 48 * 3600 * 1000
  * chance. Na duvida (tabela fora, erro), diz que nao: pedido refeito e raro, e
  * um aviso a mais custa menos que um pedido sem aviso.
  */
-export async function avisoRecente(admin: Admin, clinicId: string, conversa: string, agora: Date): Promise<boolean> {
+export async function avisoRecente(admin: Admin, clinicId: string, conversa: string, agora: Date, motivo: MotivoDoAlerta = 'pedido'): Promise<boolean> {
   try {
     const { data, error } = await admin
       .from('alertas_de_urgencia')
       .select('id,resultado')
       .eq('clinic_id', clinicId)
       .eq('conversa_whatsapp', conversa)
-      .eq('motivo', 'pedido')
-      .gte('criado_em', new Date(agora.getTime() - ESPERA_DO_PEDIDO_MS).toISOString())
+      .eq('motivo', motivo)
+      .gte('criado_em', new Date(agora.getTime() - (motivo === 'duvida' ? ESPERA_DA_DUVIDA_MS : ESPERA_DO_PEDIDO_MS)).toISOString())
       .limit(10)
     if (error) throw error
     return ((data ?? []) as { resultado?: string | null }[]).some((a) => !String(a.resultado ?? '').startsWith('falhou'))
@@ -283,8 +332,9 @@ export function descreverEnvio(
   const daDra = (numero: string) => (envios[0]?.numero === numero ? `${final(numero)} (${quem.o.replace(/^a /, '')})` : final(numero))
   const certos = envios.filter((e) => e.ok)
   const errados = envios.filter((e) => !e.ok)
-  const semBotoes = certos.some((e) => e.semBotoes)
-  const aviso = opcoes.teste ? 'Aviso de teste' : 'Aviso do pedido'
+  // Modelo sem versao com botoes nao "caiu na reserva": e o aviso normal.
+  const semBotoes = Boolean(modelos.comBotoes) && certos.some((e) => e.semBotoes)
+  const aviso = opcoes.teste ? 'Aviso de teste' : `A${modelos.nome.slice(1)}`
   const reserva = semBotoes
     ? ` Foi sem os botões: o modelo ${modelos.comBotoes} ainda não foi aprovado na Meta, e para responder ela escreve em cima do aviso.`
     : ''
@@ -311,7 +361,7 @@ export function descreverEnvio(
 }
 
 export type PedidoDeAlerta = {
-  /** 'pedido' hoje; 'urgencia' quando vier o porte. */
+  /** 'pedido' ou 'duvida'. 'urgencia' ainda sem modelo proprio: urgencia sai como duvida. */
   motivo: MotivoDoAlerta
   clinicId: string
   quem: string
@@ -385,8 +435,8 @@ export async function enviarAviso(admin: Admin, p: PedidoDeAlerta, buscar: typeo
       console.error(`Aviso no WhatsApp: o motivo ${p.motivo} ainda nao tem modelo; nada sai`)
       return []
     }
-    if (p.repetido && p.conversaWhatsApp && (await avisoRecente(admin, p.clinicId, p.conversaWhatsApp, p.agora))) {
-      console.info('Aviso no WhatsApp da Dra.: pedido refeito com aviso nas ultimas 48 h; nao repete')
+    if (p.repetido && p.conversaWhatsApp && (await avisoRecente(admin, p.clinicId, p.conversaWhatsApp, p.agora, p.motivo))) {
+      console.info(`Aviso no WhatsApp da Dra.: ${modelos.nome} repetido com aviso recente; nao repete`)
       return []
     }
     const lidos = p.numeros ?? (await lerNumeros(admin, p.clinicId))
@@ -418,13 +468,13 @@ export async function enviarAviso(admin: Admin, p: PedidoDeAlerta, buscar: typeo
     // Sem a tabela, sai sem botoes - a Dra. ainda responde escrevendo, mas
     // so na janela de 6 horas (ver resposta-ao-alerta.ts).
     const alertaId = await registrarAlerta(admin, p)
-    let comBotoes = Boolean(alertaId)
+    let comBotoes = Boolean(alertaId && modelos.comBotoes)
 
     const modelo = (botoes: boolean) => ({
       type: 'template',
       template: botoes
         ? {
-            name: modelos.comBotoes,
+            name: modelos.comBotoes!,
             language: { code: idioma },
             components: [
               corpoDoModelo,
@@ -495,7 +545,7 @@ export async function enviarAviso(admin: Admin, p: PedidoDeAlerta, buscar: typeo
       try {
         const { error } = await admin
           .from('whatsapp_bot_events')
-          .insert({ clinic_id: p.clinicId, conversation_id: p.conversaWhatsApp, evento: 'aviso_pedido', detalhe: descrito.detalhe })
+          .insert({ clinic_id: p.clinicId, conversation_id: p.conversaWhatsApp, evento: p.motivo === 'duvida' ? 'aviso_duvida' : 'aviso_pedido', detalhe: descrito.detalhe })
         if (error) console.error('Aviso no WhatsApp da Dra.: evento nao gravado', error)
       } catch (erro) {
         console.error('Aviso no WhatsApp da Dra.: evento nao gravado', erro)
@@ -507,7 +557,7 @@ export async function enviarAviso(admin: Admin, p: PedidoDeAlerta, buscar: typeo
     return envios
   } catch (erro) {
     console.error('Aviso no WhatsApp da Dra.: falhou antes de enviar', erro)
-    await gravarNota(admin, p.clinicId, p.conversaWhatsApp, `⚠️ O aviso do pedido não foi para o WhatsApp d${quem.o}: ${String(erro).slice(0, 200)}. Avise ${quem.o} por telefone.`)
+    await gravarNota(admin, p.clinicId, p.conversaWhatsApp, `⚠️ O ${DO_MOTIVO[p.motivo]?.nome ?? 'aviso'} não foi para o WhatsApp d${quem.o}: ${String(erro).slice(0, 200)}. Avise ${quem.o} por telefone.`)
     await gritarNaReserva(p, `${p.quem}: o aviso falhou antes de sair. Avise ${quem.o} por telefone.`)
     return []
   }

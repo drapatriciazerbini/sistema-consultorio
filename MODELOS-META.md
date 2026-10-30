@@ -246,6 +246,40 @@ Sem rodapé e sem botões. Mesmos exemplos do modelo 6.
 
 ---
 
+## 8. aviso_duvida_paciente
+
+Nome: `aviso_duvida_paciente`
+Categoria: Utilidade
+Idioma: Português (BR)
+
+Vai para os mesmos celulares dos modelos 6 e 7, não para paciente. Sai quando
+uma dúvida ou urgência precisa de gente: nem o robô nem a IA resolveram. A
+resposta escrita em cima do aviso volta ao paciente pelo número do consultório,
+depois de confirmar.
+
+**Corpo**
+
+```
+💬 Dúvida de paciente na Central de Cuidado, que o atendimento automático não resolveu.
+
+{{1}} escreveu às {{2}}:
+"{{3}}"
+
+Para responder, escreva a mensagem em cima deste aviso: eu mostro antes de enviar e repasso ao paciente como mensagem sua.
+```
+
+Sem rodapé e sem botões.
+
+**Exemplos que a Meta pede**
+
+- {{1}} = Maria Aparecida
+- {{2}} = 14:32
+- {{3}} = Pergunta se pode levar os exames antigos na consulta.
+
+**Período de validade**: também **12 horas**, como nos modelos 6 e 7.
+
+---
+
 ## Sobre os rótulos dos botões
 
 O sistema não manda um código junto com o botão: quando o paciente toca, a

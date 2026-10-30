@@ -540,7 +540,7 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
     return true
   }
   if (r.tipo === 'visto') {
-    await registrarResposta(amb, alerta, `👀 ${quemFala} viu o aviso do pedido (respondeu pelo WhatsApp). Nada foi enviado ao paciente.`, `visto (${papel})`)
+    await registrarResposta(amb, alerta, `👀 ${quemFala} viu o aviso (respondeu pelo WhatsApp). Nada foi enviado ao paciente.`, `visto (${papel})`)
     await responder('👍 Anotado.')
     return true
   }

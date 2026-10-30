@@ -70,7 +70,7 @@ export async function getUltimoAviso(clinicId: string): Promise<UltimoAviso | nu
       .from('alertas_de_urgencia')
       .select('criado_em,quem,teste,resultado')
       .eq('clinic_id', clinicId)
-      .eq('motivo', 'pedido')
+      .in('motivo', ['pedido', 'duvida'])
       .order('criado_em', { ascending: false })
       .limit(1)
       .maybeSingle()

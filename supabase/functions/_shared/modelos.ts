@@ -98,6 +98,15 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
       '{{1}} escreveu às {{2}}:\n"{{3}}"\n\n' +
       'Para responder, escreva a mensagem em cima deste aviso: eu mostro antes de enviar e repasso ao paciente como mensagem sua.',
   },
+  // Duvida que o robo e a IA nao resolveram (30/10/2026). Mesmo destino e mesmos
+  // parametros do aviso do pedido, com o {{3}} sendo a duvida. Tambem com
+  // validade de 12 horas na Meta.
+  aviso_duvida_paciente: {
+    corpo:
+      '💬 Dúvida de paciente na Central de Cuidado, que o atendimento automático não resolveu.\n\n' +
+      '{{1}} escreveu às {{2}}:\n"{{3}}"\n\n' +
+      'Para responder, escreva a mensagem em cima deste aviso: eu mostro antes de enviar e repasso ao paciente como mensagem sua.',
+  },
 }
 
 /**

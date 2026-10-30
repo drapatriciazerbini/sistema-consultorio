@@ -30,7 +30,7 @@ import { avisarEquipe } from '../_shared/push-da-equipe.ts'
 import { tratarInstagram } from '../_shared/instagram.ts'
 import { origemDoAnuncio, type Indicacao } from '../_shared/origem-do-anuncio.ts'
 import { postarNaMeta } from '../_shared/meta-tentativa.ts'
-import { deveAvisarPedido, enviarAviso, gravarNota, lerNumeros as lerNumerosDoAviso, motivoDoAvisoDoPedido, quemDoPedido, resumoDoPedido } from '../_shared/alerta-de-urgencia.ts'
+import { deveAvisarDuvida, deveAvisarPedido, enviarAviso, gravarNota, lerNumeros as lerNumerosDoAviso, motivoDoAvisoDoPedido, quemDoPedido, resumoDaDuvida, resumoDaIA, resumoDoPedido } from '../_shared/alerta-de-urgencia.ts'
 import { papelDoNumero, tratarRespostaDaEquipe, whatsAppPelaApi } from '../_shared/resposta-ao-alerta.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
@@ -977,6 +977,7 @@ Deno.serve(async (req) => {
             let resultado: Resultado
             let daIA = false
             let eventosDaIA: { evento: string; detalhe?: string }[] = []
+            let notaDaIA: string | null = null
             if (modoIA === 'ligado') {
               const desfecho = await atenderComAssistente({
                 modo: 'ligado',
@@ -992,6 +993,7 @@ Deno.serve(async (req) => {
               resultado = desfecho.resultado
               daIA = desfecho.origem === 'ia'
               eventosDaIA = desfecho.eventos
+              notaDaIA = desfecho.nota ?? null
               // O resumo que a IA deixa ao chamar a equipe vai como nota interna.
               // Falhar aqui custa a nota, nunca a resposta - e grita no log.
               if (desfecho.nota) await gravarNota(admin, clinicId, conversation.id, desfecho.nota)
@@ -1242,8 +1244,10 @@ Deno.serve(async (req) => {
                   motivo: 'pedido',
                   clinicId,
                   quem,
+                  // A duvida que veio junto do ultimo passo vai no mesmo aviso: um
+                  // aviso so por mensagem, e a Dra. responde as duas coisas juntas.
                   resumo: resultado?.pedido
-                    ? resumoDoPedido(resultado.pedido)
+                    ? [resumoDoPedido(resultado.pedido), resumoDaIA(notaDaIA) ? `Dúvida: ${resumoDaIA(notaDaIA)}` : ''].filter(Boolean).join(' ')
                     : resultado?.atencao === 'visita' ? 'Visita em casa' : 'Pedido de consulta',
                   agora: new Date(),
                   conversaWhatsApp: conversation.id,
@@ -1262,6 +1266,46 @@ Deno.serve(async (req) => {
               }
             } catch (erro) {
               console.error('Aviso no WhatsApp da Dra.: nao consegui disparar', erro)
+            }
+
+            /**
+             * Duvida que nem o robo nem a IA resolvem, ou urgencia (30/10/2026,
+             * ver MOTIVOS_DA_DUVIDA): o mesmo caminho do aviso do pedido, com o
+             * modelo proprio. Pedido anotado ja avisou acima: nao vao dois.
+             */
+            try {
+              const entrada = deveAvisarDuvida({
+                atencaoAntes: Boolean(conversaAnterior?.needs_attention),
+                motivoAntes: (conversaAnterior?.attention_reason as string | null) ?? null,
+                atencaoAgora: resultado?.pedido ? null : resultado?.atencao,
+              })
+              if (entrada) {
+                const aviso = enviarAviso(admin, {
+                  motivo: 'duvida',
+                  clinicId,
+                  quem: quemDoPedido({
+                    nomeDoPerfil: nomeDoPerfil || String(conversaAnterior?.profile_name ?? ''),
+                    pacientes,
+                    telefone: waId,
+                  }),
+                  resumo: resumoDaDuvida({ urgente: resultado?.atencao === 'urgencia', nota: notaDaIA, texto: escolhido }),
+                  agora: new Date(),
+                  conversaWhatsApp: conversation.id,
+                  repetido: entrada === 'repetido',
+                  reserva: (titulo, corpo) =>
+                    avisarEquipe(admin, clinicId, {
+                      titulo,
+                      corpo,
+                      etiqueta: `aviso-dra-${conversation.id}`,
+                      conversa: conversation.id,
+                      urgente: resultado?.atencao === 'urgencia',
+                    }),
+                })
+                if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(aviso)
+                else await aviso
+              }
+            } catch (erro) {
+              console.error('Aviso da duvida no WhatsApp da Dra.: nao consegui disparar', erro)
             }
           }
 
@@ -1410,6 +1454,23 @@ Deno.serve(async (req) => {
               const texto = respostaAoAcompanhamento(resposta)
               if (texto) await responder(texto)
               if (pediuAjuda) {
+                // "Preciso de ajuda" no acompanhamento nao passa pelo robo, e e
+                // a duvida mais clara que existe (30/10/2026): avisa tambem.
+                try {
+                  const aviso = enviarAviso(admin, {
+                    motivo: 'duvida',
+                    clinicId,
+                    quem: quemDoPedido({ paciente: patient?.name, telefone: waId }),
+                    resumo: 'Tocou em "Preciso de ajuda" no acompanhamento depois da consulta.',
+                    agora: new Date(),
+                    conversaWhatsApp: conversation.id,
+                    repetido: true,
+                  })
+                  if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(aviso)
+                  else await aviso
+                } catch (erro) {
+                  console.error('Aviso da duvida no WhatsApp da Dra.: nao consegui disparar', erro)
+                }
                 await admin
                   .from('whatsapp_conversations')
                   .update({
