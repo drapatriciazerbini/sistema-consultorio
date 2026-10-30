@@ -1743,6 +1743,8 @@ export interface ConversationMessage {
   anexoMime: string | null
   /** Caminho no acervo, para gerar um link novo na hora de abrir. */
   anexoPath: string | null
+  /** Escrita pelo atendente com IA (28/10/2026, ver supabase/functions/_shared/assistente.ts). */
+  porIA?: boolean
 }
 
 /**
@@ -1995,6 +1997,7 @@ export async function listConversationMessages(conversationId: string): Promise<
   if (error) fail(error)
   const linhas = data ?? []
   const anexos = await anexosDasMensagens(conversationId)
+  const daIA = await mensagensDaIA(conversationId)
 
   return linhas.map((row) => ({
     id: row.id,
@@ -2007,7 +2010,29 @@ export async function listConversationMessages(conversationId: string): Promise<
     anexoUrl: anexos.get(row.id)?.url ?? null,
     anexoMime: anexos.get(row.id)?.mime ?? null,
     anexoPath: anexos.get(row.id)?.path ?? null,
+    porIA: daIA.has(row.id),
   }))
+}
+
+/**
+ * As mensagens que o atendente com IA escreveu (28/10/2026). Coluna nova, lida
+ * a parte: sem a migration 20261028110000, so a etiqueta 🤖 some, e a conversa
+ * abre igual (a licao de 19/09/2026, ver anexosDasMensagens).
+ */
+async function mensagensDaIA(conversationId: string): Promise<Set<string>> {
+  const ids = new Set<string>()
+  try {
+    const { data, error } = await semTipo
+      .from('whatsapp_messages')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('gerada_por_ia', true)
+    if (error) throw error
+    for (const m of (data ?? []) as { id: string }[]) ids.add(m.id)
+  } catch (erro) {
+    console.warn('Sem whatsapp_messages.gerada_por_ia; a etiqueta da IA fica de fora', erro)
+  }
+  return ids
 }
 
 /**

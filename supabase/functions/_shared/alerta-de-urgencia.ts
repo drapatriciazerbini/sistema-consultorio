@@ -97,6 +97,18 @@ export function deveAvisarPedido(e: {
   return e.atencaoAntes && e.motivoAntes === e.atencaoAgora ? 'repetido' : 'novo'
 }
 
+/**
+ * O motivo que decide o aviso do pedido (28/10/2026, com o atendente com IA).
+ * O pedido anotado pelo robo manda o aviso mesmo quando a mesma mensagem trocou
+ * a etiqueta da conversa: a IA responde uma duvida junto do ultimo passo e
+ * chama a equipe, ou a mensagem traz um sinal de urgencia. Sem isto o pedido
+ * entrava na Central e a Dra. nao ficava sabendo - o caso de 19/10/2026 de novo.
+ */
+export function motivoDoAvisoDoPedido(r: { atencao?: string | null; pedido?: { tipo?: string } | null } | null | undefined): string | null {
+  if (r?.pedido) return r.pedido.tipo === 'visita' ? 'visita' : 'pedido_consulta'
+  return r?.atencao ?? null
+}
+
 /** A espera do pedido: a mesma das 48 horas do webhook e de liberar_conversas_travadas. */
 export const ESPERA_DO_PEDIDO_MS = 48 * 3600 * 1000
 

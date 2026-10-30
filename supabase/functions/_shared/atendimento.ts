@@ -18,7 +18,7 @@
  * meta-webhook, que ja tem o token e o numero em maos.
  */
 
-import { avisoDeHorario } from './expediente.ts'
+import { avisoDeHorario, EXPEDIENTE } from './expediente.ts'
 import { dataDeNascimentoIso } from './datas.ts'
 import type { adminClient } from './whatsapp.ts'
 import { cadastrarDaFicha, type ConsultaParaCadastro } from './cadastro.ts'
@@ -210,6 +210,17 @@ export function colherEventos(conversationId: string): EventoDoRobo[] {
   const lista = eventosEmCurso.get(conversationId) ?? []
   eventosEmCurso.delete(conversationId)
   return lista
+}
+
+/**
+ * O robo registrou este evento na mensagem em andamento? So olha, nao colhe.
+ * O atendente com IA usa para saber se o robo "nao entendeu" mesmo quando a
+ * resposta dele nao comeca por "Nao entendi": a frase clinica e a resposta
+ * pronta tambem saem do naoEntendi (porte de 28/10/2026, sistema do Dr.
+ * Marcello, 15/10/2026).
+ */
+export function roboRegistrou(conversationId: string, evento: string): boolean {
+  return (eventosEmCurso.get(conversationId) ?? []).some((e) => e.evento === evento)
 }
 
 type Unidade = {
@@ -3567,6 +3578,199 @@ async function perguntarQuandoDaVisita(
     booking_options: { visita },
   })
   return { resposta: '⏳ A partir de quando pode ser a visita?\n\n' + DICA_DO_QUANDO, botoes: botoesDoQuando() }
+}
+
+// ---------------------------------------------------------------
+// Atendente com IA (porte de 28/10/2026, ver assistente.ts)
+// ---------------------------------------------------------------
+//
+// O que a IA le e faz pelo robo. Nada aqui muda o robo: sao leituras e a mesma
+// entrega a equipe de chamarEquipe, chamadas so quando a IA esta ligada.
+
+/**
+ * Passa a conversa para a equipe com o texto que o atendente com IA escreveu.
+ * O mesmo estado de chamarEquipe: fila, contador zerado.
+ */
+export async function entregarParaEquipe(
+  admin: Admin,
+  conversationId: string,
+  motivo: MotivoAtencao,
+  texto: string,
+  /**
+   * Duvida no meio de um passo (no sistema do Dr. Marcello, 17/10/2026): a
+   * conversa acende para a equipe, como o anexo no meio do fluxo, e o passo
+   * continua aberto. O pedido de consulta pela metade nao se perde.
+   */
+  manterEtapa = false,
+): Promise<Resultado> {
+  focar(conversationId)
+  if (!manterEtapa) {
+    await salvarEstado(admin, conversationId, {
+      booking_state: 'atendente',
+      booking_options: null,
+      booking_unit_id: null,
+      auto_replies_while_waiting: 0,
+    })
+  }
+  return { resposta: texto, atencao: motivo }
+}
+
+/**
+ * A descricao do perfil e o texto livre do cartao "Atendente com IA". Duas
+ * consultas, cada uma no seu try/catch: assistente_ia_conhecimento e coluna
+ * nova, e sem ela a IA perde so este bloco - nunca o atendimento.
+ */
+async function sobreOConsultorio(admin: Admin, clinicId: string) {
+  const sobre = { texto: '', descricao: '' }
+  try {
+    const { data, error } = await admin
+      .from('clinic_settings')
+      .select('whatsapp_profile_description')
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+    if (error) throw error
+    sobre.descricao = String((data as { whatsapp_profile_description?: string | null } | null)?.whatsapp_profile_description ?? '').trim()
+  } catch (erro) {
+    console.warn('Atendente com IA: nao li a descricao do consultorio', erro)
+  }
+  try {
+    const { data, error } = await admin
+      .from('clinic_settings')
+      .select('assistente_ia_conhecimento')
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+    if (error) throw error
+    sobre.texto = String((data as { assistente_ia_conhecimento?: string | null } | null)?.assistente_ia_conhecimento ?? '').trim()
+  } catch (erro) {
+    console.warn('Sem clinic_settings.assistente_ia_conhecimento; a IA responde sem o texto do consultorio', erro)
+  }
+  return sobre
+}
+
+/**
+ * O que o atendente com IA sabe do consultorio.
+ *
+ * Os textos de cada atendimento e as respostas prontas sao os mesmos do robo:
+ * a equipe muda um texto na tela e os dois passam a dizer a mesma coisa. No
+ * sistema do Dr. Marcello (16/10/2026) a IA recusava pergunta simples por nao
+ * ter a resposta; o que falta nos cartoes vai no texto livre de Preferencias.
+ *
+ * Convenio e agenda saem dos dados, e nao de um texto fixo: a consulta e
+ * particular enquanto nenhum atendimento tiver convenio cadastrado, e com a
+ * agenda por pedido quem confirma o dia e a Dra. Patricia.
+ */
+export async function conhecimentoDaClinica(admin: Admin, clinicId: string): Promise<string> {
+  const [lugares, tele, respostas, sobre, porPedido] = await Promise.all([
+    opcoesDeAtendimento(admin, clinicId),
+    telemedicinaDaClinica(admin, clinicId),
+    carregarRespostas(admin, clinicId),
+    sobreOConsultorio(admin, clinicId),
+    agendamentoPorPedido(admin, clinicId),
+  ])
+  const quem = quemAtende(clinicId)
+  const fisicas = lugares.filter((u) => u.id !== TELE_ID)
+  const algumConvenio = fisicas.some((u) => (u.accepts_insurance ?? '').trim())
+  const temVisita = fisicas.some((u) => u.is_home_visit)
+
+  const partes = lugares.map((u) => {
+    if (u.id === TELE_ID) return [`## ${u.name}`, 'Atendimento por vídeo.', tele.informacoes].filter(Boolean).join('\n')
+    const onde = u.is_home_visit ? 'Na casa do paciente.' : u.address ? `Endereço: ${u.address}` : ''
+    const convenio = `Convênio: ${(u.accepts_insurance ?? '').trim() || 'não atende convênio, consulta particular'}`
+    return [`## ${u.name}`, onde, convenio, (u.info_text ?? '').trim()].filter(Boolean).join('\n')
+  })
+
+  // O que o sistema faz pela pessoa, para a IA oferecer o caminho certo em vez
+  // de "vou verificar com a equipe".
+  const funcionamento = [
+    porPedido
+      ? `- Para marcar, a pessoa faz o pedido por aqui mesmo: o local (${fisicas.map((u) => u.name).join(' ou ')}), se é a primeira consulta ou retorno, os períodos que servem e alguma restrição de dia ou horário. ${quem.O} confere a agenda e confirma o dia e o horário por aqui. A vaga só fica garantida depois dessa confirmação.`
+      : '- A pessoa marca a consulta por aqui mesmo, na hora, escolhendo o dia e o horário livres.',
+    '- Por aqui também dá para ver, remarcar ou cancelar a consulta já marcada.',
+    algumConvenio ? '' : '- O atendimento é particular: nenhum atendimento aceita convênio. Quem ainda não é paciente vê o valor antes de terminar o pedido.',
+    temVisita
+      ? `- Visita em casa: ${quem.o} atende em casa em Santos e São Vicente. Em outras cidades também é possível, com acréscimo no valor, informado antes de marcar.`
+      : '',
+    `- A equipe responde as mensagens de ${EXPEDIENTE.texto}, menos feriados. Fora disso, responde no próximo dia útil.`,
+    '- 2ª via de receita ou de pedido de exame já emitidos: pedida por aqui. Remédio controlado não tem 2ª via por WhatsApp: a equipe orienta.',
+    '- Foto ou arquivo (exame, laudo, receita) pode ser mandado por aqui: chega para a equipe, que olha e responde.',
+    '- Na véspera da consulta, a pessoa recebe um lembrete por aqui.',
+    tele.ativa ? '- Também há consulta online (telemedicina).' : '',
+  ].filter(Boolean)
+
+  // Um lugar so para o preco, o mesmo do passo do valor (ver perguntarValor).
+  // Com "R$ ___" ainda na resposta pronta, a IA fica sabendo que nao ha valor
+  // para dizer, em vez de achar um numero solto num cartao antigo.
+  const valor = valorCadastrado(respostas)
+  // Rotulos de proposito (no sistema do Dr. Marcello, 15/10/2026): sem eles a
+  // IA tratava a resposta pronta como mais um texto solto.
+  const prontas = respostas.map((r) => `## ${r.assunto}\n${r.resposta.trim()}`)
+  return [
+    ...(sobre.descricao || sobre.texto ? ['# Sobre o consultório', [sobre.descricao, sobre.texto].filter(Boolean).join('\n\n')] : []),
+    '# Como funciona o atendimento',
+    funcionamento.join('\n'),
+    '# Atendimentos',
+    partes.join('\n\n') || '(nenhum atendimento cadastrado)',
+    '# Valor da consulta (texto oficial)',
+    valor ?? 'Valor ainda não cadastrado: não informe valor nenhum; a equipe responde.',
+    ...(prontas.length ? ['# Respostas oficiais do consultório (use o conteúdo delas quando responderem a pergunta)', prontas.join('\n\n')] : []),
+  ].join('\n\n')
+}
+
+/** O local pedido pela IA, pelo nome ou pelo jeito de dizer ("em casa", "no Gonzaga"). */
+function lugarCitado(lugares: Unidade[], pedido: string): Unidade[] {
+  const t = normalizar(pedido)
+  if (!t || /^(todas?|todos|todos os locais|qualquer( um| uma)?|tanto faz|mais proximo)$/.test(t)) return lugares
+  if (/\b(casa|domicil\w*|visita|residencia)\b/.test(t)) return lugares.filter((u) => u.is_home_visit)
+  if (/\b(consultorio|gonzaga|clinica|presencial)\b/.test(t)) return lugares.filter((u) => !u.is_home_visit && u.id !== TELE_ID)
+  return lugares.filter((u) => normalizar(u.name).includes(t) || t.includes(normalizar(u.name)))
+}
+
+/**
+ * Os dias e periodos de atendimento, em texto, para a IA consultar antes de
+ * responder "atende sabado?" ou "tem de manha?". So leitura: quem anota o
+ * pedido (ou marca, na agenda de horarios) e o fluxo de sempre.
+ *
+ * Com a agenda por pedido sao os periodos que o proprio robo oferece no
+ * pedido (periodosDaUnidade), com data e sem o que ja esta ocupado. A IA
+ * nunca ve um horario que possa prometer: quem confirma e a Dra.
+ */
+export async function periodosEmTexto(admin: Admin, clinicId: string, nomeDoLugar: string): Promise<string> {
+  const lugares = (await opcoesDeAtendimento(admin, clinicId)).filter((u) => u.id !== TELE_ID)
+  const alvos = lugarCitado(lugares, nomeDoLugar)
+  if (!alvos.length) return `Atendimento não encontrado. Os atendimentos são: ${lugares.map((u) => u.name).join(', ')}.`
+  const porPedido = await agendamentoPorPedido(admin, clinicId)
+  const fuso = await fusoDaClinica(admin, clinicId)
+  const blocos: string[] = []
+  for (const u of alvos) {
+    if (porPedido) {
+      const periodos = await periodosDaUnidade(admin, clinicId, u.id)
+      blocos.push(
+        periodos.length
+          ? `${u.name}: ${periodos.join('; ')}.`
+          : `${u.name}: sem horário de atendimento cadastrado; o dia é combinado no pedido.`,
+      )
+      continue
+    }
+    if (u.is_home_visit) {
+      blocos.push(`${u.name}: o dia da visita é combinado pela equipe.`)
+      continue
+    }
+    const { horarios, falhou } = await horariosLivres(admin, clinicId, u.id)
+    if (falhou) {
+      blocos.push(`${u.name}: não consegui ler a agenda agora.`)
+      continue
+    }
+    if (!horarios.length) {
+      blocos.push(`${u.name}: sem horários livres na agenda aberta.`)
+      continue
+    }
+    const dias = agruparPorDia(horarios, fuso).slice(0, 6)
+    blocos.push(`${u.name}:\n${dias.map((d) => `${formatarDia(d.horarios[0].inicio, fuso)}: ${d.horarios.slice(0, 4).map((h) => formatarHora(h.inicio, fuso)).join(', ')}`).join('\n')}`)
+  }
+  const rodape = porPedido
+    ? `\n\n${quemAtende(clinicId).O} confirma o dia e o horário de cada pedido; nada fica reservado antes disso.`
+    : ''
+  return `${blocos.join('\n')}${rodape}`
 }
 
 // ---------------------------------------------------------------

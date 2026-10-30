@@ -2268,6 +2268,7 @@ export default function Conversations({
                                 </p>
                               )}
                               <span className="mt-0.5 flex items-center justify-end gap-1 text-[11px] leading-none text-[#667781]">
+                                {message.porIA && <span title="Escrita pelo atendente com IA" className="font-bold text-[#1f5f55]">🤖 IA ·</span>}
                                 {formatWhen(message.createdAt)}
                                 {outbound && <Confirmacao status={message.status} />}
                               </span>
@@ -2893,12 +2894,13 @@ export default function Conversations({
                           <Anexo url={message.anexoUrl} mime={message.anexoMime} caminho={message.anexoPath} onAbrir={setArquivoAberto} />
                         )}
                         {(!message.anexoUrl || !/^\[/.test(message.body)) && (
-                          <p className="whitespace-pre-wrap break-words pr-[58px] text-[14.2px] leading-[19px] text-[#11211d]">
+                          <p className={`whitespace-pre-wrap break-words ${message.porIA ? 'pr-[78px]' : 'pr-[58px]'} text-[14.2px] leading-[19px] text-[#11211d]`}>
                             {(message.body && comLinks(message.body)) ||
                               (message.templateName ? `[modelo: ${message.templateName}]` : '[sem conteúdo]')}
                           </p>
                         )}
                         <span className="absolute bottom-[5px] right-[8px] flex items-center gap-[3px] text-[11px] leading-none text-[#667781]">
+                          {message.porIA && <span title="Escrita pelo atendente com IA" className="font-bold text-[#1f5f55]">🤖</span>}
                           {horaLocal(message.createdAt)}
                           {outbound && <Confirmacao status={message.status} />}
                         </span>

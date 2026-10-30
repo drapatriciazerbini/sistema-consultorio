@@ -1,6 +1,25 @@
 import '../_shared/whatsapp.ts'
 import { adminClient, digits, sha256HmacHex, safeEqual } from '../_shared/whatsapp.ts'
-import { colherEventos, type Estado, remarcarPeloLembrete, type Toque, tratarConversa } from '../_shared/atendimento.ts'
+import {
+  colherEventos,
+  entregarParaEquipe,
+  type Estado,
+  periodosEmTexto,
+  remarcarPeloLembrete,
+  type Resultado,
+  roboRegistrou,
+  type Toque,
+  tratarConversa,
+} from '../_shared/atendimento.ts'
+import {
+  atenderComAssistente,
+  claudePelaApi,
+  type Ferramentas,
+  lerModo,
+  type ModoDoAssistente,
+  montarSituacao,
+} from '../_shared/assistente.ts'
+import { quemAtende } from '../_shared/quem-atende.ts'
 import { montarConteudo } from '../_shared/conteudo.ts'
 import { RegistroDeEventos } from '../_shared/eventos-do-webhook.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
@@ -11,7 +30,7 @@ import { avisarEquipe } from '../_shared/push-da-equipe.ts'
 import { tratarInstagram } from '../_shared/instagram.ts'
 import { origemDoAnuncio, type Indicacao } from '../_shared/origem-do-anuncio.ts'
 import { postarNaMeta } from '../_shared/meta-tentativa.ts'
-import { deveAvisarPedido, enviarAviso, lerNumeros as lerNumerosDoAviso, quemDoPedido, resumoDoPedido } from '../_shared/alerta-de-urgencia.ts'
+import { deveAvisarPedido, enviarAviso, gravarNota, lerNumeros as lerNumerosDoAviso, motivoDoAvisoDoPedido, quemDoPedido, resumoDoPedido } from '../_shared/alerta-de-urgencia.ts'
 import { papelDoNumero, tratarRespostaDaEquipe, whatsAppPelaApi } from '../_shared/resposta-ao-alerta.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
@@ -305,6 +324,22 @@ Deno.serve(async (req) => {
           .maybeSingle()
         if (!settings?.clinic_id) continue
         const clinicId = settings.clinic_id
+
+        // Atendente com IA (porte de 28/10/2026, ver _shared/assistente.ts).
+        // Coluna nova, lida a parte: sem ela, ou sem chave, o robo de sempre.
+        let modoIA: ModoDoAssistente = 'desligado'
+        try {
+          const { data: ia, error: erroIA } = await admin
+            .from('clinic_settings')
+            .select('assistente_ia')
+            .eq('clinic_id', clinicId)
+            .maybeSingle()
+          if (erroIA) throw erroIA
+          modoIA = lerModo((ia as { assistente_ia?: string } | null)?.assistente_ia)
+        } catch (erro) {
+          console.warn('Sem clinic_settings.assistente_ia; atendente com IA desligado', erro)
+        }
+        const chaveIA = Deno.env.get('ANTHROPIC_API_KEY')?.trim() || null
 
         // A Meta manda em `contacts` o nome que a pessoa configurou no WhatsApp
         // dela. Nao e nome verificado, mas para um contato sem cadastro e a
@@ -837,7 +872,7 @@ Deno.serve(async (req) => {
           // Mensagem que a Meta nao entrega o conteudo: o robo nao responde. Costuma
           // vir de outra empresa (codigo de verificacao) e a resposta falha.
           if (!optedOut && !respondeuLembrete && !isWell && !pediuAjuda && message.type !== 'unsupported' && settings.whatsapp_autoreply_enabled) {
-            const resultado = await tratarConversa({
+            const opcoesDoRobo: Parameters<typeof tratarConversa>[0] = {
               admin,
               clinicId,
               conversationId: conversation.id,
@@ -871,13 +906,152 @@ Deno.serve(async (req) => {
                 saudacaoConhecida: settings.whatsapp_autoreply_known_text ?? '',
                 informacoes: settings.whatsapp_menu_info_text ?? '',
               },
-            })
+            }
+
+            // Atendente com IA: o que ele pode fazer, todo pelo robo e pela fila
+            // da equipe que ja existem (ver _shared/assistente.ts). A etapa como
+            // esta no banco AGORA: depois de a IA abrir o pedido, opcoesDoRobo
+            // (lido na chegada da mensagem) ja ficou para tras.
+            const etapaNoBanco = async () => {
+              const { data, error } = await admin
+                .from('whatsapp_conversations')
+                .select('booking_state,booking_options,booking_unit_id,booking_patient_id,booking_replaces_id,booking_intake_id,booking_modality')
+                .eq('id', conversation.id)
+                .maybeSingle()
+              if (error) console.warn('IA: nao reli a etapa do pedido', error)
+              return data as Record<string, unknown> | null
+            }
+            const ferramentasDaIA: Ferramentas = {
+              // O texto que a IA manda ao robo nao e toque: sem o titulo, o robo
+              // nao confunde a traducao com um botao tocado.
+              robo: async (texto, etapa) => {
+                if (etapa === 'atual') {
+                  const agora = await etapaNoBanco()
+                  return tratarConversa({
+                    ...opcoesDoRobo,
+                    texto,
+                    tituloDoToque: '',
+                    estadoAtual: (agora?.booking_state ?? null) as Estado | null,
+                    opcoesAtuais: agora?.booking_options ?? null,
+                    unidadeEmAndamento: (agora?.booking_unit_id ?? null) as string | null,
+                    pacienteEmAndamento: (agora?.booking_patient_id ?? null) as string | null,
+                    consultaASubstituir: (agora?.booking_replaces_id ?? null) as string | null,
+                    consultaEmCadastro: (agora?.booking_intake_id ?? null) as string | null,
+                    modalidadeEmAndamento: (agora?.booking_modality ?? null) as 'presencial' | 'telemedicina' | null,
+                    podeIniciarMenu: true,
+                    jaViuOMenu: true,
+                    anexo: false,
+                  })
+                }
+                return tratarConversa({
+                  ...opcoesDoRobo,
+                  texto,
+                  tituloDoToque: '',
+                  estadoAtual: etapa === 'mesma' ? opcoesDoRobo.estadoAtual : etapa === 'menu' ? 'menu' : null,
+                  opcoesAtuais: etapa === 'mesma' ? opcoesDoRobo.opcoesAtuais : null,
+                  podeIniciarMenu: true,
+                  jaViuOMenu: true,
+                  anexo: false,
+                })
+              },
+              horarios: (local) => periodosEmTexto(admin, clinicId, local),
+              equipe: (motivo, texto, o) => entregarParaEquipe(admin, conversation.id, motivo, texto, o?.manterEtapa),
+              etapa: async () => ((await etapaNoBanco())?.booking_state ?? null) as string | null,
+            }
+            const urgenciaAberta = Boolean(conversaAnterior?.needs_attention && conversaAnterior?.attention_reason === 'urgencia')
+            const situacaoDaIA = () =>
+              montarSituacao(admin, {
+                clinicId,
+                conversationId: conversation.id,
+                texto: escolhido,
+                anexo: ehAnexo(message),
+                etapa: (conversaAnterior?.booking_state ?? null) as string | null,
+                pacientes: pacientes.map((p: { name?: string | null }) => String(p.name ?? '').trim().split(/\s+/)[0]).filter(Boolean),
+                consultas,
+                quemAtende: quemAtende(clinicId).o,
+                agora: new Date(),
+                equipeConversando: equipeFalouRecentemente,
+                urgenciaAberta,
+              })
+
+            let resultado: Resultado
+            let daIA = false
+            let eventosDaIA: { evento: string; detalhe?: string }[] = []
+            if (modoIA === 'ligado') {
+              const desfecho = await atenderComAssistente({
+                modo: 'ligado',
+                situacao: await situacaoDaIA(),
+                ferramentas: ferramentasDaIA,
+                chamar: chaveIA ? claudePelaApi(chaveIA) : null,
+                roboDireto: () => tratarConversa(opcoesDoRobo),
+                roboNaoEntendeuAgora: () => roboRegistrou(conversation.id, 'nao_entendi'),
+                // "Falar com a equipe" tocado na lista chega como numero; o titulo
+                // diz o que era (ver esperarOAssunto).
+                tituloDoToque: message.type === 'interactive' ? body : null,
+              })
+              resultado = desfecho.resultado
+              daIA = desfecho.origem === 'ia'
+              eventosDaIA = desfecho.eventos
+              // O resumo que a IA deixa ao chamar a equipe vai como nota interna.
+              // Falhar aqui custa a nota, nunca a resposta - e grita no log.
+              if (desfecho.nota) await gravarNota(admin, clinicId, conversation.id, desfecho.nota)
+            } else {
+              resultado = await tratarConversa(opcoesDoRobo)
+            }
+
+            // Modo sombra: o robo ja decidiu; o Claude escreve depois, como nota
+            // interna, o que ele responderia. Fora do caminho do paciente.
+            if (modoIA === 'sombra') {
+              const doRobo = resultado
+              const sombra = (async () => {
+                const desfecho = await atenderComAssistente({
+                  modo: 'sombra',
+                  situacao: await situacaoDaIA(),
+                  ferramentas: ferramentasDaIA,
+                  chamar: chaveIA ? claudePelaApi(chaveIA) : null,
+                  roboDireto: () => Promise.resolve(doRobo),
+                })
+                if (desfecho.nota) await gravarNota(admin, clinicId, conversation.id, desfecho.nota)
+                if (desfecho.eventos.length) {
+                  const { error: erroDosEventos } = await admin.from('whatsapp_bot_events').insert(desfecho.eventos.map((e) => ({
+                    clinic_id: clinicId,
+                    conversation_id: conversation.id,
+                    evento: e.evento,
+                    detalhe: (e.detalhe ?? '').slice(0, 120),
+                  })))
+                  if (erroDosEventos) console.warn('Nao consegui registrar os eventos do modo sombra', erroDosEventos)
+                }
+              })().catch((erro) => console.warn('Atendente com IA (sombra) falhou', erro))
+              if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(sombra)
+              else await sombra
+            }
+
+            // A IA calou porque a pessoa so encerrou ("obrigada", emoji): nao e
+            // pedido de gente, e a conversa nao acende para a equipe.
+            const calouNoFechamento = eventosDaIA.some((e) => e.evento === 'ia_calou_no_fechamento')
 
             if (resultado) {
+              const antesDaResposta = new Date(Date.now() - 2000).toISOString()
               await responder(resultado.resposta, null, {
                 botoes: resultado.botoes,
                 lista: resultado.lista,
               })
+              // Quem escreveu foi o Claude: a marca e coluna nova, gravada a
+              // parte, para a falta dela custar so a etiqueta.
+              if (daIA) {
+                try {
+                  const { error: erroDaMarca } = await admin
+                    .from('whatsapp_messages')
+                    .update({ gerada_por_ia: true })
+                    .eq('conversation_id', conversation.id)
+                    .eq('direction', 'outbound')
+                    .eq('body', resultado.resposta)
+                    .gte('created_at', antesDaResposta)
+                  if (erroDaMarca) console.warn('Nao consegui marcar a mensagem como da IA', erroDaMarca)
+                } catch (erro) {
+                  console.warn('Nao consegui marcar a mensagem como da IA', erro)
+                }
+              }
               // Atendimento fechado pelo robô, sem nada pendente para a
               // equipe. A conversa passa a "Resolvida", como se alguém
               // tivesse clicado em Concluir.
@@ -923,7 +1097,7 @@ Deno.serve(async (req) => {
                     .eq('id', conversation.id)
                 }
               }
-            } else {
+            } else if (!calouNoFechamento) {
               /**
                * O robo decidiu ficar calado: quem responde e uma pessoa.
                *
@@ -970,7 +1144,9 @@ Deno.serve(async (req) => {
              * e a conversa segue inteira.
              */
             try {
-              const eventos = colherEventos(conversation.id)
+              // Os da IA tambem (ia_respondeu, ia_falhou...): falha da IA que nao
+              // aparece em lugar nenhum e falha calada.
+              const eventos = [...colherEventos(conversation.id), ...eventosDaIA]
               // O pedido de gente vem do resultado, e nao de um registrar()
               // espalhado: os quatro pontos que levantam a bandeira ficam em
               // funcoes diferentes, e aqui existe um so.
@@ -1027,7 +1203,7 @@ Deno.serve(async (req) => {
                 nomeDoPerfil: nomeDoPerfil || String(conversaAnterior?.profile_name ?? ''),
                 telefone: waId,
               })
-              if (aviso) {
+              if (aviso && !calouNoFechamento) {
                 const envio = avisarEquipe(admin, clinicId, aviso)
                 if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(envio)
                 else await envio
@@ -1048,10 +1224,12 @@ Deno.serve(async (req) => {
              * ninguem, a notificacao no celular da equipe grita de reserva.
              */
             try {
+              // O pedido anotado manda o aviso mesmo quando a IA trocou a
+              // etiqueta da conversa (ver motivoDoAvisoDoPedido).
               const entrada = deveAvisarPedido({
                 atencaoAntes: Boolean(conversaAnterior?.needs_attention),
                 motivoAntes: (conversaAnterior?.attention_reason as string | null) ?? null,
-                atencaoAgora: resultado?.atencao ?? null,
+                atencaoAgora: motivoDoAvisoDoPedido(resultado),
               })
               if (entrada) {
                 const quem = quemDoPedido({

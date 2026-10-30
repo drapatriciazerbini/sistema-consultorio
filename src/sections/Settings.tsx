@@ -28,6 +28,7 @@ import RespostasProntas from '@/sections/RespostasProntas'
 import InformacoesDoWhatsApp from '@/sections/InformacoesDoWhatsApp'
 import NotificacoesNoCelular from '@/sections/NotificacoesNoCelular'
 import AvisoNoWhatsAppDaDra from '@/sections/AvisoNoWhatsAppDaDra'
+import AtendenteComIA from '@/sections/AtendenteComIA'
 
 interface Props {
   db: Db
@@ -175,6 +176,8 @@ export default function Settings({ db, importDb, clearAll }: Props) {
       <NotificacoesNoCelular clinicId={clinicId} />
       {/* Pedido de consulta no WhatsApp pessoal da Dra. (28/10/2026). */}
       <AvisoNoWhatsAppDaDra clinicId={clinicId} />
+      {/* Atendente com IA (28/10/2026), desligado ate o Edu escolher. */}
+      <AtendenteComIA clinicId={clinicId} />
       <DadosDaClinica />
       <InformacoesDoWhatsApp />
       <RespostasProntas />
