@@ -3,7 +3,7 @@
 // Dr. Marcello. Regra em supabase/functions/_shared/resposta-ao-alerta.ts.
 // Banco e Meta de mentira: o que se testa e o que chega ao paciente, a Dra. e
 // ao registro. Numeros, nomes e valores inventados: o repositorio e publico.
-import { escolherAlerta, lerRespostaDaEquipe, papelDoNumero, textoParaOPaciente, tratarRespostaDaEquipe } from './resposta-ao-alerta.build.mjs'
+import { escolherAlerta, lerRespostaDaEquipe, oQueOPacienteDisse, papelDoNumero, repassarAoCelular, repasseAberto, textoDoRepasse, textoParaOPaciente, tratarRespostaDaEquipe } from './resposta-ao-alerta.build.mjs'
 import { bancoFalso } from './fixtures/banco-falso.mjs'
 
 let ok = 0
@@ -247,6 +247,85 @@ const dois = () => [alerta(), alerta({ id: A2, quem: 'José Teste', conversa_wha
   await tratarRespostaDaEquipe(c.amb, DRA, texto('funcionou?'))
   confere('teste: texto em cima tambem', c.para(DRA).at(-1) === '✅ Era um aviso de teste: nada foi enviado.')
 }
+
+// 10. A resposta do paciente de volta ao celular (30/10/2026).
+{
+  // Falar com ele abre; o valor, nao.
+  const c = cenario()
+  await tratarRespostaDaEquipe(c.amb, DRA, toque(`PED:${A1}:valores`))
+  confere('repasse: Mandar os valores nao abre', !c.banco.db.alertas_de_urgencia[0].repasse_aberto_em)
+  await tratarRespostaDaEquipe(c.amb, DRA, toque(`PED:${A1}:responde`))
+  const a = c.banco.db.alertas_de_urgencia[0]
+  confere('repasse: Eu respondo abre, com quem falou', a.repasse_por === DRA && a.repasse_aberto_em === AGORA.toISOString(), JSON.stringify(a))
+  const e = cenario()
+  await tratarRespostaDaEquipe(e.amb, EQUIPE, texto('Pode ser sexta às 14h?', 'wamid.AVISO1'))
+  await tratarRespostaDaEquipe(e.amb, EQUIPE, toqueInterativo(`PEDTXT:${A1}:enviar`))
+  confere('repasse: mensagem escrita abre, com quem falou', e.banco.db.alertas_de_urgencia[0].repasse_por === EQUIPE && e.banco.db.alertas_de_urgencia[0].repasse_aberto_em, JSON.stringify(e.banco.db.alertas_de_urgencia[0]))
+  const falha = cenario({ pacienteFalha: true })
+  await tratarRespostaDaEquipe(falha.amb, DRA, toque(`PED:${A1}:responde`))
+  confere('repasse: mensagem que nao chegou ao paciente nao abre', !falha.banco.db.alertas_de_urgencia[0].repasse_aberto_em)
+}
+{
+  const aberto = (extra = {}) => alerta({ repasse_por: DRA, repasse_aberto_em: haMinutos(60), repasse_modelo_em: null, ...extra })
+  const c = cenario({ alertas: [aberto()] })
+  const r = await repasseAberto(c.banco, 'c1', 'conv-1', AGORA)
+  confere('repasse: acha o aberto da conversa', r?.id === A1)
+  confere('repasse: outra conversa nao', (await repasseAberto(c.banco, 'c1', 'conv-2', AGORA)) === null)
+  await repassarAoCelular(c.amb, r, 'conv-1', PACIENTE, 'Pode ser sim, CPF 390.533.447-05')
+  confere('repasse: quem falou recebe em texto', c.enviados.find((e) => e.para === DRA)?.conteudo.type === 'text' && c.para(DRA)[0].includes('Maria Teste da Silva respondeu') && c.para(DRA)[0].includes('Pode ser sim'), JSON.stringify(c.para(DRA)))
+  confere('repasse: CPF nao vai ao celular', !c.para(DRA)[0].includes('390.533') && !c.para(EQUIPE)[0].includes('390.533'), c.para(DRA)[0])
+  const modelo = c.enviados.find((e) => e.para === EQUIPE)?.conteudo
+  confere('repasse: o outro numero recebe pelo modelo aprovado', modelo?.type === 'template' && modelo.template.name === 'aviso_duvida_paciente' && modelo.template.components[0].parameters.length === 3, JSON.stringify(modelo))
+  confere('repasse: o paciente nao recebe nada', c.para(PACIENTE).length === 0)
+  const a = c.banco.db.alertas_de_urgencia[0]
+  confere('repasse: guarda os ids, para a resposta em cima achar o aviso', a.mensagens.length === 3 && a.mensagens[0] === 'wamid.AVISO1', JSON.stringify(a.mensagens))
+  confere('repasse: guarda quando', a.repasse_em === AGORA.toISOString() && a.repasse_modelo_em === AGORA.toISOString(), JSON.stringify(a))
+  confere('repasse: evento nos numeros', c.banco.db.whatsapp_bot_events.some((x) => x.evento === 'repasse_ao_celular' && x.detalhe === 'enviado 2'))
+
+  // A Dra. responde em cima do repasse.
+  const antes = c.enviados.length
+  await tratarRespostaDaEquipe(c.amb, DRA, texto('Ótimo, sexta às 14h', a.mensagens[1]))
+  confere('repasse: resposta em cima vira rascunho do paciente certo', c.banco.db.alertas_de_urgencia[0].rascunho === 'Ótimo, sexta às 14h' && c.enviados.length === antes + 1)
+
+  // Segunda mensagem em seguida: o modelo nao sai de novo, o texto sim.
+  const segundo = await repasseAberto(c.banco, 'c1', 'conv-1', AGORA)
+  const n = c.para(EQUIPE).length
+  await repassarAoCelular(c.amb, segundo, 'conv-1', PACIENTE, 'E levo os exames?')
+  confere('repasse: modelo no maximo um a cada 6 h', c.para(EQUIPE).length === n, JSON.stringify(c.para(EQUIPE)))
+  confere('repasse: o texto continua saindo', c.para(DRA).some((t) => t.includes('E levo os exames?')))
+}
+{
+  const aberto = (extra = {}) => alerta({ repasse_por: DRA, repasse_aberto_em: haMinutos(60), repasse_modelo_em: null, ...extra })
+  // Passou da janela de quem falou: texto falharia calado, vai pelo modelo.
+  const c = cenario({ alertas: [aberto({ repasse_aberto_em: haMinutos(30 * 60) })] })
+  await repassarAoCelular(c.amb, await repasseAberto(c.banco, 'c1', 'conv-1', AGORA), 'conv-1', PACIENTE, 'Oi')
+  confere('repasse: depois de 23 h ela tambem vai pelo modelo', c.enviados.find((e) => e.para === DRA)?.conteudo.type === 'template')
+  // Passou das 48 horas: acabou.
+  const v = cenario({ alertas: [aberto({ repasse_aberto_em: haMinutos(49 * 60) })] })
+  confere('repasse: depois de 48 h fica so na Central', (await repasseAberto(v.banco, 'c1', 'conv-1', AGORA)) === null)
+  // A equipe testando pelo proprio numero nao recebe a si mesma.
+  const t = cenario({ alertas: [aberto()] })
+  await repassarAoCelular(t.amb, await repasseAberto(t.banco, 'c1', 'conv-1', AGORA), 'conv-1', EQUIPE, 'Oi')
+  confere('repasse: nao manda para o proprio remetente', t.para(EQUIPE).length === 0 && t.para(DRA).length === 1)
+  // Falha grita na conversa.
+  const f = cenario({ alertas: [aberto()] })
+  f.amb.enviarWhatsApp = async () => ({ ok: false, erro: 'Meta fora do ar' })
+  await repassarAoCelular(f.amb, await repasseAberto(f.banco, 'c1', 'conv-1', AGORA), 'conv-1', PACIENTE, 'Oi')
+  confere('repasse: falha vira nota', f.notas().some((x) => x.startsWith('⚠️ A resposta do paciente NÃO chegou') && x.includes('Meta fora do ar')), JSON.stringify(f.notas()))
+  confere('repasse: falha vira evento', f.banco.db.whatsapp_bot_events.some((x) => x.detalhe.startsWith('falhou 2')))
+  // Sem a migration: nulo, e o atendimento segue.
+  const s = cenario({ semTabela: ['alertas_de_urgencia'] })
+  confere('repasse: sem a tabela devolve nulo', (await repasseAberto(s.banco, 'c1', 'conv-1', AGORA)) === null)
+  // Sem citar, a janela de 6 h conta do repasse, com o aviso ja velho.
+  const velho = alerta({ criado_em: haMinutos(30 * 60), repasse_aberto_em: haMinutos(29 * 60), repasse_por: DRA, repasse_em: haMinutos(60) })
+  const j = cenario({ alertas: [velho] })
+  const tratou = await tratarRespostaDaEquipe(j.amb, DRA, texto('Pode vir sexta'))
+  confere('repasse: resposta sem citar vale por 6 h do repasse', tratou && j.banco.db.alertas_de_urgencia[0].rascunho === 'Pode vir sexta', JSON.stringify(j.banco.db.alertas_de_urgencia[0]))
+  confere('repasse: aviso velho sem repasse nao vale', escolherAlerta([alerta({ criado_em: haMinutos(30 * 60) })], null, AGORA) === null)
+}
+confere('repasse: audio vira aviso de ver na Central', oQueOPacienteDisse({ type: 'audio' }, '[audio]') === 'Mandou áudio, foto ou arquivo: veja na Central.')
+confere('repasse: mensagem sem conteudo nao vai', oQueOPacienteDisse({ type: 'unsupported' }, 'x') === null && oQueOPacienteDisse({ type: 'text' }, '  ') === null)
+confere('repasse: texto longo cabe na mensagem', textoDoRepasse('Maria', 'x'.repeat(5000)).length < 1024)
 
 console.log(`resposta ao aviso: ${ok} verificacoes ok`)
 if (falhas.length) {

@@ -1,4 +1,4 @@
-import { gravarNota, type MotivoDoAlerta, type Veredito } from './alerta-de-urgencia.ts'
+import { gravarNota, MODELO_DA_DUVIDA, parametrosDoAviso, semDadosPessoais, type MotivoDoAlerta, type Veredito } from './alerta-de-urgencia.ts'
 import { montarConteudo } from './conteudo.ts'
 import { postarNaMeta } from './meta-tentativa.ts'
 import { textoDoModelo } from './modelos.ts'
@@ -43,6 +43,12 @@ const JANELA_DO_AVISO_MS = 6 * 3600 * 1000
 const JANELA_DA_META_MS = 24 * 3600 * 1000
 /** Mensagem dela cabe numa mensagem com botoes (1024) junto da pergunta. */
 const LIMITE_DO_TEXTO = 900
+/** Depois de falar com o paciente, por quanto tempo a resposta dele vai ao celular. */
+const JANELA_DO_REPASSE_MS = 48 * 3600 * 1000
+/** Margem antes das 24 horas da Meta: texto fora da janela e aceito e falha depois, calado. */
+const JANELA_DO_TEXTO_MS = 23 * 3600 * 1000
+/** Modelo e cobrado: no maximo um a cada 6 horas por aviso. */
+const ESPERA_DO_MODELO_MS = 6 * 3600 * 1000
 
 export type MensagemRecebida = {
   type?: string
@@ -123,7 +129,12 @@ export type Alerta = {
   rascunho_de: string | null
   rascunho_em: string | null
   criado_em: string
+  /** Coluna nova, lida a parte (ver alertasRecentes). */
+  repasse_em?: string | null
 }
+
+/** O aviso conta a partir dele ou do ultimo repasse: os dois pedem resposta. */
+const momentoDoAlerta = (a: Alerta) => Math.max(Date.parse(a.criado_em), a.repasse_em ? Date.parse(a.repasse_em) : 0)
 
 /** A ultima resposta deste numero: a que aviso e quando (ver ultimaResposta). */
 export type UltimaResposta = { id: string; em: string } | null
@@ -146,11 +157,11 @@ export function escolherAlerta(
     const exato = recentes.find((a) => (a.mensagens ?? []).includes(citado))
     if (exato) return { alerta: exato }
   }
-  const candidatos = recentes.filter((a) => agora.getTime() - Date.parse(a.criado_em) <= JANELA_DO_AVISO_MS)
+  const candidatos = recentes.filter((a) => agora.getTime() - momentoDoAlerta(a) <= JANELA_DO_AVISO_MS)
   if (candidatos.length === 1) return { alerta: candidatos[0] }
   if (candidatos.length > 1) {
     const daConversa = ultima ? candidatos.find((a) => a.id === ultima.id) : undefined
-    const chegouOutro = candidatos.some((a) => a.id !== ultima?.id && Date.parse(a.criado_em) > Date.parse(ultima?.em ?? ''))
+    const chegouOutro = candidatos.some((a) => a.id !== ultima?.id && momentoDoAlerta(a) > Date.parse(ultima?.em ?? ''))
     if (daConversa && !chegouOutro) return { alerta: daConversa }
     return { ambiguos: candidatos }
   }
@@ -201,11 +212,34 @@ async function alertasRecentes(amb: AmbienteDaResposta): Promise<Alerta[] | null
       .order('criado_em', { ascending: false })
       .limit(20)
     if (error) throw error
-    return (data ?? []) as Alerta[]
+    return await comOsRepasses(amb, (data ?? []) as Alerta[])
   } catch (erro) {
     // Sem a tabela, a mensagem segue o caminho de sempre: nada se perde.
     console.error('Resposta ao aviso: nao li alertas_de_urgencia', erro)
     return null
+  }
+}
+
+/**
+ * Soma os avisos com repasse aberto: a Dra. responde em cima da resposta do
+ * paciente, que pode chegar depois das 24 horas do aviso. Consulta separada: sem
+ * as colunas novas, perde-se o repasse e nao a resposta ao aviso.
+ */
+async function comOsRepasses(amb: AmbienteDaResposta, recentes: Alerta[]): Promise<Alerta[]> {
+  try {
+    const { data, error } = await amb.admin
+      .from('alertas_de_urgencia')
+      .select(`${COLUNAS},repasse_em`)
+      .eq('clinic_id', amb.clinicId)
+      .gte('repasse_aberto_em', new Date(amb.agora.getTime() - JANELA_DO_REPASSE_MS).toISOString())
+      .limit(20)
+    if (error) throw error
+    const porId = new Map(recentes.map((a) => [a.id, a]))
+    for (const a of (data ?? []) as Alerta[]) porId.set(a.id, a)
+    return [...porId.values()]
+  } catch (erro) {
+    console.warn('Resposta ao aviso: sem as colunas de repasse; so os avisos recentes valem', erro)
+    return recentes
   }
 }
 
@@ -237,6 +271,21 @@ async function marcarRespondido(amb: AmbienteDaResposta, id: string, numero: str
     if (error) throw error
   } catch (erro) {
     console.warn('Resposta ao aviso: respondido_em nao gravado', erro)
+  }
+}
+
+/** Alguem falou com o paciente: a resposta dele passa a ir ao celular (ver repassarAoCelular). */
+async function abrirRepasse(amb: AmbienteDaResposta, id: string, numero: string) {
+  try {
+    const { error } = await amb.admin
+      .from('alertas_de_urgencia')
+      .update({ repasse_aberto_em: amb.agora.toISOString(), repasse_por: numero })
+      .eq('id', id)
+    if (error) throw error
+  } catch (erro) {
+    // Sem isto a resposta do paciente fica so na Central: e o defeito que o
+    // repasse existe para resolver, entao nao fica em aviso discreto.
+    console.error('Resposta ao aviso: repasse nao aberto; a resposta do paciente fica so na Central', erro)
   }
 }
 
@@ -428,6 +477,7 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
         if (envio.ok) {
           await primeiroVeredito(amb, alerta.id, 'responde', numero)
           await marcarRespondido(amb, alerta.id, numero)
+          await abrirRepasse(amb, alerta.id, numero)
         } else {
           // Nao chegou: o botao volta a valer, para tentar de novo.
           await amb.admin.from('alertas_de_urgencia').update({ responde_em: null }).eq('id', alerta.id)
@@ -520,6 +570,7 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
     if (envio.ok) {
       await primeiroVeredito(amb, atual.id, 'texto', numero)
       await marcarRespondido(amb, atual.id, numero)
+      await abrirRepasse(amb, atual.id, numero)
     }
     await registrarResposta(amb, atual, notaDaResposta(quemFala, `"${atual.rascunho}"`, envio), `texto (${papel})${envio.ok ? '' : ' nao chegou'}`)
     await responder(envio.ok ? `✅ Enviado para ${nomeDoPaciente(atual)}.` : NAO_CHEGOU(envio.erro))
@@ -566,4 +617,133 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
     { id: payloadDaConfirmacao(alerta.id, 'cancelar', motivoDo(alerta)), titulo: 'Cancelar' },
   ])
   return true
+}
+
+/**
+ * A resposta do paciente de volta ao celular (30/10/2026).
+ *
+ * Pedido do Edu: a Dra. combina a data pelo celular, mas o "pode ser" do paciente
+ * so aparecia na Central, e ela podia achar que ele nao respondeu. Vale por 48
+ * horas depois que alguem falou com ele em cima do aviso; depois disso, Central.
+ *
+ * Quem falou recebe em texto, porque a mensagem dela abriu a janela de 24 horas.
+ * Os outros numeros, e ela mesma depois da janela, so pelo modelo: a Meta aceita
+ * texto fora da janela e so depois avisa que falhou, entao tentar e ver nao serve.
+ * O modelo e o aviso_duvida_paciente, que ja esta aprovado, no maximo um a cada 6
+ * horas por aviso; quem fica de fora de um repasse ve o resto na Central.
+ */
+export type RepasseAberto = {
+  id: string
+  quem: string
+  mensagens: string[] | null
+  repasse_por: string | null
+  repasse_aberto_em: string
+  repasse_modelo_em: string | null
+}
+
+/** A conversa tem repasse aberto? Coluna nova: sem ela, nulo, e o robo segue igual. */
+export async function repasseAberto(admin: Admin, clinicId: string, conversa: string, agora: Date): Promise<RepasseAberto | null> {
+  try {
+    const { data, error } = await admin
+      .from('alertas_de_urgencia')
+      .select('id,quem,mensagens,repasse_por,repasse_aberto_em,repasse_modelo_em')
+      .eq('clinic_id', clinicId)
+      .eq('conversa_whatsapp', conversa)
+      .gte('repasse_aberto_em', new Date(agora.getTime() - JANELA_DO_REPASSE_MS).toISOString())
+      .order('repasse_aberto_em', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (error) throw error
+    return (data as RepasseAberto | null) ?? null
+  } catch (erro) {
+    console.error('Repasse ao celular: nao li o repasse (migration 20261030110000 aplicada?); a resposta do paciente fica so na Central', erro)
+    return null
+  }
+}
+
+/** O que o paciente disse, em uma linha de texto. Mensagem que a Meta nao entrega: nada. */
+export function oQueOPacienteDisse(m: MensagemRecebida, corpo: string): string | null {
+  if (m.type === 'unsupported') return null
+  if (MIDIA.includes(String(m.type))) return 'Mandou áudio, foto ou arquivo: veja na Central.'
+  return String(corpo ?? '').trim() || null
+}
+
+/** CPF, e-mail e telefone saem, como no aviso: o texto vai a um celular fora do sistema. */
+export function textoDoRepasse(quem: string, disse: string): string {
+  const limpo = semDadosPessoais(disse).trim()
+  const cabe = limpo.length > LIMITE_DO_TEXTO ? `${limpo.slice(0, LIMITE_DO_TEXTO - 1)}…` : limpo
+  return `💬 ${semDadosPessoais(quem).trim() || 'O paciente'} respondeu:\n\n"${cabe}"\n\nPara responder, escreva a mensagem em cima desta: eu mostro antes de enviar.`
+}
+
+/**
+ * Manda a resposta do paciente aos celulares e registra. Nunca lanca: o paciente
+ * ja esta sendo atendido, e falha aqui nao pode derrubar o webhook. O que nao
+ * chegou vira nota na conversa.
+ */
+export async function repassarAoCelular(amb: AmbienteDaResposta, repasse: RepasseAberto, conversa: string, de: string, disse: string): Promise<void> {
+  try {
+    const { admin, clinicId, agora } = amb
+    const textoAberto = agora.getTime() - Date.parse(repasse.repasse_aberto_em) < JANELA_DO_TEXTO_MS
+    const modeloLiberado = !repasse.repasse_modelo_em || agora.getTime() - Date.parse(repasse.repasse_modelo_em) >= ESPERA_DO_MODELO_MS
+    let idioma = 'pt_BR'
+    if (modeloLiberado) {
+      const { data: ajustes } = await admin.from('clinic_settings').select('whatsapp_template_language').eq('clinic_id', clinicId).maybeSingle()
+      idioma = (ajustes as { whatsapp_template_language?: string } | null)?.whatsapp_template_language || idioma
+    }
+    const peloModelo = {
+      type: 'template',
+      template: {
+        name: MODELO_DA_DUVIDA,
+        language: { code: idioma },
+        components: [{ type: 'body', parameters: parametrosDoAviso({ quem: repasse.quem, resumo: disse, agora }).map((text) => ({ type: 'text', text })) }],
+      },
+    }
+
+    const ids: string[] = []
+    const erros: string[] = []
+    let certos = 0
+    let usouModelo = false
+    // Quem esta na lista e tambem e o paciente (a equipe testando) nao recebe a si mesmo.
+    for (const numero of amb.numeros.filter((n) => !mesmoTelefone(n, de))) {
+      const emTexto = textoAberto && Boolean(repasse.repasse_por) && mesmoTelefone(repasse.repasse_por!, numero)
+      if (!emTexto && !modeloLiberado) continue
+      const envio = await amb.enviarWhatsApp(numero, emTexto ? montarConteudo(textoDoRepasse(repasse.quem, disse)) : peloModelo)
+      if (!emTexto) usouModelo = true
+      if (envio.ok) {
+        certos++
+        if (envio.id) ids.push(envio.id)
+      } else {
+        erros.push(`final ${numero.slice(-4)}: ${envio.erro}`)
+      }
+    }
+
+    // Os ids entram na lista do aviso: resposta em cima do repasse acha o paciente.
+    if (certos || usouModelo) {
+      const { error } = await admin
+        .from('alertas_de_urgencia')
+        .update({
+          mensagens: [...(repasse.mensagens ?? []), ...ids],
+          ...(certos ? { repasse_em: agora.toISOString() } : {}),
+          ...(usouModelo ? { repasse_modelo_em: agora.toISOString() } : {}),
+        })
+        .eq('id', repasse.id)
+      if (error) console.error('Repasse ao celular: registro nao gravado', error)
+    }
+    if (erros.length) {
+      console.error('Repasse ao celular: nao chegou', erros)
+      await gravarNota(admin, clinicId, conversa, `⚠️ A resposta do paciente NÃO chegou ao celular ${erros.join('; ')}. Veja por aqui e avise quem está falando com ele.`.slice(0, 900))
+    }
+    if (certos || erros.length) {
+      const { error } = await admin.from('whatsapp_bot_events').insert({
+        clinic_id: clinicId,
+        conversation_id: conversa,
+        evento: 'repasse_ao_celular',
+        detalhe: (erros.length ? `falhou ${erros.length}, enviado ${certos}: ${erros[0]}` : `enviado ${certos}`).slice(0, 120),
+      })
+      if (error) console.error('Repasse ao celular: evento nao gravado', error)
+    }
+  } catch (erro) {
+    console.error('Repasse ao celular: falhou', erro)
+    await gravarNota(amb.admin, amb.clinicId, conversa, `⚠️ A resposta do paciente NÃO foi para o celular: ${String(erro).slice(0, 200)}. Veja por aqui.`)
+  }
 }

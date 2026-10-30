@@ -31,7 +31,7 @@ import { tratarInstagram } from '../_shared/instagram.ts'
 import { origemDoAnuncio, type Indicacao } from '../_shared/origem-do-anuncio.ts'
 import { postarNaMeta } from '../_shared/meta-tentativa.ts'
 import { deveAvisarDuvida, deveAvisarPedido, enviarAviso, gravarNota, lerNumeros as lerNumerosDoAviso, motivoDoAvisoDoPedido, quemDoPedido, resumoDaDuvida, resumoDaIA, resumoDoPedido } from '../_shared/alerta-de-urgencia.ts'
-import { papelDoNumero, tratarRespostaDaEquipe, whatsAppPelaApi } from '../_shared/resposta-ao-alerta.ts'
+import { oQueOPacienteDisse, papelDoNumero, repassarAoCelular, repasseAberto, tratarRespostaDaEquipe, whatsAppPelaApi } from '../_shared/resposta-ao-alerta.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
 // Fora dele (teste local) cai no await comum.
@@ -805,6 +805,35 @@ Deno.serve(async (req) => {
             }
           }
 
+          // A Dra. ou o Edu falou com este paciente em cima do aviso: a resposta dele
+          // vai ao celular, e nao so a Central (30/10/2026, ver repassarAoCelular).
+          // Em segundo plano: o paciente nao espera por isso. A leitura fica fora,
+          // porque o aviso da duvida la embaixo precisa saber dela.
+          let repasseDaConversa: Awaited<ReturnType<typeof repasseAberto>> = null
+          try {
+            repasseDaConversa = await repasseAberto(admin, clinicId, conversation.id, new Date())
+            const disse = oQueOPacienteDisse(message, body)
+            if (repasseDaConversa && disse && numerosDoAviso?.length) {
+              const repasse = repassarAoCelular(
+                {
+                  admin,
+                  clinicId,
+                  agora: new Date(),
+                  numeros: numerosDoAviso,
+                  enviarWhatsApp: whatsAppPelaApi(phoneNumberId, chaveDoWhatsApp(phoneNumberId)),
+                },
+                repasseDaConversa,
+                conversation.id,
+                waId,
+                disse,
+              )
+              if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(repasse)
+              else await repasse
+            }
+          } catch (erro) {
+            console.error('Repasse ao celular: nao consegui disparar', erro)
+          }
+
           if (patient?.id && optedOut) {
             await admin.from('patients').update({ whatsapp_opt_out_at: receivedAt }).eq('id', patient.id)
           }
@@ -1279,7 +1308,9 @@ Deno.serve(async (req) => {
                 motivoAntes: (conversaAnterior?.attention_reason as string | null) ?? null,
                 atencaoAgora: resultado?.pedido ? null : resultado?.atencao,
               })
-              if (entrada) {
+              // Com repasse aberto a mensagem ja foi ao celular: um aviso de duvida
+              // em cima dela tocaria duas vezes. Urgencia avisa do mesmo jeito.
+              if (entrada && (!repasseDaConversa || resultado?.atencao === 'urgencia')) {
                 const aviso = enviarAviso(admin, {
                   motivo: 'duvida',
                   clinicId,

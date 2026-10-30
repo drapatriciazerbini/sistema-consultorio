@@ -278,6 +278,8 @@ Sem rodapé e sem botões.
 
 **Período de validade**: também **12 horas**, como nos modelos 6 e 7.
 
+Também leva a resposta do paciente ao celular de quem não falou com ele, ou de quem falou há mais de 23 horas, no máximo uma vez a cada 6 horas por aviso. Quem falou com ele recebe em texto comum, sem modelo.
+
 ---
 
 ## Sobre os rótulos dos botões
