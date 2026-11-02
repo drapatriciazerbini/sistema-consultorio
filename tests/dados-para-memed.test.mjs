@@ -6,6 +6,7 @@ import {
   hojeEmSaoPaulo,
   unidadeDaReceita,
 } from './dados-para-memed.build.mjs'
+import { readFileSync } from 'node:fs'
 
 let ok = 0
 let falhas = 0
@@ -113,6 +114,14 @@ confere('hoje no fuso de Sao Paulo', hojeEmSaoPaulo(new Date('2026-09-25T02:30:0
   confere('unidade: sem saber quais sao de visita, nao escolhe', !unidadeDaReceita(duas, '', '', new Set()).unidade)
   confere('unidade: dois consultorios, nao escolhe', !unidadeDaReceita([...duas, { id: 'u3', name: 'Outro' }], '', '', visita).unidade)
   confere('unidade: so uma cadastrada vale, sem aviso', unidadeDaReceita([CONSULTORIO], '', '', new Set()).unidade?.id === 'u1' && !unidadeDaReceita([CONSULTORIO], '', '', new Set()).supos)
+}
+
+// 02/11/2026: 'M' fixo, herdado do sistema do Dr. Marcello, criou o cadastro da Dra. como homem.
+{
+  const prescritor = readFileSync(new URL('../supabase/functions/memed-prescritor/index.ts', import.meta.url), 'utf8')
+  confere('sexo da prescritora e feminino', /const SEXO_DO_PRESCRITOR = 'F'/.test(prescritor))
+  confere('nenhum envio com sexo fixo', !/sexo:\s*'/.test(prescritor))
+  confere('correcao do sexo reenvia o cadastro', /cidade \?\? '',\s*SEXO_DO_PRESCRITOR,/.test(prescritor))
 }
 
 console.log(`Dados para a Memed: ${ok} verificações passaram.`)

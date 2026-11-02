@@ -78,6 +78,13 @@ type Ajustes = {
 }
 
 /**
+ * A prescritora desta clinica e a Dra. Patricia. Vinha 'M' fixo, herdado da copia
+ * do sistema do Dr. Marcello: em 02/11/2026 o cadastro dela nasceu assim na Memed
+ * de producao. Faz parte da assinatura para a correcao chegar la sozinha.
+ */
+const SEXO_DO_PRESCRITOR = 'F'
+
+/**
  * Telefone da clinica como a Memed guarda no cadastro: um numero, so digitos.
  *
  * Prefere o celular (11 digitos). Ate 16/09/2026 levava sempre o PRIMEIRO
@@ -114,6 +121,7 @@ function assinaturaDoCadastro(
     telefoneDaClinica(ajustes) ?? '',
     especialidade ?? '',
     cidade ?? '',
+    SEXO_DO_PRESCRITOR,
   ].join('|')
 }
 
@@ -187,7 +195,7 @@ async function completarCadastro(
         attributes: {
           ...(ajustes.prescriber_email ? { email: ajustes.prescriber_email } : {}),
           ...(telefoneDaClinica(ajustes) ? { telefone: telefoneDaClinica(ajustes) } : {}),
-          sexo: 'M',
+          sexo: SEXO_DO_PRESCRITOR,
         },
         ...(Object.keys(relationships).length ? { relationships } : {}),
       },
@@ -418,7 +426,7 @@ Deno.serve(async (req) => {
             },
             ...(ajustes.prescriber_email ? { email: ajustes.prescriber_email } : {}),
             ...(telefoneDaClinica(ajustes as Ajustes) ? { telefone: telefoneDaClinica(ajustes as Ajustes) } : {}),
-            sexo: 'M',
+            sexo: SEXO_DO_PRESCRITOR,
             data_nascimento: dataBR(ajustes.prescriber_birth_date),
           },
           ...(await relacionamentosDoCadastro(env.api, credenciais, ajustes as Ajustes)),
