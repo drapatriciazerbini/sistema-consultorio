@@ -17,6 +17,34 @@
  * ser surpreendido por um numero que ele nao digitou hoje.
  */
 
+/**
+ * A unidade que vai no cabecalho da receita (02/11/2026).
+ *
+ * Em 30/10/2026 o Edu foi prescrever e recebeu 'A unidade "(vazia)" nao esta
+ * cadastrada', com o Consultorio cadastrado e certo: a consulta e o paciente
+ * estavam sem unidade, e a segunda unidade, a de visita em casa, impedia a
+ * escolha sozinha. Paciente que chega pelo robo nasce assim.
+ *
+ * Em branco, vale a unica unidade que nao e de visita, e `supos` manda a tela
+ * avisar: visita com o campo em branco sairia com o endereco do consultorio.
+ * Nome preenchido que nao bate nao e adivinhado, e sem saber quais sao de visita
+ * (coluna que nao chegou) tambem nao: ai a tela para e pede a unidade.
+ */
+export function unidadeDaReceita<U extends { id: string; name: string }>(
+  unidades: U[],
+  daConsulta: string | null | undefined,
+  doPaciente: string | null | undefined,
+  idsDeVisita: Set<string>,
+): { unidade?: U; nome: string; supos: boolean } {
+  const nome = (daConsulta || doPaciente || '').trim()
+  const achada = nome ? unidades.find((u) => u.name.trim().toLowerCase() === nome.toLowerCase()) : undefined
+  if (achada) return { unidade: achada, nome, supos: false }
+  if (unidades.length === 1) return { unidade: unidades[0], nome, supos: false }
+  if (nome) return { nome, supos: false }
+  const consultorios = unidades.filter((u) => !idsDeVisita.has(u.id))
+  return consultorios.length === 1 && idsDeVisita.size > 0 ? { unidade: consultorios[0], nome, supos: true } : { nome, supos: false }
+}
+
 export type ConsultaComDados = {
   id: string
   data: string // YYYY-MM-DD

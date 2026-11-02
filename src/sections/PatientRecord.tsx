@@ -129,7 +129,8 @@ import type {
 } from '@/types/patient'
 import { opcoesDeUnidade, useUnidades } from '@/lib/unidades'
 import { abrirPrescricao, alergiasParaMemed, faltaParaPrescrever, guardarReceita, marcarReceitaExcluida, prepararPrescricao, ultimoCadastro, type LocalDeAtendimento } from '@/lib/memed'
-import { avisoDoQueFoiParaMemed, dadosParaMemed, hojeEmSaoPaulo } from '@/lib/dados-para-memed'
+import { avisoDoQueFoiParaMemed, dadosParaMemed, hojeEmSaoPaulo, unidadeDaReceita } from '@/lib/dados-para-memed'
+import { unidadesDeVisita } from '@/lib/domicilio'
 import {
   aplicarHeranca,
   desfazerHeranca,
@@ -2471,22 +2472,25 @@ export default function PatientRecord({
       // dados-para-memed.ts). A traducao das alergias vai junto com as outras
       // buscas, para nao somar espera ao clique.
       const dados = dadosParaMemed(consultation, consultations, hojeEmSaoPaulo())
-      const [unidades, dadosDaClinica, alergias] = await Promise.all([
+      const [unidades, dadosDaClinica, alergias, idsDeVisita] = await Promise.all([
         listUnits(clinicId),
         getDadosDaClinica(clinicId),
         alergiasParaMemed(dados.alergias?.valor ?? ''),
+        unidadesDeVisita(clinicId),
       ])
-      const nome = (consultation?.unidade ?? patient.unidade ?? '').trim().toLowerCase()
-      const unidade =
-        unidades.find((u) => u.name.trim().toLowerCase() === nome) ??
-        (unidades.length === 1 ? unidades[0] : undefined)
+      const { unidade, nome: nomeDaUnidade, supos } = unidadeDaReceita(unidades, consultation?.unidade, patient.unidade, idsDeVisita)
       if (!unidade || !unidade.address.trim()) {
         throw new Error(
           unidade
             ? `A unidade "${unidade.name}" está sem endereço. Preencha em Agenda → Unidades antes de prescrever.`
-            : `A unidade "${consultation?.unidade || patient.unidade || '(vazia)'}" não está cadastrada. Cadastre em Agenda → Unidades, com endereço, e escolha essa unidade na consulta.`,
+            : nomeDaUnidade
+              ? `A unidade "${nomeDaUnidade}" não está cadastrada. Cadastre em Agenda → Unidades, com endereço, e escolha essa unidade na consulta.`
+              : 'Esta consulta está sem unidade. Escolha a unidade na consulta antes de prescrever.',
         )
       }
+      const sobreAUnidade = supos
+        ? `Consulta sem unidade: a receita sai com o endereço de ${unidade.name}. Se foi visita em casa, escolha a unidade na consulta e abra a receita de novo.`
+        : ''
       if (!dadosDaClinica.telefone.trim()) {
         throw new Error('Preencha o telefone da clínica em Preferências → Médico e clínica antes de prescrever.')
       }
@@ -2527,13 +2531,14 @@ export default function PatientRecord({
       // Diagnostico do cadastro do medico na Memed, enquanto a liberacao de
       // producao esta em andamento. Some sozinho quando estiver completo.
       if (ultimoCadastro && !ultimoCadastro.feito) {
-        setAviso({ tipo: 'erro', texto: `Cadastro do médico na Memed não foi completado: ${ultimoCadastro.detalhe ?? 'sem detalhe'}` })
+        setAviso({ tipo: 'erro', texto: `Cadastro do médico na Memed não foi completado: ${ultimoCadastro.detalhe ?? 'sem detalhe'} ${sobreAUnidade}`.trim() })
       } else {
         // O medico ve o que foi para a Memed e o que ficou de fora. Sem este
         // aviso, uma alergia nao reconhecida sumiria calada - e ele acharia
         // que o alerta esta cobrindo.
         const avisoDosDados = avisoDoQueFoiParaMemed(dados, alergias, alergiasEnviadas)
-        if (avisoDosDados) setAviso(avisoDosDados)
+        if (avisoDosDados) setAviso(sobreAUnidade ? { ...avisoDosDados, texto: `${avisoDosDados.texto} ${sobreAUnidade}` } : avisoDosDados)
+        else if (sobreAUnidade) setAviso({ tipo: 'info', texto: sobreAUnidade })
       }
     } catch (causa) {
       setAviso({

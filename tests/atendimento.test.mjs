@@ -10,6 +10,7 @@
 // exercitar as DECISOES do robo (o que responder, o que gravar, quando ficar
 // calado), e nao o Supabase.
 import { tratarConversa, iniciarQuestionario, colherEventos, periodosComData, negouConsulta, remarcarPeloLembrete } from './atendimento.build.mjs'
+import { avisoDeHorario } from './expediente.build.mjs'
 import { readFileSync } from 'node:fs'
 
 // ---------------------------------------------------------------
@@ -468,7 +469,10 @@ await caso('Texto próprio da unidade vence o texto geral', [
 
 await caso('Opção 3 chama a equipe e sinaliza', [
   ['Oi', 'Como podemos ajudar'],
-  ['3', ['direcionando você para um atendente', 'segunda a sexta']],
+  // A frase do momento, e nao "segunda a sexta": em 02/11/2026 (Finados) a frase
+  // certa era a do feriado, este teste caiu e o PUBLICAR.bat ficou travado o dia
+  // inteiro. As frases de cada horario estao em expediente.test.mjs.
+  ['3', ['direcionando você para um atendente', avisoDeHorario()]],
   ['tenho uma dúvida', null],
 ])
 

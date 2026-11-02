@@ -4,6 +4,7 @@ import {
   dadosParaMemed,
   avisoDoQueFoiParaMemed,
   hojeEmSaoPaulo,
+  unidadeDaReceita,
 } from './dados-para-memed.build.mjs'
 
 let ok = 0
@@ -95,6 +96,24 @@ confere('nada a dizer, nada aparece', avisoDoQueFoiParaMemed({ alergias: null, p
 
 // 23h30 de Sao Paulo ja e o dia seguinte em UTC: a data tem que ser a daqui.
 confere('hoje no fuso de Sao Paulo', hojeEmSaoPaulo(new Date('2026-09-25T02:30:00Z')) === '2026-09-24')
+
+// A unidade do cabecalho da receita (02/11/2026): "(vazia)" com o consultorio cadastrado.
+{
+  const CONSULTORIO = { id: 'u1', name: 'Consultório (Gonzaga)' }
+  const VISITA = { id: 'u2', name: 'Visita domiciliar' }
+  const duas = [CONSULTORIO, VISITA]
+  const visita = new Set(['u2'])
+  const r = unidadeDaReceita(duas, '', null, visita)
+  confere('unidade: em branco vale o consultorio, e avisa', r.unidade?.id === 'u1' && r.supos === true)
+  confere('unidade: a da consulta vale, sem aviso', unidadeDaReceita(duas, 'Visita domiciliar', 'Consultório (Gonzaga)', visita).unidade?.id === 'u2' && !unidadeDaReceita(duas, 'Visita domiciliar', '', visita).supos)
+  confere('unidade: consulta em branco usa a do paciente', unidadeDaReceita(duas, '', 'Visita domiciliar', visita).unidade?.id === 'u2')
+  confere('unidade: nome sem diferenca de maiusculas', unidadeDaReceita(duas, ' consultório (gonzaga) ', '', visita).unidade?.id === 'u1')
+  const errada = unidadeDaReceita(duas, 'Unidade antiga', '', visita)
+  confere('unidade: nome que nao bate nao e adivinhado', !errada.unidade && errada.nome === 'Unidade antiga')
+  confere('unidade: sem saber quais sao de visita, nao escolhe', !unidadeDaReceita(duas, '', '', new Set()).unidade)
+  confere('unidade: dois consultorios, nao escolhe', !unidadeDaReceita([...duas, { id: 'u3', name: 'Outro' }], '', '', visita).unidade)
+  confere('unidade: so uma cadastrada vale, sem aviso', unidadeDaReceita([CONSULTORIO], '', '', new Set()).unidade?.id === 'u1' && !unidadeDaReceita([CONSULTORIO], '', '', new Set()).supos)
+}
 
 console.log(`Dados para a Memed: ${ok} verificações passaram.`)
 if (falhas) {
