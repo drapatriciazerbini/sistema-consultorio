@@ -4,6 +4,7 @@
 // fetch de mentira e um banco em memoria. Numeros e nomes inventados: o
 // repositorio e publico.
 import {
+  avisoDeTeste,
   descreverEnvio,
   deveAvisarDuvida,
   deveAvisarPedido,
@@ -11,6 +12,7 @@ import {
   MODELO_DA_DUVIDA,
   MODELO_DO_PEDIDO,
   MODELO_DO_PEDIDO_SIMPLES,
+  MODELO_DO_SISTEMA,
   numerosDoAlerta,
   parametrosDoAviso,
   quemDoPedido,
@@ -317,6 +319,35 @@ const naoAprovado = { status: 404, corpo: { error: { code: 132001, message: 'Tem
   const m3 = meta()
   await enviarAviso(banco({ alertas: [antigo(2, 'pedido')] }), { ...duvida, repetido: true }, m3.buscar)
   confere('duvida: aviso do pedido nao segura o da duvida', m3.enviados.length === 2)
+}
+
+{
+  // Pane do sistema (03/11/2026): a chave do Instagram recusada deixou o robo
+  // do Direct tres dias mudo. Mesmo destino dos outros avisos, sem paciente.
+  const sistema = {
+    motivo: 'sistema',
+    clinicId: 'c1',
+    quem: 'O robô do Instagram',
+    resumo: 'A Meta recusou a chave de acesso do Instagram (INSTAGRAM_PAGE_TOKEN). Gere um token novo e salve no Supabase.',
+    agora: AGORA,
+  }
+  const b = banco()
+  const m = meta((corpo, n) => ({ corpo: { messages: [{ id: `wamid.${n}` }] } }))
+  const r = await enviarAviso(b, sistema, m.buscar)
+  const t = m.enviados[0]?.corpo.template
+  confere('sistema: chega nos dois celulares, Dra. primeiro', r.length === 2 && r.every((e) => e.ok) && m.enviados[0]?.corpo.to === DRA, JSON.stringify(r))
+  confere('sistema: modelo proprio e sem botoes', t?.name === MODELO_DO_SISTEMA && t.components.length === 1, JSON.stringify(t))
+  const registrado = b.db.alertas_de_urgencia[0]
+  confere('sistema: registrado como sistema, e nao como aviso de teste', registrado?.motivo === 'sistema' && registrado.teste === false && registrado.conversa_whatsapp === null, JSON.stringify(registrado))
+  confere('sistema: sem conversa, sem nota nem evento de paciente', b.db.conversation_notes.length === 0 && b.db.whatsapp_bot_events.length === 0)
+  const descrito = descreverEnvio(r, { motivo: 'sistema' })
+  confere('sistema: a descricao chama pelo nome certo', descrito.nota.startsWith('📱 Aviso do sistema enviado'), descrito.nota)
+  confere('sistema: o modelo tem texto para a tela', Boolean(textoDoModelo(MODELO_DO_SISTEMA, ['O robô do Instagram', '15:20', 'x'])?.includes('O robô do Instagram parou às 15:20')))
+  confere('sistema: o botao de teste da tela continua sendo teste', avisoDeTeste({ motivo: 'pedido' }) === true && avisoDeTeste({ motivo: 'sistema' }) === false && avisoDeTeste({ motivo: 'pedido', conversaWhatsApp: 'c' }) === false)
+
+  const semModelo = banco()
+  const rS = await enviarAviso(semModelo, sistema, meta(() => naoAprovado).buscar)
+  confere('sistema: modelo ainda nao aprovado fica registrado como falha', rS.every((e) => !e.ok) && String(semModelo.db.alertas_de_urgencia[0]?.resultado ?? '').startsWith('falhou'), JSON.stringify(semModelo.db.alertas_de_urgencia[0]))
 }
 
 console.log(`aviso do pedido no WhatsApp da Dra.: ${ok} verificacoes ok`)

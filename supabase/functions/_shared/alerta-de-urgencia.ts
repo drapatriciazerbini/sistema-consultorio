@@ -35,13 +35,14 @@ import { chaveDoWhatsApp } from './whatsapp-teste.ts'
  * equipe.
  */
 
-export type MotivoDoAlerta = 'pedido' | 'urgencia' | 'duvida'
+export type MotivoDoAlerta = 'pedido' | 'urgencia' | 'duvida' | 'sistema'
 /** O que o toque num botao do aviso pede. 'urgente' e 'aguardar' sao da urgencia, que ainda nao vem. */
 export type Veredito = 'responde' | 'valores' | 'urgente' | 'aguardar'
 
 export const MODELO_DO_PEDIDO = 'aviso_pedido_consulta'
 export const MODELO_DO_PEDIDO_SIMPLES = 'aviso_pedido_consulta_simples'
 export const MODELO_DA_DUVIDA = 'aviso_duvida_paciente'
+export const MODELO_DO_SISTEMA = 'aviso_sistema_central'
 
 /** Os botoes do modelo, na ordem cadastrada na Meta. */
 export const BOTOES_DO_PEDIDO: { veredito: Veredito; titulo: string }[] = [
@@ -68,7 +69,16 @@ const DO_MOTIVO: Partial<Record<MotivoDoAlerta, ModelosDoMotivo>> = {
   // Um modelo so, sem botoes, de proposito: a resposta a uma duvida e sempre
   // escrita, e um modelo a menos e menos tempo esperando a analise da Meta.
   duvida: { comBotoes: null, semBotoes: MODELO_DA_DUVIDA, botoes: [], nome: 'aviso da dúvida' },
+  // Pane do sistema, sem paciente do outro lado (03/11/2026): a chave do
+  // Instagram recusada pela Meta deixou o robo do Direct tres dias mudo.
+  sistema: { comBotoes: null, semBotoes: MODELO_DO_SISTEMA, botoes: [], nome: 'aviso do sistema' },
 }
+
+/**
+ * Aviso sem conversa e o botao "Mandar aviso de teste" da tela. O do sistema
+ * tambem nao tem conversa, e nao e teste.
+ */
+export const avisoDeTeste = (p: { motivo: MotivoDoAlerta; conversaWhatsApp?: string }) => !p.conversaWhatsApp && p.motivo !== 'sistema'
 
 /**
  * O que volta no webhook quando a Dra. toca: qual aviso e qual botao. O
@@ -361,7 +371,7 @@ export function descreverEnvio(
 }
 
 export type PedidoDeAlerta = {
-  /** 'pedido' ou 'duvida'. 'urgencia' ainda sem modelo proprio: urgencia sai como duvida. */
+  /** 'pedido', 'duvida' ou 'sistema' (pane, sem paciente). 'urgencia' ainda sem modelo proprio: urgencia sai como duvida. */
   motivo: MotivoDoAlerta
   clinicId: string
   quem: string
@@ -390,7 +400,7 @@ async function registrarAlerta(admin: Admin, p: PedidoDeAlerta): Promise<string 
         motivo: p.motivo,
         canal: 'WhatsApp',
         conversa_whatsapp: p.conversaWhatsApp ?? null,
-        teste: !p.conversaWhatsApp,
+        teste: avisoDeTeste(p),
         quem: String(p.quem ?? '').slice(0, 120),
       })
       .select('id')
@@ -529,7 +539,7 @@ export async function enviarAviso(admin: Admin, p: PedidoDeAlerta, buscar: typeo
       }
     }
 
-    const descrito = descreverEnvio(envios, { motivo: p.motivo, teste: !p.conversaWhatsApp })
+    const descrito = descreverEnvio(envios, { motivo: p.motivo, teste: avisoDeTeste(p) })
     if (descrito.falhou) console.error('Aviso no WhatsApp da Dra. nao saiu para todos', descrito.detalhe)
     if (alertaId) {
       try {

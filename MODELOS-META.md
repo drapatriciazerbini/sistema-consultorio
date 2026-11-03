@@ -282,6 +282,45 @@ Também leva a resposta do paciente ao celular de quem não falou com ele, ou de
 
 ---
 
+## 9. aviso_sistema_central
+
+Nome: `aviso_sistema_central`
+Categoria: Utilidade
+Idioma: Português (BR)
+
+Vai para os mesmos celulares dos modelos 6, 7 e 8, não para paciente. Sai
+quando uma parte do atendimento automático para de funcionar e só alguém da
+equipe consegue religar. O primeiro caso é a chave do Instagram recusada pela
+Meta: de 31/10 a 03/11/2026 o robô do Direct ficou sem responder ninguém, e
+nenhum aviso saiu.
+
+**Corpo**
+
+```
+⚠️ Problema no atendimento automático da Central de Cuidado.
+
+{{1}} parou às {{2}}:
+"{{3}}"
+
+Até resolver, quem escrever fica sem resposta automática. Este aviso se repete a cada 12 horas enquanto o problema continuar.
+```
+
+Sem rodapé e sem botões.
+
+**Exemplos que a Meta pede**
+
+- {{1}} = O robô do Instagram
+- {{2}} = 15:20
+- {{3}} = A Meta recusou a chave de acesso do Instagram. Gere um token novo e salve no Supabase.
+
+**Período de validade**: **12 horas**, como nos outros avisos.
+
+Enquanto este modelo não estiver aprovado, o aviso pelo WhatsApp não sai, e o
+log diz isso. A notificação no celular da equipe e a faixa vermelha na tela
+de Respostas (aba Instagram) funcionam desde já, sem modelo.
+
+---
+
 ## Sobre os rótulos dos botões
 
 O sistema não manda um código junto com o botão: quando o paciente toca, a

@@ -28,6 +28,7 @@
 import { acharResposta, assuntoClinico, carregarRespostas, type RespostaPronta } from './respostas.ts'
 import { pediuAgendamento, soAgradecimento } from './atendimento.ts'
 import { avisarEquipe } from './push-da-equipe.ts'
+import { enviarAviso } from './alerta-de-urgencia.ts'
 
 export const HORAS_DE_SILENCIO = 12
 export const TETO_SEGUIDAS = 4
@@ -515,8 +516,10 @@ export async function retomarConversasDoInstagram(admin: Admin, agora: Date = ne
           .update({ last_bot_reply_at: agora.toISOString(), last_bot_kind: 'retomada', followup_sent_at: agora.toISOString() })
           .eq('id', conversa.id)
         if (erroDaMarca) throw erroDaMarca
-        const enviada = await enviar(conversa.ig_user_id, personalizar(RETOMADA, conversa.first_name))
+        const envio = await enviar(conversa.ig_user_id, personalizar(RETOMADA, conversa.first_name))
+        const enviada = envio.mid
         if (!enviada) {
+          if (envio.chaveRecusada) await avisarChaveRecusada(admin, clinica.clinic_id, agora)
           resumo.falhas++
           continue
         }
@@ -614,11 +617,15 @@ export function corpoDoEnvio(destinatario: string, decisao: NonNullable<Decisao>
   }
 }
 
-async function enviar(destinatario: string, decisao: NonNullable<Decisao>): Promise<string | null> {
+/** O envio do robo: o id da mensagem, ou por que nao saiu. */
+type Envio = { mid: string | null; chaveRecusada: boolean }
+
+async function enviar(destinatario: string, decisao: NonNullable<Decisao>): Promise<Envio> {
   const token = Deno.env.get('INSTAGRAM_PAGE_TOKEN')?.trim()
   if (!token) {
-    console.warn('Instagram: falta o segredo INSTAGRAM_PAGE_TOKEN; o robo nao responde')
-    return null
+    // Sem a chave o robo fica tao mudo quanto com a chave recusada: avisa igual.
+    console.error('Instagram: falta o segredo INSTAGRAM_PAGE_TOKEN; o robo nao responde')
+    return { mid: null, chaveRecusada: true }
   }
   const versao = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
   const resposta = await fetch(`https://${hostDoToken(token)}/${versao}/me/messages`, {
@@ -629,9 +636,106 @@ async function enviar(destinatario: string, decisao: NonNullable<Decisao>): Prom
   const corpo = await resposta.json().catch(() => ({}))
   if (!resposta.ok) {
     console.error('Instagram: a Meta recusou o envio', resposta.status, corpo?.error?.message ?? '')
-    return null
+    return { mid: null, chaveRecusada: chaveRecusada(resposta.status, corpo) }
   }
-  return String(corpo?.message_id ?? '') || null
+  return { mid: String(corpo?.message_id ?? '') || null, chaveRecusada: false }
+}
+
+// ---------------------------------------------------------------------------
+// Chave recusada (03/11/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * De 31/10 a 03/11/2026 o robo nao respondeu ninguem no Direct: a Meta
+ * invalidou o INSTAGRAM_PAGE_TOKEN ("the user changed their password or
+ * Facebook has changed the session for security reasons") e toda resposta
+ * voltava 401. A Central marcava "nao enviada" em conversas que ninguem
+ * abria, e quem percebeu foi o Edu, achando que os anuncios novos tinham
+ * subido sem o robo. Agora a chave recusada grita: notificacao no celular da
+ * equipe, aviso no WhatsApp da Dra. e do Edu (modelo aviso_sistema_central) e
+ * faixa vermelha na aba Instagram de Respostas.
+ *
+ * Recusa da mensagem (fora da janela de 24 horas, pessoa que bloqueou) nao e
+ * chave recusada: o robo segue funcionando para os outros.
+ */
+export function chaveRecusada(
+  status: number,
+  corpo: { error?: { code?: number | string; message?: string } } | null | undefined,
+): boolean {
+  return status === 401 || Number(corpo?.error?.code) === 190 || /error validating access token/i.test(String(corpo?.error?.message ?? ''))
+}
+
+/** Enquanto a chave continuar recusada, o aviso se repete neste intervalo. */
+export const ESPERA_DO_AVISO_DA_CHAVE_MS = 12 * 3_600_000
+
+/** Avisar agora? Na primeira recusa, e de novo quando o ultimo aviso ja passou da espera. */
+export function deveAvisarChave(avisouEm: string | null | undefined, agora: Date): boolean {
+  if (!avisouEm) return true
+  const quando = Date.parse(avisouEm)
+  return !Number.isFinite(quando) || agora.getTime() - quando >= ESPERA_DO_AVISO_DA_CHAVE_MS
+}
+
+const AVISO_DA_CHAVE =
+  'A Meta recusou a chave de acesso do Instagram (INSTAGRAM_PAGE_TOKEN). Gere um token novo no app Central de Cuidado Patricia e salve no Supabase.'
+
+/**
+ * Segura a repeticao na mesma instancia quando a coluna nova ainda nao chegou:
+ * sem ela, cada mensagem do Direct tocaria o celular de novo.
+ */
+const avisouDaChave = new Map<string, number>()
+
+/** Chave recusada: avisa a equipe, no maximo a cada 12 horas. Nunca lanca. */
+async function avisarChaveRecusada(admin: Admin, clinicId: string, agora: Date) {
+  try {
+    const naMemoria = avisouDaChave.get(clinicId)
+    if (naMemoria !== undefined && agora.getTime() - naMemoria < ESPERA_DO_AVISO_DA_CHAVE_MS) return
+    // Coluna nova (migration 20261103100000): consulta separada. Sem ela,
+    // avisa assim mesmo - um aviso a mais custa menos que tres dias mudo.
+    let avisouEm: string | null = null
+    try {
+      const { data, error } = await admin.from('clinic_settings').select('instagram_chave_recusada_em').eq('clinic_id', clinicId).maybeSingle()
+      if (error) throw error
+      avisouEm = (data as { instagram_chave_recusada_em?: string | null } | null)?.instagram_chave_recusada_em ?? null
+    } catch (erro) {
+      console.error('Instagram: sem clinic_settings.instagram_chave_recusada_em (migration 20261103100000 aplicada?)', erro)
+    }
+    if (!deveAvisarChave(avisouEm, agora)) {
+      avisouDaChave.set(clinicId, Date.parse(avisouEm!))
+      return
+    }
+    avisouDaChave.set(clinicId, agora.getTime())
+    console.error('Instagram: a Meta recusou a chave; o robo do Direct esta parado. Avisando a equipe.')
+    const { error: erroDaMarca } = await admin
+      .from('clinic_settings')
+      .update({ instagram_chave_recusada_em: agora.toISOString() })
+      .eq('clinic_id', clinicId)
+    if (erroDaMarca) console.error('Instagram: nao marquei a chave recusada; a Central fica sem a faixa', erroDaMarca)
+    await avisarEquipe(admin, clinicId, {
+      titulo: '⚠️ Robô do Instagram parado',
+      corpo: 'A Meta recusou a chave do Instagram. Quem escreve no Direct fica sem resposta até trocar o token no Supabase.',
+      etiqueta: 'instagram-chave',
+      conversa: '',
+      urgente: true,
+    })
+    await enviarAviso(admin, { motivo: 'sistema', clinicId, quem: 'O robô do Instagram', resumo: AVISO_DA_CHAVE, agora })
+  } catch (erro) {
+    console.error('Instagram: o aviso da chave recusada falhou', erro)
+  }
+}
+
+/** Resposta saiu: a chave voltou. Apaga a faixa da Central e libera o proximo aviso. */
+async function chaveVoltou(admin: Admin, clinicId: string) {
+  avisouDaChave.delete(clinicId)
+  try {
+    const { error } = await admin
+      .from('clinic_settings')
+      .update({ instagram_chave_recusada_em: null })
+      .eq('clinic_id', clinicId)
+      .not('instagram_chave_recusada_em', 'is', null)
+    if (error) console.warn('Instagram: nao apaguei a marca da chave recusada', error.message)
+  } catch (erro) {
+    console.warn('Instagram: nao apaguei a marca da chave recusada', erro)
+  }
 }
 
 /**
@@ -772,7 +876,8 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
 
       const nome = await nomeDaConversa(admin, conversa.id, pessoa, conversa.first_name ?? null)
       const final = personalizar(decisao, nome)
-      const enviada = await enviar(pessoa, final)
+      const envio = await enviar(pessoa, final)
+      const enviada = envio.mid
       await registrarNoChat(admin, {
         clinicId,
         conversaId: conversa.id,
@@ -780,9 +885,20 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         autor: 'robo',
         texto: final.texto,
         mid: enviada,
-        ...(enviada ? {} : { status: 'falhou' as const, erro: 'A Meta recusou a resposta do robô.' }),
+        ...(enviada
+          ? {}
+          : {
+              status: 'falhou' as const,
+              erro: envio.chaveRecusada
+                ? 'A Meta recusou a chave do Instagram: o robô está parado até trocar o token no Supabase.'
+                : 'A Meta recusou a resposta do robô.',
+            }),
       }, agora)
-      if (!enviada) continue
+      if (!enviada) {
+        if (envio.chaveRecusada) await avisarChaveRecusada(admin, clinicId, agora)
+        continue
+      }
+      await chaveVoltou(admin, clinicId)
 
       const { error: erroDoEstado } = await admin
         .from('instagram_conversations')
@@ -907,6 +1023,10 @@ export async function enviarDaEquipe(destinatario: string, texto: string): Promi
   const corpo = await resposta.json().catch(() => ({}))
   if (!resposta.ok) {
     console.error('Instagram: a Meta recusou o envio da equipe', resposta.status, corpo?.error?.message ?? '')
+    // A mensagem em ingles da Meta nao diz o que fazer; a de quem responde pela Central, sim.
+    if (chaveRecusada(resposta.status, corpo)) {
+      return { mid: null, erro: 'A Meta recusou a chave do Instagram. Gere um token novo no app Central de Cuidado Patricia e salve no INSTAGRAM_PAGE_TOKEN do Supabase.' }
+    }
     return { mid: null, erro: String(corpo?.error?.message ?? `A Meta recusou o envio (${resposta.status}).`) }
   }
   return { mid: String(corpo?.message_id ?? '') || null, erro: null }

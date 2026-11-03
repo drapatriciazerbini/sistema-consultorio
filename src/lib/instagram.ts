@@ -32,6 +32,27 @@ export interface MensagemInstagram {
   createdAt: string
 }
 
+/**
+ * Quando o robo viu a chave do Instagram recusada pela Meta (03/11/2026): de
+ * 31/10 a 03/11 ele ficou mudo no Direct e so a conversa aberta mostrava. A
+ * coluna e nova, entao vem em consulta separada: sem ela, a tela abre sem a
+ * faixa, mas abre.
+ */
+export async function chaveDoInstagramRecusadaEm(clinicId: string): Promise<string | null> {
+  try {
+    const { data, error } = await semTipo
+      .from('clinic_settings')
+      .select('instagram_chave_recusada_em')
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+    if (error) throw error
+    return (data as { instagram_chave_recusada_em?: string | null } | null)?.instagram_chave_recusada_em ?? null
+  } catch (erro) {
+    console.warn('Instagram: sem a marca da chave recusada', erro)
+    return null
+  }
+}
+
 /** A Meta so deixa responder ate 24 h depois da ultima mensagem da pessoa. */
 export function podeResponder(c: Pick<ConversaInstagram, 'ultimaDaPessoaEm'>, agora = Date.now()): boolean {
   return Boolean(c.ultimaDaPessoaEm && agora - Date.parse(c.ultimaDaPessoaEm) < 24 * 3_600_000)

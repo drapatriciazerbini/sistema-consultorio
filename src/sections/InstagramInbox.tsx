@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Bot, Instagram, Send, UserRound } from 'lucide-react'
 import { useDialogos } from '@/components/dialogos-contexto'
 import {
+  chaveDoInstagramRecusadaEm,
   listarConversasInstagram,
   listarMensagensInstagram,
   marcarInstagramComoLida,
@@ -51,9 +52,11 @@ export default function InstagramInbox({ clinicId }: { clinicId: string }) {
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [carregou, setCarregou] = useState(false)
+  const [chaveRecusadaEm, setChaveRecusadaEm] = useState<string | null>(null)
   const fim = useRef<HTMLLIElement | null>(null)
 
   const carregar = useCallback(async () => {
+    void chaveDoInstagramRecusadaEm(clinicId).then(setChaveRecusadaEm)
     try {
       setConversas(await listarConversasInstagram(clinicId))
       setErro(null)
@@ -121,9 +124,23 @@ export default function InstagramInbox({ clinicId }: { clinicId: string }) {
           {naoLidas > 0 && <span className="rounded-full bg-[#c13584] px-2 py-0.5 text-[9px] font-extrabold text-white">{naoLidas} nova(s)</span>}
         </span>
         <span className="text-[10px] leading-relaxed text-slate-500">
-          O robô continua respondendo no Direct. Se alguém da equipe responder (aqui ou no Business Suite), ele fica calado nessa conversa por 12 horas.
+          {chaveRecusadaEm
+            ? 'O robô está parado: veja o aviso abaixo.'
+            : 'O robô continua respondendo no Direct. Se alguém da equipe responder (aqui ou no Business Suite), ele fica calado nessa conversa por 12 horas.'}
         </span>
       </div>
+
+      {chaveRecusadaEm && (
+        <p className="m-4 flex gap-2 rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-[11px] leading-relaxed text-red-700">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            <strong>O robô do Instagram não está respondendo ninguém.</strong> A Meta recusou a chave de acesso (visto em {quando(chaveRecusadaEm)}),
+            e quem escreve no Direct fica sem resposta até alguém trocar a chave: em developers.facebook.com, app Central de Cuidado Patricia, API do
+            Instagram, Configuração da API com login do Instagram, Gerar token na linha drapatriciazerbini; depois salvar no segredo INSTAGRAM_PAGE_TOKEN
+            do Supabase. A faixa some na primeira resposta que o robô conseguir enviar.
+          </span>
+        </p>
+      )}
 
       {erro && (
         <p className="m-4 flex gap-2 rounded-[16px] border border-red-200 bg-red-50 px-4 py-3 text-[11px] text-red-700">

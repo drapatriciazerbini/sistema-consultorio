@@ -107,6 +107,16 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
       '{{1}} escreveu às {{2}}:\n"{{3}}"\n\n' +
       'Para responder, escreva a mensagem em cima deste aviso: eu mostro antes de enviar e repasso ao paciente como mensagem sua.',
   },
+  // Pane do atendimento automatico (03/11/2026), item 9 de MODELOS-META.md.
+  // Mesmos celulares e mesmos tres parametros, sem paciente: {{1}} o que parou,
+  // {{2}} a hora, {{3}} o que fazer. O primeiro uso e a chave do Instagram
+  // recusada, que deixou o robo do Direct tres dias mudo sem ninguem saber.
+  aviso_sistema_central: {
+    corpo:
+      '⚠️ Problema no atendimento automático da Central de Cuidado.\n\n' +
+      '{{1}} parou às {{2}}:\n"{{3}}"\n\n' +
+      'Até resolver, quem escrever fica sem resposta automática. Este aviso se repete a cada 12 horas enquanto o problema continuar.',
+  },
 }
 
 /**

@@ -21,6 +21,9 @@ import {
   recusaGentil,
   pedeOpiniao,
   textoRecebido,
+  chaveRecusada,
+  deveAvisarChave,
+  ESPERA_DO_AVISO_DA_CHAVE_MS,
 } from './instagram.build.mjs'
 
 let ok = 0
@@ -410,6 +413,39 @@ caso('texto da mensagem vai como veio; anexo sem texto vira rótulo', () => {
   assert.equal(textoRecebido(undefined), '[mensagem sem texto]')
   // Texto junto com anexo: vale o texto.
   assert.equal(textoRecebido({ text: 'olha isso', attachments: [{ type: 'share' }] }), 'olha isso')
+})
+
+// Chave recusada (03/11/2026): de 31/10 a 03/11 o robo nao respondeu ninguem
+// no Direct, e so a conversa aberta na Central mostrava "nao enviada".
+caso('chave recusada pela Meta e reconhecida; recusa so da mensagem nao', () => {
+  const de0311 = {
+    error: {
+      message:
+        'Error validating access token: The session has been invalidated because the user changed their password or Facebook has changed the session for security reasons.',
+      type: 'OAuthException',
+      code: 190,
+    },
+  }
+  assert.equal(chaveRecusada(401, de0311), true)
+  assert.equal(chaveRecusada(400, { error: { code: 190, message: 'Invalid OAuth access token.' } }), true)
+  assert.equal(chaveRecusada(400, { error: { message: 'Error validating access token: Session has expired.' } }), true)
+  // Fora da janela de 24 horas, pessoa indisponivel, Meta fora do ar: o robo
+  // segue vivo para os outros, e avisar a equipe so assustaria.
+  assert.equal(chaveRecusada(400, { error: { code: 10, message: 'This message is sent outside of allowed window.' } }), false)
+  assert.equal(chaveRecusada(400, { error: { code: 551, message: "This person isn't available right now." } }), false)
+  assert.equal(chaveRecusada(500, { error: { code: 2, message: 'Service temporarily unavailable' } }), false)
+  assert.equal(chaveRecusada(502, null), false)
+})
+
+caso('aviso da chave recusada: na primeira recusa e depois de 12 em 12 horas', () => {
+  const agora = new Date('2026-11-03T14:46:00Z')
+  const horasAtras = (h) => new Date(agora.getTime() - h * 3_600_000).toISOString()
+  assert.equal(ESPERA_DO_AVISO_DA_CHAVE_MS, 12 * 3_600_000)
+  assert.equal(deveAvisarChave(null, agora), true)
+  assert.equal(deveAvisarChave(horasAtras(1), agora), false)
+  assert.equal(deveAvisarChave(horasAtras(11.9), agora), false)
+  assert.equal(deveAvisarChave(horasAtras(12), agora), true)
+  assert.equal(deveAvisarChave('data estragada', agora), true)
 })
 
 console.log(`instagram: ${ok} casos ok`)
