@@ -81,3 +81,4 @@ tests/valores-enviados.build.mjs
 tests/alerta-de-urgencia.build.mjs
 tests/resposta-ao-alerta.build.mjs
 tests/assistente.build.mjs
+tests/memed-na-pagina.build.mjs

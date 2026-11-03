@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import type { Consultation, Patient } from '@/types/patient'
+import { CAIXA_V4, memedAberta, prescricaoCarregada } from '@/lib/memed-na-pagina'
 
 /**
  * Prescricao digital da Memed dentro do prontuario.
@@ -83,10 +84,16 @@ function destravarRolagem() {
   document.documentElement.style.removeProperty('overflow-y')
 }
 
-/** Algum modulo da Memed esta aberto na tela neste momento? */
+/**
+ * Algum modulo da Memed esta aberto na tela neste momento? Nos dois formatos
+ * da Memed: o antigo, um iframe por modulo, e o de 03/11/2026, uma div so (ver
+ * memed-na-pagina.ts).
+ */
 function memedNaTela(): boolean {
-  return [...document.querySelectorAll('iframe[id^="mdhub-module-"]')].some(
-    (quadro) => getComputedStyle(quadro).display !== 'none',
+  const caixa = document.getElementById(CAIXA_V4)
+  return memedAberta(
+    [...document.querySelectorAll('iframe[id^="mdhub-module-"]')].map((quadro) => getComputedStyle(quadro).display),
+    caixa ? getComputedStyle(caixa).visibility : null,
   )
 }
 
@@ -244,7 +251,12 @@ async function carregarScript(token: string, producao: boolean) {
         // O sinal certo e o iframe do modulo estar na pagina: e o proprio
         // MdHub que o cria, quando o modulo termina de carregar. DOM, e nao
         // nome de evento - pelo mesmo motivo da espera pelo hub, logo acima.
-        if (!document.getElementById('mdhub-module-plataforma.prescricao')) return
+        //
+        // Em 03/11/2026 a Memed trocou esse iframe por outro, sem o id, e o
+        // botao passou a desistir em 40 s com ela pronta: os dois formatos
+        // valem (ver memed-na-pagina.ts).
+        const quadros = [...document.querySelectorAll('iframe')].map((quadro) => ({ id: quadro.id, src: quadro.src }))
+        if (!prescricaoCarregada(quadros)) return
 
         window.clearInterval(espera)
         pronto()
