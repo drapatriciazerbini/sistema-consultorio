@@ -365,7 +365,7 @@ export default function Settings({ db, importDb, clearAll }: Props) {
               O que aparece ao tocar no nome da conversa
             </p>
             {([
-              ['Recado curto', 'recado', 'Clínica médica · Consultório e visita domiciliar', 139],
+              ['Recado curto', 'recado', 'Geriatria · Cuidado da pessoa idosa no consultório e em casa', 139],
               ['Endereço', 'endereco', 'Rua, número, sala, bairro, cidade', 256],
               ['Descrição', 'descricao', 'O que a clínica faz, em duas linhas', 512],
               ['E-mail', 'email', 'contato@exemplo.com.br', 128],
