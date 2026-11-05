@@ -32,6 +32,7 @@ import { origemDoAnuncio, type Indicacao } from '../_shared/origem-do-anuncio.ts
 import { postarNaMeta } from '../_shared/meta-tentativa.ts'
 import { deveAvisarDuvida, deveAvisarPedido, enviarAviso, gravarNota, lerNumeros as lerNumerosDoAviso, motivoDoAvisoDoPedido, quemDoPedido, resumoDaDuvida, resumoDaIA, resumoDoPedido } from '../_shared/alerta-de-urgencia.ts'
 import { oQueOPacienteDisse, papelDoNumero, repassarAoCelular, repasseAberto, tratarRespostaDaEquipe, whatsAppPelaApi } from '../_shared/resposta-ao-alerta.ts'
+import { copiaPelaApi, midiaRecebida } from '../_shared/midia-do-whatsapp.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
 // Fora dele (teste local) cai no await comum.
@@ -399,6 +400,8 @@ Deno.serve(async (req) => {
                   agora: new Date(),
                   numeros: numerosDoAviso,
                   enviarWhatsApp: whatsAppPelaApi(phoneNumberId, chaveDoWhatsApp(phoneNumberId)),
+                  // Audio, foto e arquivo dela ao paciente (05/11/2026, ver midia-do-whatsapp.ts).
+                  copiarMidia: copiaPelaApi(phoneNumberId, chaveDoWhatsApp(phoneNumberId)),
                 },
                 waId,
                 message,
@@ -821,11 +824,14 @@ Deno.serve(async (req) => {
                   agora: new Date(),
                   numeros: numerosDoAviso,
                   enviarWhatsApp: whatsAppPelaApi(phoneNumberId, chaveDoWhatsApp(phoneNumberId)),
+                  copiarMidia: copiaPelaApi(phoneNumberId, chaveDoWhatsApp(phoneNumberId)),
                 },
                 repasseDaConversa,
                 conversation.id,
                 waId,
                 disse,
+                // Audio ou foto do paciente vai como arquivo para quem falou com ele.
+                midiaRecebida(message),
               )
               if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(repasse)
               else await repasse

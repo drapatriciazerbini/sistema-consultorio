@@ -6,6 +6,10 @@ import { primeiroNomeUtil } from './nome.ts'
 import { quemAtende, type QuemAtende } from './quem-atende.ts'
 import { carregarRespostas, valorCadastrado } from './respostas.ts'
 import { mesmoTelefone } from './telefone-br.ts'
+import { conteudoDaMidia, esteArquivo, midiaRecebida, umArquivo, type CopiaDaMidia, type MidiaRecebida, type TipoDeMidia } from './midia-do-whatsapp.ts'
+
+// Para os testes, que importam so este arquivo.
+export { conteudoDaMidia, copiaPelaApi, midiaRecebida, tipoLimpo } from './midia-do-whatsapp.ts'
 
 /**
  * A resposta da Dra. Patricia ao aviso do pedido, pelo WhatsApp dela
@@ -22,7 +26,10 @@ import { mesmoTelefone } from './telefone-br.ts'
  *     nem de particular);
  *   - escrever a mensagem. O robo mostra o que vai mandar e espera o
  *     "Enviar": e mensagem em nome dela, e um "liga pra ela" que era para a
- *     equipe nao pode chegar ao paciente.
+ *     equipe nao pode chegar ao paciente;
+ *   - gravar um audio, ou mandar foto e arquivo (05/11/2026, ver
+ *     midia-do-whatsapp.ts). Tambem com o "Enviar": um audio que era para a
+ *     equipe nao pode cair no paciente.
  *
  * Porte da resposta ao alerta de urgencia do sistema do Dr. Marcello
  * (17/10/2026). Quem e quem: o primeiro numero da lista e o da Dra.; os outros
@@ -36,8 +43,9 @@ import { mesmoTelefone } from './telefone-br.ts'
  * fosse paciente, mas so nessas condicoes.
  */
 
-// Tabela nova: lida em consulta separada, com try/catch.
-type Admin = { from: (tabela: string) => any } // eslint-disable-line @typescript-eslint/no-explicit-any
+// Tabela nova: lida em consulta separada, com try/catch. O storage guarda o
+// arquivo que foi ao paciente, para a Central mostrar; sem ele, so o texto.
+type Admin = { from: (tabela: string) => any; storage?: { from: (balde: string) => any } } // eslint-disable-line @typescript-eslint/no-explicit-any
 
 const JANELA_DO_AVISO_MS = 6 * 3600 * 1000
 const JANELA_DA_META_MS = 24 * 3600 * 1000
@@ -57,14 +65,15 @@ export type MensagemRecebida = {
   interactive?: { button_reply?: { id?: string; title?: string }; list_reply?: { id?: string; title?: string } }
   /** A mensagem nossa em cima da qual ela respondeu. */
   context?: { id?: string }
-}
+} & Partial<Record<TipoDeMidia, { id?: string; mime_type?: string; filename?: string; caption?: string }>>
 
 export type RespostaDaEquipe =
   | { tipo: 'veredito'; alertaId: string; veredito: Veredito }
   | { tipo: 'confirmacao'; alertaId: string; acao: 'enviar' | 'cancelar' }
   | { tipo: 'texto'; texto: string; citado: string | null }
   | { tipo: 'visto'; citado: string | null }
-  | { tipo: 'midia'; citado: string | null }
+  /** midia nula: a Meta mandou sem id, e nao ha o que repassar. */
+  | { tipo: 'midia'; citado: string | null; midia: MidiaRecebida | null }
 
 export const payloadDaConfirmacao = (alertaId: string, acao: 'enviar' | 'cancelar', motivo: MotivoDoAlerta = 'pedido') =>
   `${motivo === 'urgencia' ? 'URG' : 'PED'}TXT:${alertaId}:${acao}`
@@ -92,8 +101,27 @@ export function lerRespostaDaEquipe(m: MensagemRecebida): RespostaDaEquipe | nul
     if (!texto) return null
     return VISTO.test(texto) ? { tipo: 'visto', citado } : { tipo: 'texto', texto, citado }
   }
-  if (MIDIA.includes(String(m.type))) return { tipo: 'midia', citado }
+  // Figurinha e o 👍 de quem viu, nao mensagem ao paciente.
+  if (m.type === 'sticker') return { tipo: 'visto', citado }
+  if (MIDIA.includes(String(m.type))) return { tipo: 'midia', citado, midia: midiaRecebida(m) }
   return null
+}
+
+/**
+ * O rascunho de arquivo vai na mesma coluna do texto, marcado: assim o dono, as
+ * 6 horas e o "dois toques nao mandam duas vezes" valem igual, sem coluna nova.
+ * Texto que comece com a marca e nao seja o formato continua texto.
+ */
+const MARCA_DE_MIDIA = 'midia:'
+export const rascunhoDeMidia = (midia: MidiaRecebida) => MARCA_DE_MIDIA + JSON.stringify(midia)
+export function midiaDoRascunho(rascunho: string | null): MidiaRecebida | null {
+  if (!rascunho?.startsWith(MARCA_DE_MIDIA)) return null
+  try {
+    const midia = JSON.parse(rascunho.slice(MARCA_DE_MIDIA.length)) as MidiaRecebida
+    return midia?.id && midia?.tipo ? midia : null
+  } catch {
+    return null
+  }
 }
 
 export type Papel = 'medica' | 'equipe'
@@ -178,6 +206,8 @@ export type AmbienteDaResposta = {
   numeros: string[]
   /** Uma mensagem pelo WhatsApp da clinica: para a Dra. ou para o paciente. */
   enviarWhatsApp: (para: string, conteudo: Record<string, unknown>) => Promise<Enviado>
+  /** Traz o arquivo recebido para o numero do consultorio (ver copiaPelaApi). Sem isto, so texto passa. */
+  copiarMidia?: (midia: MidiaRecebida) => Promise<CopiaDaMidia>
 }
 
 /** O envio de verdade, para o webhook. */
@@ -313,22 +343,19 @@ async function alertaPorId(amb: AmbienteDaResposta, id: string): Promise<Alerta 
  * resposta_da_clinica, como faz a Central (whatsapp-reopen). A mensagem entra
  * no historico da conversa como as outras.
  */
-async function enviarParaOPaciente(
-  amb: AmbienteDaResposta,
-  alerta: Alerta,
-  escrito: string,
-  automatico: boolean,
-): Promise<{ ok: true } | { ok: false; erro: string }> {
-  const { admin, clinicId, agora } = amb
-  const agoraIso = agora.toISOString()
-  if (!alerta.conversa_whatsapp) return { ok: false, erro: 'aviso sem conversa' }
+type ConversaDoPaciente = { id: string; wa_id: string; patient_id: string | null; profile_name: string | null }
+
+/** A conversa do aviso e se a janela de 24 horas dela esta aberta. */
+async function conversaDoPaciente(amb: AmbienteDaResposta, alerta: Alerta): Promise<{ conversa: ConversaDoPaciente; aberta: boolean } | { erro: string }> {
+  const { admin, agora } = amb
+  if (!alerta.conversa_whatsapp) return { erro: 'aviso sem conversa' }
   const { data: conversa } = await admin
     .from('whatsapp_conversations')
     .select('id,wa_id,patient_id,profile_name,status')
     .eq('id', alerta.conversa_whatsapp)
     .maybeSingle()
-  if (!conversa?.wa_id) return { ok: false, erro: 'conversa do WhatsApp não encontrada' }
-  if (conversa.status === 'opted_out') return { ok: false, erro: 'o paciente pediu para não receber mensagens' }
+  if (!conversa?.wa_id) return { erro: 'conversa do WhatsApp não encontrada' }
+  if (conversa.status === 'opted_out') return { erro: 'o paciente pediu para não receber mensagens' }
 
   // Ultima mensagem RECEBIDA, como em whatsapp-reply: a janela e dela.
   const { data: ultima } = await admin
@@ -341,6 +368,20 @@ async function enviarParaOPaciente(
     .limit(1)
     .maybeSingle()
   const aberta = Boolean(ultima?.created_at) && agora.getTime() - Date.parse(ultima.created_at) < JANELA_DA_META_MS
+  return { conversa: conversa as ConversaDoPaciente, aberta }
+}
+
+async function enviarParaOPaciente(
+  amb: AmbienteDaResposta,
+  alerta: Alerta,
+  escrito: string,
+  automatico: boolean,
+): Promise<{ ok: true } | { ok: false; erro: string }> {
+  const { admin, clinicId, agora } = amb
+  const agoraIso = agora.toISOString()
+  const destino = await conversaDoPaciente(amb, alerta)
+  if ('erro' in destino) return { ok: false, erro: destino.erro }
+  const { conversa, aberta } = destino
 
   let conteudo: Record<string, unknown>
   let tipoDaMensagem = 'text'
@@ -397,6 +438,81 @@ async function enviarParaOPaciente(
   return envio.ok ? { ok: true } : { ok: false, erro: envio.erro }
 }
 
+/** Quando a janela de 24 horas fechou: a Meta so deixa modelo, e modelo nao leva arquivo. */
+const JANELA_FECHADA = 'o paciente não escreve há mais de 24 horas, e a Meta só deixa mandar texto pelo modelo'
+
+/**
+ * Manda ao paciente o audio, foto ou arquivo que a Dra. (ou a equipe) mandou ao
+ * aviso. So com a janela aberta. Audio nao tem legenda na Meta: antes dele vai
+ * uma linha dizendo de quem e, como no "💬 Mensagem da Dra." do texto. O arquivo
+ * fica no acervo e na conversa, para a Central mostrar o que o paciente recebeu.
+ */
+async function enviarMidiaAoPaciente(
+  amb: AmbienteDaResposta,
+  alerta: Alerta,
+  midia: MidiaRecebida,
+  deQuem: string,
+): Promise<{ ok: true } | { ok: false; erro: string }> {
+  const { admin, clinicId, agora } = amb
+  const agoraIso = agora.toISOString()
+  const destino = await conversaDoPaciente(amb, alerta)
+  if ('erro' in destino) return { ok: false, erro: destino.erro }
+  const { conversa, aberta } = destino
+  if (!aberta) return { ok: false, erro: JANELA_FECHADA }
+  if (!amb.copiarMidia) return { ok: false, erro: 'o servidor não está preparado para repassar arquivo' }
+  const copia = await amb.copiarMidia(midia)
+  if (!copia.ok) return { ok: false, erro: copia.erro }
+
+  const registrar = async (linha: Record<string, unknown>, envio: Enviado) => {
+    const { error } = await admin.from('whatsapp_messages').insert({
+      clinic_id: clinicId,
+      conversation_id: conversa.id,
+      patient_id: conversa.patient_id ?? null,
+      external_message_id: envio.ok ? envio.id : null,
+      direction: 'outbound',
+      // Gente falando: o robo fica quieto, como no texto dela.
+      automatic: false,
+      status: envio.ok ? 'accepted' : 'failed',
+      ...(envio.ok ? { sent_at: agoraIso } : { failed_at: agoraIso, failure_reason: envio.erro }),
+      ...linha,
+    })
+    if (error) console.error('Resposta ao aviso: arquivo ao paciente nao registrado', error)
+  }
+
+  const audio = midia.tipo === 'audio' || midia.tipo === 'voice'
+  if (audio) {
+    const quem = `🎤 Áudio ${deQuem}:`
+    const antes = await amb.enviarWhatsApp(conversa.wa_id, montarConteudo(quem))
+    await registrar({ message_type: 'text', body: quem }, antes)
+    if (!antes.ok) return { ok: false, erro: antes.erro }
+  }
+  const legenda = audio ? undefined : `💬 Mensagem ${deQuem}${midia.legenda ? `: ${midia.legenda}` : ''}`
+  const envio = await amb.enviarWhatsApp(conversa.wa_id, conteudoDaMidia(midia, copia.id, legenda))
+
+  // O arquivo no acervo, com o id da mensagem, como os recebidos (guardarAnexo).
+  let caminho: string | null = null
+  if (envio.ok && admin.storage) {
+    try {
+      const nome = `${clinicId}/${envio.id ?? `saida-${agora.getTime()}`}`
+      const { error } = await admin.storage.from('whatsapp-anexos').upload(nome, copia.bytes, { contentType: copia.mime, upsert: true })
+      if (error) throw error
+      caminho = nome
+    } catch (erro) {
+      console.error('Resposta ao aviso: arquivo enviado, mas nao guardado no acervo', erro)
+    }
+  }
+  await registrar(
+    {
+      message_type: midia.tipo === 'voice' ? 'audio' : midia.tipo,
+      body: audio ? `🎤 Áudio ${deQuem}` : legenda,
+      ...(caminho ? { media_path: caminho, media_mime: copia.mime } : {}),
+    },
+    envio,
+  )
+  await admin.from('whatsapp_conversations').update({ last_message_at: agoraIso }).eq('id', conversa.id)
+  return envio.ok ? { ok: true } : { ok: false, erro: envio.erro }
+}
+
 /** Nota na conversa do paciente e evento nos Numeros do WhatsApp. */
 async function registrarResposta(amb: AmbienteDaResposta, alerta: Alerta, nota: string, detalhe: string) {
   await gravarNota(amb.admin, amb.clinicId, alerta.conversa_whatsapp, nota)
@@ -412,6 +528,11 @@ async function registrarResposta(amb: AmbienteDaResposta, alerta: Alerta, nota: 
   } catch (erro) {
     console.error('Resposta ao aviso: evento nao gravado', erro)
   }
+}
+
+/** "da Dra. Patrícia" ou "da equipe do consultório": de quem e o arquivo, para o paciente. */
+function deQuemFala(papel: Papel, quem: Pick<QuemAtende, 'o'>): string {
+  return papel === 'medica' ? `d${quem.o}` : 'da equipe do consultório'
 }
 
 /** "A Dra. Patricia" ou "A equipe (final 1234)", no comeco da nota. */
@@ -566,13 +687,17 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
       await responder('Essa mensagem já foi enviada ou cancelada.')
       return true
     }
-    const envio = await enviarParaOPaciente(amb, atual, textoParaOPaciente('texto', papel, quem, atual.rascunho), false)
+    const midia = midiaDoRascunho(atual.rascunho)
+    const envio = midia
+      ? await enviarMidiaAoPaciente(amb, atual, midia, deQuemFala(papel, quem))
+      : await enviarParaOPaciente(amb, atual, textoParaOPaciente('texto', papel, quem, atual.rascunho), false)
     if (envio.ok) {
       await primeiroVeredito(amb, atual.id, 'texto', numero)
       await marcarRespondido(amb, atual.id, numero)
       await abrirRepasse(amb, atual.id, numero)
     }
-    await registrarResposta(amb, atual, notaDaResposta(quemFala, `"${atual.rascunho}"`, envio), `texto (${papel})${envio.ok ? '' : ' nao chegou'}`)
+    const oQue = midia ? `mandou ${umArquivo(midia.tipo)}${midia.legenda ? ` ("${midia.legenda}")` : ''}.` : `"${atual.rascunho}"`
+    await registrarResposta(amb, atual, notaDaResposta(quemFala, oQue, envio), `${midia ? 'midia' : 'texto'} (${papel})${envio.ok ? '' : ' nao chegou'}`)
     await responder(envio.ok ? `✅ Enviado para ${nomeDoPaciente(atual)}.` : NAO_CHEGOU(envio.erro))
     return true
   }
@@ -596,8 +721,31 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
     return true
   }
   if (r.tipo === 'midia') {
-    await registrarResposta(amb, alerta, `🩺 ${quemFala} mandou áudio ou arquivo em resposta ao aviso. Por lá só passa texto: nada foi enviado ao paciente.`, `midia (${papel})`)
-    await responder('Por aqui eu só consigo repassar texto ao paciente. Escreva a mensagem, ou mande o arquivo pela Central.')
+    // Sem id nao ha o que buscar na Meta: so o aviso de antes.
+    if (!r.midia || !amb.copiarMidia) {
+      await registrarResposta(amb, alerta, `🩺 ${quemFala} mandou áudio ou arquivo em resposta ao aviso, mas ele não pôde ser lido: nada foi enviado ao paciente.`, `midia (${papel}) sem arquivo`)
+      await responder('Não consegui ler esse arquivo. Escreva a mensagem, ou mande o arquivo pela Central.')
+      return true
+    }
+    // Arquivo so vai com a janela aberta: perguntar "Confirma?" para depois
+    // falhar seria pior do que dizer agora.
+    const destino = await conversaDoPaciente(amb, alerta)
+    if ('erro' in destino || !destino.aberta) {
+      const motivo = 'erro' in destino ? destino.erro : JANELA_FECHADA
+      await registrarResposta(amb, alerta, `🩺 ${quemFala} mandou ${umArquivo(r.midia.tipo)} em resposta ao aviso, mas ${motivo}: nada foi enviado ao paciente.`, `midia (${papel}) nao pode`)
+      await responder(`Não dá para mandar ${esteArquivo(r.midia.tipo)}: ${motivo}. Escreva a mensagem, ou responda pela Central.`)
+      return true
+    }
+    await amb.admin
+      .from('alertas_de_urgencia')
+      .update({ rascunho: rascunhoDeMidia(r.midia), rascunho_de: numero, rascunho_em: agoraIso })
+      .eq('id', alerta.id)
+    const como = papel === 'medica' ? `mensagem d${quem.o}` : 'mensagem da equipe do consultório'
+    const legenda = r.midia.legenda ? `, com a legenda "${r.midia.legenda.slice(0, 300)}"` : ''
+    await responder(`Vou mandar ${esteArquivo(r.midia.tipo)} para ${primeiroNome(alerta)}, como ${como}${legenda}.\n\nConfirma?`, [
+      { id: payloadDaConfirmacao(alerta.id, 'enviar', motivoDo(alerta)), titulo: 'Enviar' },
+      { id: payloadDaConfirmacao(alerta.id, 'cancelar', motivoDo(alerta)), titulo: 'Cancelar' },
+    ])
     return true
   }
 
@@ -672,7 +820,13 @@ export function oQueOPacienteDisse(m: MensagemRecebida, corpo: string): string |
 export function textoDoRepasse(quem: string, disse: string): string {
   const limpo = semDadosPessoais(disse).trim()
   const cabe = limpo.length > LIMITE_DO_TEXTO ? `${limpo.slice(0, LIMITE_DO_TEXTO - 1)}…` : limpo
-  return `💬 ${semDadosPessoais(quem).trim() || 'O paciente'} respondeu:\n\n"${cabe}"\n\nPara responder, escreva a mensagem em cima desta: eu mostro antes de enviar.`
+  return `💬 ${semDadosPessoais(quem).trim() || 'O paciente'} respondeu:\n\n"${cabe}"\n\nPara responder, escreva ou grave em cima desta: eu mostro antes de enviar.`
+}
+
+/** O aviso que vai antes do arquivo do paciente no celular (05/11/2026). */
+export function textoDoRepasseDeMidia(quem: string, midia: Pick<MidiaRecebida, 'tipo' | 'legenda'>): string {
+  const legenda = midia.legenda ? `\n\n"${semDadosPessoais(midia.legenda).trim().slice(0, LIMITE_DO_TEXTO)}"` : ''
+  return `💬 ${semDadosPessoais(quem).trim() || 'O paciente'} respondeu com ${umArquivo(midia.tipo)}:${legenda}\n\nPara responder, escreva ou grave em cima desta ou do arquivo: eu mostro antes de enviar.`
 }
 
 /**
@@ -680,7 +834,14 @@ export function textoDoRepasse(quem: string, disse: string): string {
  * ja esta sendo atendido, e falha aqui nao pode derrubar o webhook. O que nao
  * chegou vira nota na conversa.
  */
-export async function repassarAoCelular(amb: AmbienteDaResposta, repasse: RepasseAberto, conversa: string, de: string, disse: string): Promise<void> {
+export async function repassarAoCelular(
+  amb: AmbienteDaResposta,
+  repasse: RepasseAberto,
+  conversa: string,
+  de: string,
+  disse: string,
+  midia: MidiaRecebida | null = null,
+): Promise<void> {
   try {
     const { admin, clinicId, agora } = amb
     const textoAberto = agora.getTime() - Date.parse(repasse.repasse_aberto_em) < JANELA_DO_TEXTO_MS
@@ -703,12 +864,31 @@ export async function repassarAoCelular(amb: AmbienteDaResposta, repasse: Repass
     const erros: string[] = []
     let certos = 0
     let usouModelo = false
+    // O arquivo do paciente e copiado uma vez so, e so se alguem vai recebe-lo.
+    let copia: CopiaDaMidia | null = null
     // Quem esta na lista e tambem e o paciente (a equipe testando) nao recebe a si mesmo.
     for (const numero of amb.numeros.filter((n) => !mesmoTelefone(n, de))) {
       const emTexto = textoAberto && Boolean(repasse.repasse_por) && mesmoTelefone(repasse.repasse_por!, numero)
       if (!emTexto && !modeloLiberado) continue
-      const envio = await amb.enviarWhatsApp(numero, emTexto ? montarConteudo(textoDoRepasse(repasse.quem, disse)) : peloModelo)
       if (!emTexto) usouModelo = true
+
+      // Arquivo do paciente para quem falou com ele: vai o arquivo, e nao
+      // "veja na Central". Pelo modelo nao da (modelo nao leva arquivo), e se a
+      // copia falhar, cai no texto de antes - o celular fica sabendo que chegou.
+      if (emTexto && midia && amb.copiarMidia) {
+        copia ??= await amb.copiarMidia(midia)
+        if (copia.ok) {
+          const antes = await amb.enviarWhatsApp(numero, montarConteudo(textoDoRepasseDeMidia(repasse.quem, midia)))
+          const arquivo = antes.ok ? await amb.enviarWhatsApp(numero, conteudoDaMidia(midia, copia.id)) : antes
+          for (const e of [antes, arquivo]) if (e.ok && e.id) ids.push(e.id)
+          if (arquivo.ok) certos++
+          else erros.push(`final ${numero.slice(-4)}: ${arquivo.erro}`)
+          continue
+        }
+        console.error('Repasse ao celular: o arquivo do paciente nao foi copiado; vai o aviso de ver na Central', copia.erro)
+      }
+
+      const envio = await amb.enviarWhatsApp(numero, emTexto ? montarConteudo(textoDoRepasse(repasse.quem, disse)) : peloModelo)
       if (envio.ok) {
         certos++
         if (envio.id) ids.push(envio.id)
