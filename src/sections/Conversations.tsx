@@ -31,6 +31,7 @@ import { criarNota, listarNotas, type NotaDaConversa } from '@/lib/notas-da-conv
 import { linhaDoTempo } from '@/lib/linha-do-tempo'
 import { CHAVE_DO_VISUAL, EVENTO_MODO_WHATSAPP } from '@/lib/modo-whatsapp'
 import { VisualizadorDeArquivo, type ArquivoAberto } from '@/components/VisualizadorDeArquivo'
+import { GravadorDeAudio } from '@/components/GravadorDeAudio'
 import { marcaSemClinicaConhecida } from '@/lib/marca'
 import { respostaDeValor, valoresJaEnviados } from '@/lib/valores-enviados'
 import {
@@ -565,6 +566,12 @@ export default function Conversations({
   // Arquivo escolhido para ir junto da proxima resposta (24/09/2026).
   const [arquivo, setArquivo] = useState<File | null>(null)
   const seletorDeArquivo = useRef<HTMLInputElement>(null)
+  // Audio gravado na tela (05/11/2026): toca aqui antes do Enviar, para quem
+  // gravou ouvir e poder desistir. O endereco local morre com o arquivo.
+  const audioGravado = useMemo(() => (arquivo?.type.startsWith('audio/') ? URL.createObjectURL(arquivo) : null), [arquivo])
+  useEffect(() => () => {
+    if (audioGravado) URL.revokeObjectURL(audioGravado)
+  }, [audioGravado])
 
   // As respostas prontas mudam pouco: uma leitura quando a clinica e conhecida.
   // Falhar aqui so tira o atalho; a caixa de resposta continua igual.
@@ -968,8 +975,15 @@ export default function Conversations({
     setEnviando(true)
     setError('')
     try {
-      // Com arquivo, o texto vira a legenda dele.
-      if (arquivo) await sendConversationFile(selectedId, arquivo, texto)
+      // Com arquivo, o texto vira a legenda dele. Audio nao tem legenda na
+      // Meta: o texto vai antes, em mensagem propria, e o audio em seguida.
+      if (arquivo?.type.startsWith('audio/')) {
+        if (texto) {
+          await sendConversationReply(selectedId, texto)
+          setResposta('')
+        }
+        await sendConversationFile(selectedId, arquivo, '')
+      } else if (arquivo) await sendConversationFile(selectedId, arquivo, texto)
       else await sendConversationReply(selectedId, texto)
       setResposta('')
       setArquivo(null)
@@ -2420,7 +2434,11 @@ export default function Conversations({
                           acima como legenda. */}
                       {arquivo && (
                         <div className="mt-2 inline-flex max-w-full items-center gap-2 rounded-xl bg-[#f2ece0] px-3 py-1.5 text-[10px] font-bold text-[#17564d]">
-                          <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                          {audioGravado ? (
+                            <audio src={audioGravado} controls className="h-8 w-[220px] max-w-full" />
+                          ) : (
+                            <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                          )}
                           <span className="truncate">{arquivo.name}</span>
                           <span className="shrink-0 text-[#17564d]/60">
                             {(arquivo.size / 1048576).toFixed(1).replace('.', ',')} MB
@@ -2479,6 +2497,7 @@ export default function Conversations({
                           <ClipboardList className="h-3.5 w-3.5" />
                           Questionário
                         </button>
+                        <GravadorDeAudio key={selectedId ?? ''} desativado={enviando} variante="botao" onPronto={setArquivo} onErro={setError} />
                         <button
                           type="button"
                           disabled={enviando}
@@ -2948,8 +2967,14 @@ export default function Conversations({
             )}
             {arquivo && janelaAberta && (
               <div className="mx-1 mb-1.5 flex items-center gap-2 rounded-[10px] bg-white px-3 py-2 text-[12.5px] text-[#11211d] shadow-[0_1px_0.5px_rgba(12,26,23,.13)]">
-                <Paperclip className="h-4 w-4 shrink-0 text-[#54656f]" />
-                <span className="min-w-0 flex-1 truncate">{arquivo.name}</span>
+                {audioGravado ? (
+                  <audio src={audioGravado} controls className="h-9 min-w-0 flex-1" />
+                ) : (
+                  <>
+                    <Paperclip className="h-4 w-4 shrink-0 text-[#54656f]" />
+                    <span className="min-w-0 flex-1 truncate">{arquivo.name}</span>
+                  </>
+                )}
                 <button type="button" onClick={() => setArquivo(null)} aria-label="Tirar o arquivo" className="shrink-0 text-[#54656f]">
                   <X className="h-4 w-4" />
                 </button>
@@ -2983,6 +3008,7 @@ export default function Conversations({
                     <Paperclip className="h-5 w-5 -rotate-45" />
                   </button>
                 )}
+                {janelaAberta && <GravadorDeAudio key={selectedId ?? ''} desativado={enviando} variante="icone" onPronto={setArquivo} onErro={setError} />}
               </div>
               <button
                 type="button"

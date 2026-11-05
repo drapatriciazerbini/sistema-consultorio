@@ -4,6 +4,7 @@ import { montarConteudo } from '../_shared/conteudo.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
 import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
 import { postarNaMeta } from '../_shared/meta-tentativa.ts'
+import { classificarArquivo, nomeDoTipo } from '../_shared/arquivo-da-resposta.ts'
 
 /**
  * Resposta livre da equipe para um paciente, a partir da tela de Conversas.
@@ -16,21 +17,6 @@ import { postarNaMeta } from '../_shared/meta-tentativa.ts'
 
 const JANELA_HORAS = 24
 const LIMITE_CARACTERES = 4096
-
-/** Como a Meta recebe cada tipo, e o limite de tamanho de cada um. */
-function classificarArquivo(arquivo: File): { tipo: 'image' | 'document'; limite: number } | null {
-  const mime = arquivo.type
-  if (mime === 'image/jpeg' || mime === 'image/png') return { tipo: 'image', limite: 5 * 1048576 }
-  const documentos = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'text/plain',
-  ]
-  return documentos.includes(mime) ? { tipo: 'document', limite: 20 * 1048576 } : null
-}
 
 /** O que o questionario precisa saber da ficha: o que ja esta preenchido. */
 type PacienteDaFicha = {
@@ -96,21 +82,26 @@ Deno.serve(async (req) => {
     // recibo. Antes so dava pelo celular, e o envio ficava fora do historico.
     // Limites da Meta: imagem ate 5 MB; documento ate 100 MB, mas o acervo da
     // clinica aceita 20 MB. A legenda de midia vai ate 1024 caracteres.
-    const envio = arquivo ? classificarArquivo(arquivo) : null
+    const envio = arquivo ? classificarArquivo(arquivo.type) : null
     if (arquivo && !envio) {
       return json({
-        error: 'Tipo de arquivo não aceito. Envie PDF, imagem (JPG ou PNG), Word, Excel ou texto.',
+        error: 'Tipo de arquivo não aceito. Envie PDF, imagem (JPG ou PNG), áudio gravado na tela, Word, Excel ou texto.',
         code: 'TIPO_RECUSADO',
       }, 400)
     }
     if (arquivo && envio && arquivo.size > envio.limite) {
       return json({
-        error: `Arquivo grande demais: o limite para ${envio.tipo === 'image' ? 'imagem' : 'documento'} é ${Math.round(envio.limite / 1048576)} MB.`,
+        error: `Arquivo grande demais: o limite para ${nomeDoTipo(envio.tipo)} é ${Math.round(envio.limite / 1048576)} MB.`,
         code: 'GRANDE_DEMAIS',
       }, 400)
     }
     if (arquivo && texto.length > 1024) {
       return json({ error: 'A legenda de um arquivo vai até 1024 caracteres.' }, 400)
+    }
+    // A Meta nao poe legenda em audio: o texto se perderia calado. A tela manda
+    // o texto antes, em mensagem separada.
+    if (envio?.tipo === 'audio' && texto) {
+      return json({ error: 'Áudio vai sem legenda: mande o texto em outra mensagem.', code: 'AUDIO_COM_TEXTO' }, 400)
     }
     // So exige texto digitado quando e a equipe escrevendo. O menu e o
     // questionario chegam aqui sem texto de proposito: quem monta a mensagem e
@@ -327,9 +318,11 @@ Deno.serve(async (req) => {
       const legenda = texto ? { caption: texto } : {}
       conteudo = envio.tipo === 'image'
         ? { type: 'image', image: { id: subidaCorpo.id, ...legenda } }
-        : { type: 'document', document: { id: subidaCorpo.id, filename: arquivo.name || 'arquivo', ...legenda } }
+        : envio.tipo === 'audio'
+          ? { type: 'audio', audio: { id: subidaCorpo.id } }
+          : { type: 'document', document: { id: subidaCorpo.id, filename: arquivo.name || 'arquivo', ...legenda } }
       tipoDaMensagem = envio.tipo
-      corpoNoHistorico = texto || arquivo.name || 'Arquivo'
+      corpoNoHistorico = envio.tipo === 'audio' ? '🎤 Áudio' : texto || arquivo.name || 'Arquivo'
     }
 
     // Erro passageiro da Meta tenta de novo antes de virar "falhou" na tela

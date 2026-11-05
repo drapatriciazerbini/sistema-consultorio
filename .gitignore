@@ -82,3 +82,5 @@ tests/alerta-de-urgencia.build.mjs
 tests/resposta-ao-alerta.build.mjs
 tests/assistente.build.mjs
 tests/memed-na-pagina.build.mjs
+tests/gravacao-de-audio.build.mjs
+tests/arquivo-da-resposta.build.mjs
