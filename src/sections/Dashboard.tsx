@@ -22,11 +22,21 @@ import NumerosDoWhatsApp from '@/sections/NumerosDoWhatsApp'
 import Campanha from '@/sections/Campanha'
 import NumerosDoInstagram from '@/sections/NumerosDoInstagram'
 
-const NAVY = '#193d36'
-// Azul de destaque do sistema (proposta 3, aprovada em 08/09/2026). O nome
-// antigo era PEACH: a cor mudou, o papel na tela e o mesmo.
-const AZUL = '#2f7f74'
-const SAGE = '#6f9d91'
+/**
+ * Paleta dos graficos (08/11/2026, pedido do Edu: "contrastes feios, tudo muito
+ * verde"). Antes eram tres verdes vizinhos (#193d36, #2f7f74, #6f9d91) e um
+ * degrade dourado-verde nas barras: lado a lado, nao se distinguiam e brigavam
+ * com o dourado da marca. Agora sao o verde da marca, um verde apagado, a areia
+ * do logo e um neutro claro - quatro tons que se separam ate em impressao.
+ */
+const VERDE = '#193d36'
+const VERDE_MEDIO = '#5b8077'
+// Areia mais escura que o #c9ae86 do logo: no trilho claro da barra, o tom do
+// logo some.
+const AREIA = '#b39467'
+const PEDRA = '#d9d3c5'
+const TERRACOTA = '#b4553f'
+const TRILHO = '#f1eee7'
 
 const cardClass = 'surface-card rounded-[24px]'
 
@@ -77,7 +87,7 @@ function Kpi({
           <p className="mt-2 text-3xl font-extrabold tracking-[-0.05em] text-[#193d36]">{value}</p>
           <p className="mt-1 text-[11px] font-medium text-slate-400">{detail}</p>
         </div>
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px]" style={{ background: `${color}16`, color }}>
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px]" style={{ background: `${color}14`, color }}>
           <Icon className="h-[19px] w-[19px]" strokeWidth={2} />
         </span>
       </div>
@@ -106,7 +116,7 @@ function Panel({
           {subtitle && <p className="mt-1 text-[11px] leading-relaxed text-slate-400">{subtitle}</p>}
         </div>
         {Icon && (
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f6f3ec] text-[#1f5f55]">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#f4f1ea] text-[#193d36]">
             <Icon className="h-4 w-4" />
           </span>
         )}
@@ -120,7 +130,7 @@ function DataBar({
   label,
   value,
   max,
-  color = AZUL,
+  color = VERDE_MEDIO,
 }: {
   label: string
   value: number
@@ -137,11 +147,10 @@ function DataBar({
         <span className="text-[11px] font-semibold leading-snug text-slate-500">{label}</span>
         <span className="shrink-0 text-[11px] font-extrabold text-[#193d36]">{value}</span>
       </div>
-      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#f2f1ee]">
-        <div
-          className="h-full rounded-full transition-[width] duration-700"
-          style={{ width: `${width}%`, background: `linear-gradient(90deg, ${color}, ${color}b8)` }}
-        />
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full" style={{ background: TRILHO }}>
+        {/* Cor chapada: o degrade deixava a ponta da barra desbotada e
+            parecia outra cor (08/11/2026). */}
+        <div className="h-full rounded-full transition-[width] duration-700" style={{ width: `${width}%`, background: color }} />
       </div>
     </div>
   )
@@ -166,13 +175,15 @@ function Donut({ female, male, other }: { female: number; male: number; other: n
   const femaleEnd = total ? (female / total) * 100 : 0
   const maleEnd = total ? femaleEnd + (male / total) * 100 : 0
   const background = total
-    ? `conic-gradient(${AZUL} 0 ${femaleEnd}%, ${NAVY} ${femaleEnd}% ${maleEnd}%, #a5bbb6 ${maleEnd}% 100%)`
-    : '#f2f1ed'
+    ? `conic-gradient(${VERDE} 0 ${femaleEnd}%, ${AREIA} ${femaleEnd}% ${maleEnd}%, ${PEDRA} ${maleEnd}% 100%)`
+    : TRILHO
 
+  // Verde, areia e pedra: escuro, quente e claro. Os dois verdes de antes
+  // (#2f7f74 e #193d36) pareciam uma cor so no anel.
   const items = [
-    { label: 'Feminino', value: female, color: AZUL },
-    { label: 'Masculino', value: male, color: NAVY },
-    { label: 'Outro / NI', value: other, color: '#a5bbb6' },
+    { label: 'Feminino', value: female, color: VERDE },
+    { label: 'Masculino', value: male, color: AREIA },
+    { label: 'Outro / NI', value: other, color: PEDRA },
   ]
 
   return (
@@ -416,8 +427,8 @@ export default function Dashboard({
       ) : (
         <>
       <section className="soft-grid relative overflow-hidden rounded-[28px] bg-[#193d36] p-5 text-white shadow-[0_20px_45px_rgba(25,61,54,.16)] sm:p-7">
-        <div className="absolute -right-16 -top-24 h-72 w-72 rounded-full bg-[#2f7f74]/20 blur-3xl" />
-        <div className="absolute bottom-0 right-[28%] h-28 w-28 rounded-full bg-[#6f9d91]/15 blur-2xl" />
+        <div className="absolute -right-16 -top-24 h-72 w-72 rounded-full bg-[#dfc49b]/[0.07] blur-3xl" />
+        <div className="absolute bottom-0 right-[28%] h-28 w-28 rounded-full bg-[#6f9d91]/10 blur-2xl" />
         <div className="relative grid gap-7 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-center">
           <div className="max-w-2xl">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[#dfc49b]">
@@ -438,11 +449,14 @@ export default function Dashboard({
               <p className="mt-2 text-3xl font-extrabold tracking-[-0.05em]">{nextWeek}</p>
               <p className="mt-1 text-[10px] text-white/45">contatos no radar</p>
             </div>
-            <div className="rounded-[20px] bg-[#2f7f74] p-4 text-white">
-              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-white/60">Jornadas concluídas</p>
-              <p className="mt-2 text-3xl font-extrabold tracking-[-0.05em]">{completion}%</p>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/25">
-                <div className="h-full rounded-full bg-white" style={{ width: `${completion}%` }} />
+            {/* Era um bloco verde-agua chapado (#2f7f74) sobre o verde
+                escuro: dois verdes brigando. Agora o mesmo vidro do cartao
+                ao lado, com o dourado da marca no numero e na barra. */}
+            <div className="rounded-[20px] border border-[#dfc49b]/25 bg-[#dfc49b]/[0.08] p-4 backdrop-blur">
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#dfc49b]/75">Jornadas concluídas</p>
+              <p className="mt-2 text-3xl font-extrabold tracking-[-0.05em] text-[#f3e6d2]">{completion}%</p>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15">
+                <div className="h-full rounded-full bg-[#dfc49b]" style={{ width: `${completion}%` }} />
               </div>
             </div>
           </div>
@@ -450,16 +464,16 @@ export default function Dashboard({
       </section>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Kpi label="Pacientes" value={patients.length} detail="na base clínica" icon={UsersRound} color={NAVY} />
-        <Kpi label="Consultas no mês" value={appointmentsThisMonth} detail="atendimentos registrados" icon={CalendarCheck2} color={AZUL} />
-        <Kpi label="Pendentes" value={due} detail="hoje e atrasados" icon={Clock3} color="#d45b58" />
-        <Kpi label="Concluídos" value={completed} detail="15, 30 e 90 dias" icon={CheckCircle2} color={SAGE} />
+        <Kpi label="Pacientes" value={patients.length} detail="na base clínica" icon={UsersRound} color={VERDE} />
+        <Kpi label="Consultas no mês" value={appointmentsThisMonth} detail="atendimentos registrados" icon={CalendarCheck2} color={VERDE_MEDIO} />
+        <Kpi label="Pendentes" value={due} detail="hoje e atrasados" icon={Clock3} color={TERRACOTA} />
+        <Kpi label="Concluídos" value={completed} detail="15, 30 e 90 dias" icon={CheckCircle2} color={AREIA} />
       </div>
 
       {patients.length === 0 ? (
         <Panel title="Sua visão clínica começa aqui" subtitle="Cadastre o primeiro atendimento para alimentar os indicadores." icon={Stethoscope}>
           <div className="rounded-[20px] border border-dashed border-[#193d36]/15 bg-[#faf9f6] p-8 text-center">
-            <Activity className="mx-auto h-8 w-8 text-[#2f7f74]" />
+            <Activity className="mx-auto h-8 w-8 text-[#5b8077]" />
             <p className="mx-auto mt-3 max-w-md text-xs leading-relaxed text-slate-500">
               Os gráficos de perfil, localização, CID e volume de consultas serão atualizados automaticamente.
             </p>
@@ -475,7 +489,7 @@ export default function Dashboard({
             <Panel title="Faixa etária" subtitle="Idade atual dos pacientes cadastrados" icon={Activity}>
               <div className="space-y-4 pt-1">
                 {ageRanges.map((range) => (
-                  <DataBar key={range.label} label={range.label} value={range.value} max={maxAge} color={SAGE} />
+                  <DataBar key={range.label} label={range.label} value={range.value} max={maxAge} color={VERDE_MEDIO} />
                 ))}
               </div>
             </Panel>
@@ -488,10 +502,15 @@ export default function Dashboard({
                 return (
                   <div key={month.label} className="group flex h-full flex-1 flex-col items-center justify-end gap-2.5">
                     <span className="text-[10px] font-extrabold text-[#193d36]">{month.value || '-'}</span>
-                    <div className="relative flex h-[calc(100%-42px)] w-full max-w-16 items-end overflow-hidden rounded-[12px] bg-[#f1f2f1]">
+                    {/* Cor chapada, sem o degrade verde-dourado de antes
+                        (08/11/2026): o colorido disputava com os numeros. */}
+                    <div
+                      className="relative flex h-[calc(100%-42px)] w-full max-w-16 items-end overflow-hidden rounded-[12px]"
+                      style={{ background: TRILHO }}
+                    >
                       <div
-                        className="w-full rounded-[12px] bg-gradient-to-t from-[#227f69] to-[#c9ae86] transition-all duration-700 group-hover:brightness-105"
-                        style={{ height: `${height}%` }}
+                        className="w-full rounded-[12px] transition-all duration-700 group-hover:brightness-110"
+                        style={{ height: `${height}%`, background: month.value ? VERDE_MEDIO : 'transparent' }}
                       />
                     </div>
                     <span className="text-[10px] font-bold uppercase text-slate-400">{month.label}</span>
@@ -512,12 +531,12 @@ export default function Dashboard({
             <div className="grid grid-cols-1 gap-7 lg:grid-cols-3 lg:divide-x lg:divide-[#193d36]/[0.07]">
               {/* "do paciente" no rotulo de proposito: sem isso, cidade e
                   bairro se confundem com o endereco da unidade. */}
-              <Ranking title="Cidade do paciente" items={cities} color={SAGE} maiusculo />
+              <Ranking title="Cidade do paciente" items={cities} color={VERDE_MEDIO} maiusculo />
               <div className="lg:pl-7">
-                <Ranking title="Bairro / região do paciente" items={neighborhoods} color={AZUL} maiusculo />
+                <Ranking title="Bairro / região do paciente" items={neighborhoods} color={AREIA} maiusculo />
               </div>
               <div className="lg:pl-7">
-                <Ranking title="Unidade de atendimento" items={units} color={NAVY} maiusculo />
+                <Ranking title="Unidade de atendimento" items={units} color={VERDE} maiusculo />
               </div>
             </div>
             <div className="mt-6 flex items-center gap-2 border-t border-[#193d36]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
@@ -528,16 +547,16 @@ export default function Dashboard({
 
           <Panel title="Leitura da base clínica" subtitle="Principais recortes para apoiar decisões da rotina" icon={Stethoscope}>
             <div className="grid grid-cols-1 gap-7 lg:grid-cols-2 lg:divide-x lg:divide-[#193d36]/[0.07]">
-              <Ranking title="CID-10 mais frequentes" items={cids} color={AZUL} maiusculo />
+              <Ranking title="CID-10 mais frequentes" items={cids} color={VERDE_MEDIO} maiusculo />
               <div className="lg:pl-7">
                 {/* Maiúsculo como o CID: o convênio é digitado à mão em cada
                     cadastro, e vinha "TRASMONTANO" de um e "Trasmontano" de
                     outro - duas linhas no gráfico para o mesmo plano. */}
-                <Ranking title="Convênios" items={healthPlans} color={NAVY} maiusculo />
+                <Ranking title="Convênios" items={healthPlans} color={AREIA} maiusculo />
               </div>
             </div>
             <div className="mt-6 flex items-center gap-2 border-t border-[#193d36]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
-              <ArrowUpRight className="h-3.5 w-3.5 text-[#2f7f74]" />
+              <ArrowUpRight className="h-3.5 w-3.5 text-[#b39467]" />
               Os indicadores refletem os campos preenchidos no cadastro de cada atendimento.
             </div>
           </Panel>

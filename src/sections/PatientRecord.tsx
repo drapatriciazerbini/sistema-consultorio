@@ -1866,7 +1866,7 @@ function ConsultationCard({
               prontuario, e tambem o que mantem a assinatura valida. */}
           {consultation.assinadoEm ? (
             <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e8f5ec] px-3 py-1 text-[11px] font-extrabold text-[#1c6b3a]">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#b39467]/35 bg-[#faf6ee] px-3 py-1 text-[11px] font-extrabold text-[#7a5c34]">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Assinado em {dataHoraLocal(consultation.assinadoEm)}
                 {consultation.assinadoPor ? ` por ${consultation.assinadoPor}` : ''}
@@ -1883,7 +1883,7 @@ function ConsultationCard({
               <button
                 type="button"
                 onClick={() => onAbrirRetorno(consultation)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1f5f55]/20 bg-white px-3 py-2 text-[10px] font-extrabold text-[#1f5f55] transition hover:bg-[#faf8f4]"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/12 bg-white px-3 py-2 text-[10px] font-extrabold text-[#193d36] transition hover:border-[#193d36]/25 hover:bg-[#faf9f6]"
                 title="Procura horário livre perto do prazo de retorno e marca na Agenda"
               >
                 <CalendarPlus className="h-3.5 w-3.5" /> Marcar retorno
@@ -1893,25 +1893,39 @@ function ConsultationCard({
             <div className="flex flex-wrap items-center gap-2">
               {/* Consulta em branco nao tem o que assinar: assinar o vazio
                   produziria um documento com valor legal afirmando nada. O
-                  botao so aparece quando ha atendimento escrito. */}
-              <button
-                type="button"
-                onClick={() => onAssinar(consultation)}
-                hidden={estado !== 'realizada'}
-                disabled={assinando === consultation.id}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1c6b3a]/20 bg-[#eef7f1] px-3 py-2 text-[10px] font-extrabold text-[#1c6b3a] transition hover:bg-[#e2f0e8] disabled:cursor-wait disabled:opacity-70"
-              >
-                {assinando === consultation.id ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                )}
-                {assinando === consultation.id ? 'Aguardando o celular...' : 'Assinar digitalmente'}
-              </button>
+                  botao so aparece quando ha atendimento escrito.
+                  08/11/2026: era o atributo hidden, e o "inline-flex" do
+                  Tailwind 3 vence o [hidden] do preflight (mesmo peso, vem
+                  depois) - o botao aparecia em toda consulta, inclusive em
+                  branco, ao lado de "Escrever atendimento". Agora nem entra
+                  na pagina. */}
+              {estado === 'realizada' && (
+                <button
+                  type="button"
+                  onClick={() => onAssinar(consultation)}
+                  disabled={assinando === consultation.id}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#b39467]/40 bg-[#faf6ee] px-3 py-2 text-[10px] font-extrabold text-[#7a5c34] transition hover:bg-[#f4ecdc] disabled:cursor-wait disabled:opacity-70"
+                >
+                  {assinando === consultation.id ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  )}
+                  {assinando === consultation.id ? 'Aguardando o celular...' : 'Assinar digitalmente'}
+                </button>
+              )}
+              {/* Cores (08/11/2026, "tudo muito verde estranho"): eram quatro
+                  verdes e um contorno azul, cada botao de um jeito. Agora a
+                  acao principal e a unica cheia (verde da marca), assinar
+                  leva a areia do logo, e o resto e contorno neutro. */}
               <button
                 type="button"
                 onClick={() => onEdit(consultation)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1f5f55]/20 bg-[#f9f8f3] px-3 py-2 text-[10px] font-extrabold text-[#2aa88b] transition hover:bg-[#f1eee3]"
+                className={
+                  estado === 'realizada'
+                    ? 'inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/12 bg-white px-3 py-2 text-[10px] font-extrabold text-[#193d36] transition hover:border-[#193d36]/25 hover:bg-[#faf9f6]'
+                    : 'inline-flex items-center gap-1.5 rounded-xl border border-[#193d36] bg-[#193d36] px-3 py-2 text-[10px] font-extrabold text-white shadow-[0_8px_18px_rgba(25,61,54,.16)] transition hover:bg-[#13453c]'
+                }
               >
                 <Edit3 className="h-3.5 w-3.5" />
                 {estado === 'realizada' ? 'Editar consulta' : 'Escrever atendimento'}
@@ -1920,7 +1934,7 @@ function ConsultationCard({
                 type="button"
                 onClick={() => onPrescrever(consultation)}
                 disabled={prescrevendo}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#2563eb]/20 bg-[#f9f7f2] px-3 py-2 text-[10px] font-extrabold text-[#1f5f55] transition hover:bg-[#f4f1e9] disabled:cursor-wait disabled:opacity-70"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/12 bg-white px-3 py-2 text-[10px] font-extrabold text-[#193d36] transition hover:border-[#193d36]/25 hover:bg-[#faf9f6] disabled:cursor-wait disabled:opacity-70"
               >
                 {prescrevendo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pill className="h-3.5 w-3.5" />}
                 Prescrever
@@ -1930,7 +1944,7 @@ function ConsultationCard({
               <button
                 type="button"
                 onClick={() => onImprimir(consultation)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-[10px] font-extrabold text-slate-600 transition hover:border-[#193d36]/25 hover:text-[#193d36]"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/12 bg-white px-3 py-2 text-[10px] font-extrabold text-slate-600 transition hover:border-[#193d36]/25 hover:text-[#193d36]"
                 title="Imprime apenas esta consulta"
               >
                 <Printer className="h-3.5 w-3.5" />
@@ -1939,7 +1953,7 @@ function ConsultationCard({
               <button
                 type="button"
                 onClick={() => onAbrirRetorno(consultation)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-[#1f5f55]/20 bg-white px-3 py-2 text-[10px] font-extrabold text-[#1f5f55] transition hover:bg-[#faf8f4]"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#193d36]/12 bg-white px-3 py-2 text-[10px] font-extrabold text-[#193d36] transition hover:border-[#193d36]/25 hover:bg-[#faf9f6]"
                 title="Procura horário livre perto do prazo de retorno e marca na Agenda"
               >
                 <CalendarPlus className="h-3.5 w-3.5" /> Marcar retorno

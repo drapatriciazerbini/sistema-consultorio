@@ -43,6 +43,7 @@ import { registrarServiceWorker } from '@/lib/notificacoes'
 import { ligarModoWhatsApp } from '@/lib/modo-whatsapp'
 import ConviteParaAvisos from '@/components/ConviteParaAvisos'
 import InstagramInbox from '@/sections/InstagramInbox'
+import arteGeriatria from '@/assets/arte-geriatria.jpg'
 
 type Tab = 'dashboard' | 'agenda' | 'followups' | 'conversas' | 'pacientes' | 'config' | 'admin'
 type Icon = ComponentType<{ className?: string; strokeWidth?: number }>
@@ -175,11 +176,14 @@ export default function Home() {
    * prontuario - que so existe na tela quando a aba de Pacientes esta aberta.
    * Sem isto o medico autorizava no celular, voltava para a tela inicial, e a
    * assinatura ficava pela metade em silencio: autorizada e nunca concluida.
+   *
+   * Sem nada no endereco, abre na Visao geral (08/11/2026, pedido do Edu):
+   * antes abria em Acompanhamentos.
    */
   const [tab, setTab] = useState<Tab>(() => {
     const endereco = parametrosDoEndereco()
     if (endereco.get('conversa')) return 'conversas'
-    return endereco.get('state') || endereco.get('paciente') ? 'pacientes' : 'followups'
+    return endereco.get('state') || endereco.get('paciente') ? 'pacientes' : 'dashboard'
   })
   // Paciente cuja conversa deve abrir ao entrar em Respostas pelo atalho.
   const [conversaFoco, setConversaFoco] = useState<string | null>(null)
@@ -480,6 +484,26 @@ export default function Home() {
   return (
     <div className="min-h-dvh bg-[#f7f5ef] text-[#193d36]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[286px] flex-col overflow-hidden bg-[#193d36] text-white lg:flex">
+        {/* Marca-d'agua de geriatria (08/11/2026, como a do sistema do Dr.
+            Marcello): figura idosa de corpo inteiro com cerebro, coracao e
+            coluna em dourado, gerada no ChatGPT em 9:16 com sobra nas
+            laterais - o object-cover come as laterais numa coluna de 286 px.
+            O arquivo tem 640 x 1420: o original (9:16) ganhou faixa escura em
+            cima e embaixo, porque numa tela de 1265 a 1440 de altura o cover
+            amplia pela altura e as maos encostavam na borda da coluna. O
+            mix-blend-screen some com o fundo escuro da arte; sem ele vira
+            um retangulo de borda visivel. O degrade por cima protege o logo
+            e o rodape. Trocar a arte: pedir de novo em 9:16, corpo inteiro,
+            centralizada, fundo escuro liso, sem texto, e conferir na altura
+            real da tela. */}
+        <img
+          src={arteGeriatria}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-center opacity-[0.17] mix-blend-screen"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#193d36]/80 via-[#193d36]/25 to-[#193d36]/80" />
         <div className="soft-grid absolute inset-0 opacity-40" />
         <div className="absolute -right-24 top-24 h-64 w-64 rounded-full bg-[#2f7f74]/10 blur-3xl" />
         <div className="relative flex h-full flex-col">
