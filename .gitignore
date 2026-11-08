@@ -84,3 +84,8 @@ tests/assistente.build.mjs
 tests/memed-na-pagina.build.mjs
 tests/gravacao-de-audio.build.mjs
 tests/arquivo-da-resposta.build.mjs
+tests/memed-carga.build.mjs
+tests/respostas-da-equipe.build.mjs
+tests/gastos-meta.build.mjs
+tests/gastos-google.build.mjs
+tests/campanha.build.mjs

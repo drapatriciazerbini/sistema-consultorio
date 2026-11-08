@@ -73,11 +73,20 @@ export function dataDaReceita(iso: string): string {
   return `${pega('day')}/${pega('month')}/${pega('year')}`
 }
 
-/** Devolve o texto novo, ou null quando nada falta. */
-export function acrescentarReceitas(atual: string, receitas: ReceitaParaTexto[]): string | null {
+/**
+ * Devolve o texto novo, ou null quando nada falta.
+ *
+ * formato 'auto' (o campo "Prescricao", que pode ser HTML) descobre pelo texto;
+ * 'texto' forca texto puro (o adendo, que e um campo de texto simples).
+ */
+export function acrescentarReceitas(
+  atual: string,
+  receitas: ReceitaParaTexto[],
+  formato: 'auto' | 'texto' = 'auto',
+): string | null {
   // O campo guarda HTML quando foi escrito no editor e texto puro quando veio
   // de fora; a comparacao e o acrescimo respeitam o formato que ja esta.
-  const emHtml = /[<>]|&[a-z]+;|&#\d+;/i.test(atual)
+  const emHtml = formato === 'auto' && /[<>]|&[a-z]+;|&#\d+;/i.test(atual)
   let texto = atual
   let mudou = false
 
@@ -100,4 +109,20 @@ export function acrescentarReceitas(atual: string, receitas: ReceitaParaTexto[])
   }
 
   return mudou ? texto : null
+}
+
+/**
+ * O texto final de um adendo: o que a Dra. escreveu e, embaixo, o que ela
+ * emitiu na Memed com o adendo aberto.
+ *
+ * 07/11/2026, portado do sistema do Dr. Marcello (pedido do Edu la em 06/11):
+ * depois de assinado, o atendimento nao muda, e receita nova (a familia pede
+ * outra, faltou um item) ficava so na lista "Receitas emitidas", fora do texto
+ * que vale. Agora a Memed abre de dentro do adendo e os itens entram nele.
+ *
+ * Sempre texto puro: o adendo e um campo de texto simples. No modo automatico,
+ * um "< 10 kg" escrito no texto faria a receita entrar como HTML cru.
+ */
+export function textoDoAdendo(escrito: string, receitas: ReceitaParaTexto[]): string {
+  return (acrescentarReceitas(escrito, receitas, 'texto') ?? escrito).trim()
 }

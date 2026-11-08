@@ -25,3 +25,32 @@ export function telefoneDoLembrete(
     : ''
   return doCadastro || (consulta.contactPhone ?? '').trim()
 }
+
+/**
+ * O WhatsApp digitado na agenda e um numero que existe? Devolve o problema em
+ * texto para a recepcao, ou null se esta certo ou vazio (07/11/2026, portado do
+ * sistema do Dr. Marcello).
+ *
+ * La, em 29/10, uma consulta entrou na agenda com o celular da familia e mais
+ * dois digitos no fim: 13 numeros. O sistema aceitou, o lembrete da vespera e
+ * a mensagem da equipe voltaram "Message undeliverable", e o cadastro
+ * automatico da vespera nasceu repetido, porque o numero nao batia com o da
+ * ficha que ja existia.
+ *
+ * Vazio passa: a agenda ja avisa que sem WhatsApp nao sai lembrete. O 55 do
+ * pais pode vir ou nao; tirado ele, sobram DDD + 8 (fixo, ou celular antigo
+ * que ganha o 9 no envio) ou DDD + 9 comecando por 9.
+ */
+export function problemaNoWhatsapp(numero: string | null | undefined): string | null {
+  const digitos = String(numero ?? '').replace(/\D/g, '')
+  if (!digitos) return null
+  const semPais = digitos.startsWith('55') && digitos.length >= 12 ? digitos.slice(2) : digitos
+  if (semPais.length !== 10 && semPais.length !== 11) {
+    return `Esse WhatsApp tem ${semPais.length} números. Com o DDD, celular tem 11 (ou 10 sem o 9). Confira antes de marcar.`
+  }
+  if (!/^[1-9][1-9]/.test(semPais)) return 'O DDD desse WhatsApp não existe. Confira antes de marcar.'
+  if (semPais.length === 11 && semPais[2] !== '9') {
+    return 'Celular com 11 números começa por 9 depois do DDD. Confira antes de marcar.'
+  }
+  return null
+}

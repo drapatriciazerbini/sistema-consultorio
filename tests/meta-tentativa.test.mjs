@@ -1,6 +1,6 @@
 // Mais uma tentativa no erro passageiro da Meta (26/10/2026, no sistema do
 // Dr. Marcello). Ver supabase/functions/_shared/meta-tentativa.ts.
-import { postarNaMeta, ESPERA_DA_NOVA_TENTATIVA_MS } from './meta-tentativa.build.mjs'
+import { postarNaMeta, ESPERA_DA_NOVA_TENTATIVA_MS, ESPERAS_DO_LIMITE_DO_PAR_MS } from './meta-tentativa.build.mjs'
 
 let ok = 0
 const falhas = []
@@ -55,6 +55,32 @@ const esperar = async (ms) => { esperas.push(ms) }
   const r = roteiro(() => new Response('<html>erro</html>', { status: 502 }), certo)
   await postarNaMeta('https://graph/x', { method: 'POST', body: '{}' }, { buscar: r.buscar, esperar })
   confere('erro sem codigo da Meta: nao adivinha, nao repete', r.chamadas.length === 1)
+}
+
+// O limite do par (07/11/2026, portado do sistema do Dr. Marcello: la, um menu
+// mandado logo depois de 10 anexos em 20 segundos para o mesmo numero).
+{
+  esperas.length = 0
+  const r = roteiro(() => erro(131056, 400), () => erro(131056, 400), certo)
+  const resposta = await postarNaMeta('https://graph/x', { method: 'POST', body: '{"menu":1}' }, { buscar: r.buscar, esperar })
+  const corpo = await resposta.json()
+  confere('131056: insiste ate passar e devolve o certo', resposta.ok && corpo.messages[0].id === 'wamid.ok' && r.chamadas.length === 3, JSON.stringify(r.chamadas))
+  confere('131056: com o mesmo corpo', r.chamadas.every((c) => c === '{"menu":1}'))
+  confere('131056: espera crescente, longa o bastante para a cota voltar', esperas.length === 2 && esperas[0] >= 6000 && esperas[1] > esperas[0], JSON.stringify(esperas))
+}
+{
+  esperas.length = 0
+  const r = roteiro(() => erro(131056, 400))
+  const resposta = await postarNaMeta('https://graph/x', { method: 'POST', body: '{}' }, { buscar: r.buscar, esperar })
+  const corpo = await resposta.json()
+  confere('131056 sem parar: desiste, e quem chamou le o erro para mostrar "falhou"', !resposta.ok && corpo.error.code === 131056 && r.chamadas.length === ESPERAS_DO_LIMITE_DO_PAR_MS.length + 1, String(r.chamadas.length))
+  confere('131056 sem parar: a espera total cabe na funcao (menos de 1 minuto)', esperas.reduce((a, b) => a + b, 0) < 60000, JSON.stringify(esperas))
+}
+{
+  const r = roteiro(() => erro(131056, 400), () => erro(131047, 400), certo)
+  const resposta = await postarNaMeta('https://graph/x', { method: 'POST', body: '{}' }, { buscar: r.buscar, esperar })
+  const corpo = await resposta.json()
+  confere('131056 e depois janela fechada: para, recusa de verdade nao melhora', r.chamadas.length === 2 && corpo.error.code === 131047, String(r.chamadas.length))
 }
 
 console.log(`meta-tentativa: ${ok} verificacoes ok`)

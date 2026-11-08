@@ -37,6 +37,13 @@ export type OrigemEncontrada = {
   titulo: string | null
   /** O link cru, para conferir depois se a classificacao bateu. */
   url: string | null
+  /**
+   * Codigo do anuncio (07/11/2026, portado do sistema do Dr. Marcello): o
+   * source_id, so quando a Meta diz que veio de anuncio (source_type 'ad'; em
+   * post impulsionado o source_id e do post). E a chave que junta quem chegou
+   * ao gasto daquele anuncio na aba Campanha.
+   */
+  anuncioId: string | null
 }
 
 function semAcento(texto: string): string {
@@ -59,9 +66,11 @@ export function origemDoAnuncio(indicacao: Indicacao | null | undefined, texto: 
   if (indicacao && typeof indicacao === 'object' && (indicacao.source_url || indicacao.source_id || indicacao.ctwa_clid)) {
     const url = String(indicacao.source_url ?? '').trim()
     const titulo = String(indicacao.headline ?? '').trim().slice(0, 160) || null
-    return { origem: url ? plataformaDoLink(url) : 'meta', titulo, url: url ? url.slice(0, 500) : null }
+    const id = String(indicacao.source_id ?? '').trim()
+    const anuncioId = indicacao.source_type === 'ad' && /^\d{5,30}$/.test(id) ? id : null
+    return { origem: url ? plataformaDoLink(url) : 'meta', titulo, url: url ? url.slice(0, 500) : null, anuncioId }
   }
   const limpo = semAcento(texto ?? '')
-  if (/encontrei a (dra\.? )?patricia( zerbini)? no google/.test(limpo)) return { origem: 'google', titulo: null, url: null }
+  if (/encontrei a (dra\.? )?patricia( zerbini)? no google/.test(limpo)) return { origem: 'google', titulo: null, url: null, anuncioId: null }
   return null
 }

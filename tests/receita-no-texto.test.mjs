@@ -4,7 +4,7 @@
 // e uma radiografia as 16:27) e o prontuario assinado saiu so com a segunda.
 // Dados abaixo sao inventados.
 
-import { acrescentarReceitas, dataDaReceita } from './receita-no-texto.build.mjs'
+import { acrescentarReceitas, dataDaReceita, textoDoAdendo } from './receita-no-texto.build.mjs'
 
 let passou = 0
 const falhas = []
@@ -77,6 +77,29 @@ confere('Receita da manha', dataDaReceita('2026-09-23T12:00:00+00:00') === '23/0
   ]) ?? ''
   confere('Exame sai como pedido de exames', t.includes('Pedido de exames · Memed · 23/09/2026'), t)
   confere('Controlado sai como receita especial', t.includes('Receita especial · Memed · 23/09/2026'), t)
+}
+
+// 8. Adendo (07/11/2026, portado do sistema do Dr. Marcello): a Memed abre de
+// dentro do adendo de um atendimento assinado e o que foi emitido entra no
+// texto dele, sempre em texto puro.
+{
+  const t = textoDoAdendo('A família pediu nova receita.', [EXAME, LAXANTE])
+  confere('Adendo: o texto da Dra. vem primeiro', t.startsWith('A família pediu nova receita.\n\n'), t)
+  confere('Adendo: as duas emissoes, a mais antiga primeiro', t.indexOf('Macrogol') > 0 && t.indexOf('Macrogol') < t.indexOf('Radiografia'), t)
+  confere('Adendo: com titulo e posologia', t.includes('Receita · Memed · 23/09/2026\nMacrogol 4000, solução oral: Tomar 10 mL de 12 em 12 horas'), t)
+}
+{
+  // "< 50 kg" no texto nao pode transformar o adendo em HTML
+  const t = textoDoAdendo('Peso < 50 kg, dose ajustada.', [LAXANTE])
+  confere('Adendo: sinal de menor nao vira HTML', !t.includes('<p>') && !t.includes('<br>') && !t.includes('&lt;'), t)
+  confere('Adendo: o que a Dra. escreveu fica intacto', t.startsWith('Peso < 50 kg, dose ajustada.'), t)
+}
+{
+  const so = textoDoAdendo('   ', [EXAME])
+  confere('Adendo so com a receita, sem texto escrito', so === 'Receita · Memed · 23/09/2026\nRadiografia de abdome: Simples e sem preparo', so)
+  confere('Adendo sem receita fica como foi escrito', textoDoAdendo('  Exame normal.  ', []) === 'Exame normal.')
+  const ja = 'Radiografia de abdome: Simples e sem preparo'
+  confere('Adendo: item ja escrito nao repete', textoDoAdendo(ja, [EXAME]) === ja, textoDoAdendo(ja, [EXAME]))
 }
 
 console.log(`Receita no texto: ${passou} verificações passaram.`)

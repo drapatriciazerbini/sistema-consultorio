@@ -503,6 +503,17 @@ confere('menu escrito a mao', menuEscritoAMao('1. Marcar\n2. Valores\n3. Equipe'
 confere('menu com meia-risca tambem', menuEscritoAMao(`1 ${String.fromCharCode(0x2013)} Marcar\n2 ${String.fromCharCode(0x2013)} Valores\n3 ${String.fromCharCode(0x2013)} Equipe`))
 confere('narracao sai', semNarracao('A pessoa quer marcar, então abro o pedido.\nClaro! Vamos lá.') === 'Claro! Vamos lá.', semNarracao('A pessoa quer marcar, então abro o pedido.\nClaro! Vamos lá.'))
 confere('frase para a pessoa fica', semNarracao('A consulta é particular. Quer que eu abra o pedido?') === 'A consulta é particular. Quer que eu abra o pedido?')
+// 07/11/2026, portado do sistema do Dr. Marcello: a IA interpretando a mensagem
+// para si mesma, e "ainda" no meio da narracao.
+{
+  const interpreta = 'A mensagem parece ser "Quanto é a consulta?" com erro de digitação, e a resposta mais provável é o valor.\nA consulta é particular.'
+  confere('narracao que interpreta a mensagem sai', semNarracao(interpreta) === 'A consulta é particular.', semNarracao(interpreta))
+  const corresponde = 'A mensagem "1" corresponde a "Dúvidas sobre a consulta", então pergunto qual é a dúvida.\nQual é a sua dúvida?'
+  confere('narracao "corresponde a" sai', semNarracao(corresponde) === 'Qual é a sua dúvida?', semNarracao(corresponde))
+  const ainda = 'A filha ainda não disse qual é a dúvida.\nMe conta qual é a sua dúvida?'
+  confere('narracao com "ainda" no meio sai', semNarracao(ainda) === 'Me conta qual é a sua dúvida?', semNarracao(ainda))
+  confere('mensagem cortada continua', semNarracao('Sua mensagem parece ter chegado cortada. Pode mandar de novo?') === 'Sua mensagem parece ter chegado cortada. Pode mandar de novo?')
+}
 confere('recado para a equipe reconhecido', falaComAEquipe('A filha pergunta se pode levar o exame. Por favor, confirmem.') && !falaComAEquipe('Você pode levar os exames recentes.'))
 confere('pronto-socorro sai de duvida comum', limparTexto('A consulta dura uma hora. Se piorar, procure o pronto-socorro.', false) === 'A consulta dura uma hora.')
 confere('pronto-socorro fica na urgencia', /pronto-socorro/.test(limparTexto('Procure o pronto-socorro agora.', true)))

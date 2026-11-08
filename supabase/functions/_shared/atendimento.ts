@@ -1440,10 +1440,23 @@ async function pedirConfirmacaoCancelamento(
   }
 }
 
-async function cancelarConsulta(admin: Admin, appointmentId: string) {
+/**
+ * O motivo que o robo grava quando cancela (07/11/2026, portado do sistema do
+ * Dr. Marcello). La, o robo remarcou uma consulta a pedido da familia e
+ * cancelou a antiga sem motivo e sem autor: a agenda so mostrava a vaga, e o
+ * Edu teve de perguntar se tinha sido o robo. O cancelamento pela tela sempre
+ * gravou motivo e autor (appointment-cancel); o do robo, nunca.
+ */
+export function motivoDoRobo(remarcadaPara?: string) {
+  return remarcadaPara ? `Remarcada pelo WhatsApp, com o robô, para ${remarcadaPara}.` : 'Cancelada pelo WhatsApp, com o robô.'
+}
+
+async function cancelarConsulta(admin: Admin, appointmentId: string, motivo: string) {
+  // cancellation_reason existe desde 06/09/2026: nao precisa do plano B das
+  // colunas recentes.
   const { error } = await admin
     .from('appointments')
-    .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+    .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: motivo.slice(0, 300) })
     .eq('id', appointmentId)
     .eq('status', 'scheduled')
   if (error) console.error('Falha ao cancelar consulta', { appointmentId, error })
@@ -2088,10 +2101,10 @@ async function marcar(
 
   // A nova esta garantida: so agora a antiga cai. Fazer o contrario deixaria a
   // pessoa sem consulta nenhuma se ela desistisse no meio do caminho.
-  let remarcou = false
-  if (substitui) remarcou = await cancelarConsulta(admin, substitui)
-
   const quando = formatarData(slot.inicio, timezone)
+  let remarcou = false
+  if (substitui) remarcou = await cancelarConsulta(admin, substitui, motivoDoRobo(quando))
+
   // Na telemedicina o endereco nao interessa; o que a pessoa precisa saber e
   // que a consulta e por video e que o link chega por aqui.
   const onde = tele
@@ -2468,14 +2481,25 @@ async function fichaPendente(
 }
 
 /**
- * O texto parece um nome de gente: so letras, duas palavras ou mais, sem
- * pergunta. "Joao Pedro Silva" passa; "qual o endereco?", "ok obrigado" e
- * "12/03/2019" nao.
+ * Convenio e pagamento nao estao em nome de gente (07/11/2026, portado do
+ * sistema do Dr. Marcello). La, na pergunta do nome, uma mae respondeu "Aceita
+ * plano unimed": so letras e tres palavras, passou por nome, e o lembrete da
+ * vespera saiu "Ola, Aceita plano unimed". Aqui o mesmo texto, escrito com o
+ * cadastro pela metade, seria anotado como o nome do paciente.
  */
-function pareceNome(texto: string) {
+const CONVENIO_OU_PAGAMENTO =
+  /\b(aceit\w*|atende\w*|planos?|convenios?|unimed|amil|bradesco|sulamerica|hapvida|notredame|intermedica|trasmontano|careplus|omint|allianz|geap|particular|reembols\w*|pix|cartao|credito|debito|boleto|parcel\w*|precos?|custa|custo|valor|valores|pagamento|pagar|carteirinha)\b/
+
+/**
+ * O texto parece um nome de gente: so letras, duas palavras ou mais, sem
+ * pergunta. "Joao Pedro Silva" passa; "qual o endereco?", "ok obrigado",
+ * "12/03/2019" e "Aceita plano unimed" nao.
+ */
+export function pareceNome(texto: string) {
   const t = texto.trim()
   if (t.length < 5 || t.length > 80 || /[?0-9@]/.test(t)) return false
   if (!/^[\p{L}' .-]+$/u.test(t)) return false
+  if (CONVENIO_OU_PAGAMENTO.test(normalizar(t))) return false
   const palavras = t.split(/\s+/).filter((p) => p.length >= 2)
   if (palavras.length < 2) return false
   const comuns = new Set(['ok', 'obrigado', 'obrigada', 'bom', 'boa', 'dia', 'tarde', 'noite', 'oi', 'ola', 'tudo', 'bem', 'sim', 'nao', 'quero', 'queria', 'gostaria', 'por', 'favor'])
@@ -4986,7 +5010,7 @@ export async function tratarConversa(opcoes: {
       )
     }
 
-    const ok = await cancelarConsulta(admin, alvo.id)
+    const ok = await cancelarConsulta(admin, alvo.id, motivoDoRobo())
     if (ok) registrar('cancelou')
     // Menu ativo, e nao estado zerado: a resposta abaixo oferece "digite 2".
     await voltarAoMenuAtivo(admin, conversationId)

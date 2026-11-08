@@ -185,10 +185,19 @@ export function interpretarResposta(
   }
 }
 
+/**
+ * Motivo do cancelamento pela resposta ao lembrete (07/11/2026, portado do
+ * sistema do Dr. Marcello). Sem ele a agenda mostrava a vaga sem dizer quem
+ * desmarcou (ver motivoDoRobo em atendimento.ts).
+ */
+export const MOTIVO_CANCELOU_NO_LEMBRETE = 'Cancelada pelo WhatsApp, em resposta ao lembrete.'
+
 /** O que gravar na consulta. Cancelar muda o status; os outros so anotam. */
 export function mudancaDaConsulta(resposta: Resposta, quando: string) {
   if (resposta.confirma) return { confirmed_at: quando, reschedule_requested_at: null }
-  if (resposta.cancela) return { status: 'cancelled', cancelled_at: quando, confirmed_at: null }
+  if (resposta.cancela) {
+    return { status: 'cancelled', cancelled_at: quando, confirmed_at: null, cancellation_reason: MOTIVO_CANCELOU_NO_LEMBRETE }
+  }
   return { reschedule_requested_at: quando, confirmed_at: null }
 }
 

@@ -26,9 +26,10 @@ import {
   MoreVertical,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { SeloDaOrigem } from '@/sections/NumerosDosAnuncios'
+import { SeloDaOrigem } from '@/sections/Campanha'
 import { criarNota, listarNotas, type NotaDaConversa } from '@/lib/notas-da-conversa'
 import { linhaDoTempo } from '@/lib/linha-do-tempo'
+import { respostasDaEquipe, type OpcaoDaEquipe } from '@/lib/respostas-da-equipe'
 import { CHAVE_DO_VISUAL, EVENTO_MODO_WHATSAPP } from '@/lib/modo-whatsapp'
 import { VisualizadorDeArquivo, type ArquivoAberto } from '@/components/VisualizadorDeArquivo'
 import { GravadorDeAudio } from '@/components/GravadorDeAudio'
@@ -498,6 +499,25 @@ function horaLocal(iso: string) {
   })
 }
 
+/**
+ * A imagem do Ctrl+V (07/11/2026, portado do sistema do Dr. Marcello): print da
+ * tela ou imagem copiada da area de trabalho. O navegador entrega como
+ * "image.png"; o nome ganha a hora para o historico nao ficar cheio de
+ * "image.png" iguais. So PNG e JPEG: e o que o WhatsApp aceita como foto.
+ */
+function imagemDaAreaDeTransferencia(dados: DataTransfer | null): File | null {
+  if (!dados) return null
+  for (const item of Array.from(dados.items ?? [])) {
+    if (item.kind !== 'file' || (item.type !== 'image/png' && item.type !== 'image/jpeg')) continue
+    const arquivo = item.getAsFile()
+    if (!arquivo) continue
+    const hora = horaLocal(new Date().toISOString()).replace(':', 'h')
+    const extensao = item.type === 'image/png' ? 'png' : 'jpg'
+    return new File([arquivo], `imagem-colada-${hora}.${extensao}`, { type: item.type })
+  }
+  return null
+}
+
 export default function Conversations({
   focoPatientId,
   focoConversa,
@@ -562,7 +582,7 @@ export default function Conversations({
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [error, setError] = useState('')
   const [clinicId, setClinicId] = useState<string | null>(null)
-  const [prontas, setProntas] = useState<RespostaPronta[]>([])
+  const [prontas, setProntas] = useState<OpcaoDaEquipe<RespostaPronta>[]>([])
   // Arquivo escolhido para ir junto da proxima resposta (24/09/2026).
   const [arquivo, setArquivo] = useState<File | null>(null)
   const seletorDeArquivo = useRef<HTMLInputElement>(null)
@@ -579,7 +599,7 @@ export default function Conversations({
     if (!clinicId) return
     let vivo = true
     listRespostasProntas(clinicId)
-      .then((lista) => vivo && setProntas(lista.filter((p) => p.ativa && p.resposta.trim())))
+      .then((lista) => vivo && setProntas(respostasDaEquipe(lista)))
       .catch((erro) => console.warn('Nao consegui carregar as respostas prontas', erro))
     return () => {
       vivo = false
@@ -644,6 +664,19 @@ export default function Conversations({
   }, [selectedId, messages, loadingMessages])
 
   const janelaAberta = janelaAte !== null && new Date(janelaAte).getTime() > agora
+
+  // Imagem colada com Ctrl+V: print da area de trabalho vai como arquivo, igual
+  // ao clipe. Com a janela fechada, so modelo aprovado sai.
+  function colarImagem(evento: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const colada = imagemDaAreaDeTransferencia(evento.clipboardData)
+    if (!colada) return
+    evento.preventDefault()
+    if (!janelaAberta) {
+      setError('Com a janela de 24h fechada não dá para enviar imagem: a Meta só aceita o modelo aprovado.')
+      return
+    }
+    setArquivo(colada)
+  }
 
   // A assinatura de tempo real e criada uma vez so. Sem estas refs ela ficaria
   // presa ao valor de selectedId do primeiro render e nunca saberia qual
@@ -2405,7 +2438,7 @@ export default function Conversations({
                               <option value="">Resposta pronta…</option>
                               {prontas.map((p) => (
                                 <option key={p.id} value={p.id}>
-                                  {p.assunto}
+                                  {p.rotulo}
                                 </option>
                               ))}
                             </select>
@@ -2418,6 +2451,7 @@ export default function Conversations({
                       <textarea
                         value={resposta}
                         onChange={(e) => setResposta(e.target.value)}
+                        onPaste={colarImagem}
                         onKeyDown={(e) => {
                           // Enter envia, Shift+Enter quebra linha.
                           if (e.key === 'Enter' && !e.shiftKey) {
@@ -2992,6 +3026,7 @@ export default function Conversations({
                     e.target.style.height = 'auto'
                     e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
                   }}
+                  onPaste={colarImagem}
                   rows={1}
                   maxLength={janelaAberta ? 4096 : 700}
                   placeholder="Mensagem"

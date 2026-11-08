@@ -57,7 +57,7 @@ import {
 } from '@/lib/repository'
 import { useDialogos } from '@/components/dialogos-contexto'
 import { avisoDoBloqueio, consultasDeUmDia } from '@/lib/bloqueio-de-dia'
-import { telefoneDoLembrete } from '@/lib/telefone-do-lembrete'
+import { problemaNoWhatsapp, telefoneDoLembrete } from '@/lib/telefone-do-lembrete'
 import {
   DURACOES_DO_DOMICILIO,
   consultasNaJanela,
@@ -120,6 +120,16 @@ function diaEHora(iso: string) {
   const data = new Date(iso)
   const dia = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(data)
   return `${dia} às ${hora(iso)}`
+}
+
+/**
+ * O motivo gravado no meio de uma frase da vaga: "Maria: remarcada pelo
+ * WhatsApp, com o robo, para ..., em 04/11 as 08:25." Sem o ponto final, que a
+ * frase ja tem o seu (07/11/2026, portado do sistema do Dr. Marcello).
+ */
+function motivoEmMinuscula(motivo: string) {
+  const limpo = motivo.trim().replace(/\.+$/, '')
+  return limpo ? limpo[0].toLowerCase() + limpo.slice(1) : ''
 }
 
 /**
@@ -245,6 +255,12 @@ function HistoricoDaAgenda({
                         saber que ninguem conferiu, e pode corrigir no clique. */}
                     {item.status === 'no_show' && item.faltaAutomatica ? ' · falta automática (sem prontuário no dia)' : ''}
                   </p>
+                  {/* Quem cancelou e por que (07/11/2026, portado do sistema do
+                      Dr. Marcello): sem isto, a remarcacao feita pelo robo e o
+                      cancelamento da recepcao apareciam iguais, so "Cancelada". */}
+                  {item.status === 'cancelled' && item.motivoDoCancelamento && (
+                    <p className="truncate text-[10px] font-semibold text-slate-500">{item.motivoDoCancelamento}</p>
+                  )}
                 </div>
 
                 {item.status === 'cancelled' ? (
@@ -1494,8 +1510,8 @@ export default function Agenda({
                             }}
                             title={
                               vaga
-                                ? `${vaga.paciente} cancelou${
-                                    vaga.canceladoEm ? ` em ${diaEHora(vaga.canceladoEm)}` : ''
+                                ? `${vaga.paciente}: ${motivoEmMinuscula(vaga.motivo) || 'cancelou'}${
+                                    vaga.canceladoEm ? `, em ${diaEHora(vaga.canceladoEm)}` : ''
                                   }. O horário está livre.`
                                 : undefined
                             }
@@ -2119,6 +2135,11 @@ export default function Agenda({
                   inputMode="tel"
                   className="mt-2 w-full rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
                 />
+                {problemaNoWhatsapp(novaConsulta.telefone) && (
+                  <p className="mt-2 text-[10px] font-bold leading-relaxed text-[#b42318]">
+                    {problemaNoWhatsapp(novaConsulta.telefone)}
+                  </p>
+                )}
                 <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
                   Na véspera ele recebe o lembrete para confirmar, e o cadastro é criado
                   automaticamente com esses dados.
@@ -2143,7 +2164,12 @@ export default function Agenda({
                 // Ou um paciente da base, ou um nome digitado. Marcar sem
                 // nenhum dos dois criaria uma consulta de ninguem - para isso
                 // existe "Reservar sem paciente", logo acima.
-                disabled={!novaConsulta.patientId && novaConsulta.nome.trim().length < 2}
+                // Numero que nao existe tambem trava: ver problemaNoWhatsapp
+                // (07/11/2026, portado do sistema do Dr. Marcello).
+                disabled={
+                  !novaConsulta.patientId &&
+                  (novaConsulta.nome.trim().length < 2 || problemaNoWhatsapp(novaConsulta.telefone) !== null)
+                }
                 onClick={() => {
                   const inicio = slotEscolhido
                   const escolha = novaConsulta
@@ -2379,6 +2405,11 @@ export default function Agenda({
                     placeholder="Telefone"
                     className="mt-2 w-full rounded-[12px] border border-[#193d36]/10 bg-white px-3 py-2 text-[11px] outline-none focus:border-[#2f7f74]"
                   />
+                  {problemaNoWhatsapp(formConsulta.contactPhone) && (
+                    <p className="mt-2 text-[10px] font-bold leading-relaxed text-[#b42318]">
+                      {problemaNoWhatsapp(formConsulta.contactPhone)}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -2401,7 +2432,13 @@ export default function Agenda({
                 <button
                   type="button"
                   onClick={() => void salvarConsulta()}
-                  disabled={salvandoConsulta}
+                  // So trava quem mexeu no telefone: o numero estrangeiro que
+                  // chegou pelo WhatsApp nao pode impedir de salvar um recado.
+                  disabled={
+                    salvandoConsulta ||
+                    (formConsulta.contactPhone !== emEdicao.contactPhone &&
+                      problemaNoWhatsapp(formConsulta.contactPhone) !== null)
+                  }
                   className="rounded-xl bg-[#193d36] px-4 py-2.5 text-[11px] font-extrabold text-white transition hover:bg-[#13453c] disabled:opacity-40"
                 >
                   {salvandoConsulta ? 'Salvando...' : 'Salvar'}

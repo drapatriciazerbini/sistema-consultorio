@@ -39,6 +39,11 @@ conferir('Mes 13 nao existe', ler('01/13/2020') === null)
 conferir('Nascimento no futuro e erro de digitacao', ler('01/12/2026') === null)
 conferir('Texto livre fica sem data', ler('março de 2019') === null)
 conferir('Vazio fica sem data', ler('') === null)
+// 07/11/2026 (portado do sistema do Dr. Marcello): data escrita com espaco em
+// volta da barra. Datas inventadas: o repositorio e publico.
+conferir('Espaço em volta da barra', ler('14 / 03 / 1949') === '1949-03-14', String(ler('14 / 03 / 1949')))
+conferir('Espaço em volta do traço', ler('7 - 5 - 1950') === '1950-05-07', String(ler('7 - 5 - 1950')))
+conferir('Espaço só de um lado', ler('22 /06/ 1940') === '1940-06-22', String(ler('22 /06/ 1940')))
 
 console.log(`Datas: ${passou} verificações passaram.`)
 if (falhas.length) {

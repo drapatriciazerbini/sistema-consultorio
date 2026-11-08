@@ -969,8 +969,17 @@ const FIM = String.raw`(?![\wà-ú])`
 const COMECA_PELA_PESSOA = /^\s*(?:(?:a|essa|esta)\s+(?:fam[ií]lia|m[aã]e|av[oó]|respons[aá]vel|pessoa|paciente|filha|cuidadora?)\s+(?!d[aeo]s?\b|d[aeo]\s)\S+|o\s+(?:usu[aá]rio|paciente|filho|cuidador)\b)/i
 const NARRACAO = [
   /\bn[aã]o\s+(?:h[aá]|tenho|existe)\s+(?:nada\s+)?(?:o\s+)?(?:que|a)\s+acrescentar\b|\bnada\s+a\s+acrescentar\b|\bn[aã]o\s+(?:vou\s+)?escrev(?:o|er|erei)\s+nada\b/i,
-  new RegExp(String.raw`\b(?:a|essa|esta)\s+(?:fam[ií]lia|pessoa|paciente)\s+(?:disse|aceitou|quer|escolheu|pediu|pede|pergunt\w*|n[aã]o|j[aá]|est[aá]|confirmou|respondeu|mandou|escreveu|tem|decidiu|procura\w*|vai)${FIM}`, 'i'),
-  new RegExp(String.raw`\b(?:a|o)\s+(?:m[aã]e|pai|av[oó]|respons[aá]vel|filha|filho|cuidador|cuidadora)\s+(?:disse|aceitou|quer|escolheu|pediu|pede|pergunt\w*|n[aã]o|j[aá]|est[aá]|confirmou|respondeu|mandou|escreveu|tem|decidiu|procura\w*|vai)${FIM}`, 'i'),
+  // 07/11/2026, portado do sistema do Dr. Marcello (casos reais de 23 e 27/10
+  // la): a IA explicou a si mesma o que a mensagem queria dizer, e a explicacao
+  // chegou a pessoa. 'A mensagem "1" corresponde a "Duvidas sobre a consulta"...
+  // entao pergunto qual e a duvida' e 'A mensagem parece ser "Quanto e a
+  // consulta?" com erro de digitacao, e a resposta mais provavel e o valor'.
+  // Com a pessoa e "sua mensagem"; "a mensagem" que se interpreta e rascunho.
+  // "A mensagem parece ter chegado cortada" fica.
+  /\ba mensagem\s+(?:["“][^"”]*["”]\s+)?(?:parece ser|corresponde a|deve ser|provavelmente [eé])\b|\ba resposta mais prov[aá]vel\b|\boferta de menu\b/i,
+  // "ainda" no meio tambem ("a familia ainda nao disse", real 23/10/2026 la).
+  new RegExp(String.raw`\b(?:a|essa|esta)\s+(?:fam[ií]lia|pessoa|paciente)\s+(?:ainda\s+)?(?:disse|aceitou|quer|escolheu|pediu|pede|pergunt\w*|n[aã]o|j[aá]|est[aá]|confirmou|respondeu|mandou|escreveu|tem|decidiu|procura\w*|vai)${FIM}`, 'i'),
+  new RegExp(String.raw`\b(?:a|o)\s+(?:m[aã]e|pai|av[oó]|respons[aá]vel|filha|filho|cuidador|cuidadora)\s+(?:ainda\s+)?(?:disse|aceitou|quer|escolheu|pediu|pede|pergunt\w*|n[aã]o|j[aá]|est[aá]|confirmou|respondeu|mandou|escreveu|tem|decidiu|procura\w*|vai)${FIM}`, 'i'),
   new RegExp(String.raw`\b(?:ela|ele)\s+(?:perguntou|escreveu|respondeu|quer saber|est[aá] dizendo|disse que)${FIM}`, 'i'),
   COMECA_PELA_PESSOA,
   /\bantes de qualquer texto\b|\bpreciso corrigir\b|\bo caminho [eé]\b|\bnada a acrescentar\b|\bsem ferramenta\b|\bprecisa ser chamad[ao]\b|\btenho que responder\b|\bresposta (?:[eé] )?curta\b|\breavis\w*|\bcorrijo\b/i,
@@ -981,7 +990,7 @@ const NARRACAO = [
   /\bpelo contexto\b|\bretomar o passo\b|\bpasso em aberto\b|\betapa a enviar\b|\brespondo em texto\b|\b(?:ela|ele)\s+est[aá]\s+confus[ao]\s+(?:sobre|com)\b|\bpela [uú]ltima mensagem\b|\b(?:ela|ele)\s+pediu\b|\bpreciso responder\b|\blembro o passo\b/i,
   /\b(?:abrir_fluxo|responder_etapa|ver_horarios|chamar_equipe|fluxo)\b/i,
   /\ba conversa j[aá] (?:definiu|combinou|tem)\b/i,
-  /\bent[aã]o (?:abro|vou abrir|chamo|vou chamar|passo)\b/i,
+  /\bent[aã]o (?:abro|vou abrir|chamo|vou chamar|passo|pergunto)\b/i,
   /\b(?:abro|abrirei) o (?:agendamento|pedido)\b/i,
   /\bvou abrir o (?:agendamento|pedido) direto\b/i,
   /\bdevo\s+(?:orientar|chamar|abrir|usar|oferecer|responder|mandar|passar|consultar|dizer|seguir|registrar|tratar|manter|repetir|perguntar|acionar)\b/i,

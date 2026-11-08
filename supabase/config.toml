@@ -41,3 +41,16 @@ verify_jwt = true
 # de teste das notificacoes no celular e aviso de teste no WhatsApp da Dra.).
 # Mantem o JWT.
 verify_jwt = true
+
+[functions.gastos-meta]
+# Gasto da conta de anuncios da Meta (07/11/2026). Chamada pelo pg_cron via
+# pg_net (exige x-cron-secret) e pela tela, que manda a sessao: sem JWT no
+# gateway, a funcao confere a sessao e se a pessoa e dona da clinica.
+verify_jwt = false
+
+[functions.gastos-google]
+# Gasto do Google Ads (07/11/2026). Chamada pelo script colado na conta do
+# Google Ads, que nao tem JWT: a funcao confere a chave (header x-chave-google)
+# pelo sha-256 guardado no banco. A tela manda a sessao, e a funcao confere se
+# a pessoa e dona da clinica.
+verify_jwt = false

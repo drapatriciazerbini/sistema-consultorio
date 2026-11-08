@@ -18,10 +18,24 @@ const DO_SITE = 'Olá! Encontrei a Dra. Patrícia Zerbini no Google e gostaria d
 
 caso('referral com link do Instagram: instagram, com titulo e link', () => {
   const r = origemDoAnuncio(
-    { source_url: 'https://www.instagram.com/p/DAbc123/', source_type: 'ad', source_id: '1202', headline: 'Geriatra em Santos' },
+    { source_url: 'https://www.instagram.com/p/DAbc123/', source_type: 'ad', source_id: '120250812631280082', headline: 'Geriatra em Santos' },
     'oi',
   )
-  assert.deepEqual(r, { origem: 'instagram', titulo: 'Geriatra em Santos', url: 'https://www.instagram.com/p/DAbc123/' })
+  assert.deepEqual(r, {
+    origem: 'instagram',
+    titulo: 'Geriatra em Santos',
+    url: 'https://www.instagram.com/p/DAbc123/',
+    anuncioId: '120250812631280082',
+  })
+})
+
+// 07/11/2026: o codigo junta quem chegou ao gasto do anuncio (aba Campanha).
+// Em post impulsionado o source_id e do post, nao de anuncio com gasto proprio.
+caso('codigo do anuncio so quando a Meta diz que veio de anuncio', () => {
+  assert.equal(origemDoAnuncio({ source_url: 'https://www.instagram.com/p/1', source_type: 'post', source_id: '17890001112223334' }, 'oi')?.anuncioId, null)
+  assert.equal(origemDoAnuncio({ source_url: 'https://fb.me/abc', source_type: 'ad', source_id: '120250812631280082' }, 'oi')?.anuncioId, '120250812631280082')
+  assert.equal(origemDoAnuncio({ source_type: 'ad', source_id: 'nao-e-codigo' }, 'oi')?.anuncioId, null)
+  assert.equal(origemDoAnuncio(undefined, DO_SITE)?.anuncioId, null)
 })
 
 caso('referral com link do Facebook: facebook', () => {
@@ -33,7 +47,7 @@ caso('referral com link curto fb.me: meta, sem chutar a plataforma', () => {
 })
 
 caso('referral so com ctwa_clid, sem link: meta', () => {
-  assert.deepEqual(origemDoAnuncio({ ctwa_clid: 'ARAx' }, 'oi'), { origem: 'meta', titulo: null, url: null })
+  assert.deepEqual(origemDoAnuncio({ ctwa_clid: 'ARAx' }, 'oi'), { origem: 'meta', titulo: null, url: null, anuncioId: null })
 })
 
 caso('referral manda mais que o texto', () => {

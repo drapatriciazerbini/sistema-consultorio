@@ -9,7 +9,7 @@
 // O banco aqui e falso e mora neste arquivo. Isso e proposital: o objetivo e
 // exercitar as DECISOES do robo (o que responder, o que gravar, quando ficar
 // calado), e nao o Supabase.
-import { tratarConversa, iniciarQuestionario, colherEventos, periodosComData, negouConsulta, remarcarPeloLembrete } from './atendimento.build.mjs'
+import { tratarConversa, iniciarQuestionario, colherEventos, periodosComData, negouConsulta, remarcarPeloLembrete, pareceNome } from './atendimento.build.mjs'
 import { avisoDeHorario } from './expediente.build.mjs'
 import { readFileSync } from 'node:fs'
 
@@ -204,7 +204,11 @@ function fazerAdmin({
           update: (campos) => ({
             eq: (_c, valor) => ({
               eq: async () => {
-                if (campos.status === 'cancelled') canceladas.push(valor)
+                if (campos.status === 'cancelled') {
+                  canceladas.push(valor)
+                  // O motivo gravado (07/11/2026): a agenda mostra quem desmarcou.
+                  canceladas.motivos = { ...(canceladas.motivos ?? {}), [valor]: campos.cancellation_reason }
+                }
                 return { error: null }
               },
             }),
@@ -736,6 +740,16 @@ for (const frase of [
   if (negouConsulta(frase)) passou++
   else falhas.push(`negouConsulta deveria reconhecer: ${frase}`)
 }
+// 07/11/2026 (portado do sistema do Dr. Marcello): convenio e pagamento nao
+// viram nome do paciente; nome de verdade continua passando.
+for (const frase of ['Aceita plano unimed', 'Atende particular', 'Aceitam Bradesco Saude', 'Valor da consulta']) {
+  if (!pareceNome(frase)) passou++
+  else falhas.push(`pareceNome nao deveria aceitar: ${frase}`)
+}
+for (const frase of ['Maria das Gracas Souza', 'Jose Carlos Lima', 'Helena Pacheco']) {
+  if (pareceNome(frase)) passou++
+  else falhas.push(`pareceNome deveria aceitar: ${frase}`)
+}
 // Resposta ao acompanhamento de um idoso costuma ser sobre a saude dele, e
 // nada disso pode virar "desculpe, vou conferir o cadastro".
 for (const frase of [
@@ -843,6 +857,8 @@ await caso(
     verificar: ({ canceladas, titulo }) => {
       if (canceladas[0] !== 'a1') falhas.push(`${titulo} | não cancelou a consulta certa`)
       else passou++
+      if (canceladas.motivos?.a1 !== 'Cancelada pelo WhatsApp, com o robô.') falhas.push(`${titulo} | cancelou sem gravar o motivo: ${canceladas.motivos?.a1}`)
+      else passou++
     },
   },
 )
@@ -934,6 +950,8 @@ await caso(
       if (marcadas.length !== 1) falhas.push(`${titulo} | deveria marcar exatamente uma`)
       else passou++
       if (canceladas[0] !== 'a1') falhas.push(`${titulo} | não cancelou a antiga`)
+      else passou++
+      if (!/^Remarcada pelo WhatsApp, com o robô, para .+\.$/.test(canceladas.motivos?.a1 ?? '')) falhas.push(`${titulo} | remarcou sem gravar o motivo: ${canceladas.motivos?.a1}`)
       else passou++
     },
   },

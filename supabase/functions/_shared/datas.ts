@@ -15,7 +15,11 @@
  * no prontuario e pior do que um campo vazio.
  */
 export function dataDeNascimentoIso(texto: string, hoje = new Date()): string | null {
-  const m = texto.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/)
+  // Espaco em volta da barra (07/11/2026, portado do sistema do Dr. Marcello,
+  // onde uma mae escreveu "dd / mm / aaaa" e o robo pediu a data de novo). So
+  // entre dois numeros.
+  const t = texto.trim().replace(/(\d)\s*([/.-])\s*(?=\d)/g, '$1$2')
+  const m = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/)
   if (!m) return null
 
   const dia = Number(m[1])

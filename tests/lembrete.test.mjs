@@ -256,6 +256,18 @@ conferir(
   gravaCancelar.status === 'cancelled' && gravaCancelar.cancelled_at === AGORA_ISO,
   JSON.stringify(gravaCancelar),
 )
+// 07/11/2026 (portado do sistema do Dr. Marcello): sem motivo, a vaga na agenda
+// nao dizia quem desmarcou.
+conferir(
+  'Cancelar pelo lembrete grava o motivo',
+  gravaCancelar.cancellation_reason === 'Cancelada pelo WhatsApp, em resposta ao lembrete.',
+  JSON.stringify(gravaCancelar),
+)
+conferir(
+  'Confirmar e remarcar não gravam motivo de cancelamento',
+  !('cancellation_reason' in gravaConfirmar) && !('cancellation_reason' in mudancaDaConsulta(interpretarResposta('REMARCAR', true), AGORA_ISO)),
+  JSON.stringify(gravaConfirmar),
+)
 
 const gravaRemarcar = mudancaDaConsulta(interpretarResposta('REMARCAR', true), AGORA_ISO)
 conferir(

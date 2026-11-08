@@ -21,6 +21,7 @@ import {
   type HorarioDaAgenda,
 } from '../../supabase/functions/_shared/consulta-aconteceu.ts'
 import { pacientesAtendidos } from '@/lib/paciente-atendido'
+import { consultaDepoisDaChegada, type ConsultaMarcada, type Contato, type GastosDaCampanha } from '@/lib/campanha'
 
 type PatientInsert = Database['public']['Tables']['patients']['Insert']
 type PatientUpdate = Database['public']['Tables']['patients']['Update']
@@ -543,6 +544,11 @@ export interface Appointment {
   }
   /** Quantas vezes esta consulta ja trocou de data. Zero na primeira. */
   rescheduleCount: number
+  /**
+   * Por que foi cancelada, como quem cancelou gravou. So o historico preenche:
+   * a agenda do dia nao mostra cancelada. Ver motivosDosCancelamentos.
+   */
+  motivoDoCancelamento?: string
   /** Convenio informado no agendamento. Vazio = particular. */
   insurance: string
   /**
@@ -950,13 +956,15 @@ export async function listAppointmentHistory(
   const nameById = new Map((patients ?? []).map((p) => [p.id, p.name]))
   // Só pelo convênio: o histórico não mostra ficha, mas a recepção precisa
   // saber pelo que aquela consulta foi faturada.
-  const [fichas, automaticas] = await Promise.all([
+  const [fichas, automaticas, motivos] = await Promise.all([
     fichasDasConsultas(clinicId, unitId),
     faltasAutomaticas(clinicId, unitId),
+    motivosDosCancelamentos(clinicId, unitId, desde.toISOString()),
   ])
 
   return rows.map((row) => ({
     faltaAutomatica: automaticas.has(row.id),
+    motivoDoCancelamento: motivos.get(row.id) ?? '',
     id: row.id,
     unitId: row.unit_id,
     patientId: row.patient_id,
@@ -983,6 +991,37 @@ export async function listAppointmentHistory(
     insurance: fichas.get(row.id)?.convenio ?? '',
     retornoDe: null,
   }))
+}
+
+/**
+ * O motivo de cada cancelamento do historico (07/11/2026, portado do sistema
+ * do Dr. Marcello). La, o robo remarcou uma consulta a pedido da familia e o
+ * historico so dizia "Cancelada"; o Edu teve de perguntar quem tinha
+ * cancelado. A tela sempre gravou o motivo; o robo e o lembrete passaram a
+ * gravar tambem.
+ *
+ * Consulta separada, pela tabela crua: se ela falhar, o historico continua
+ * inteiro, so sem o motivo.
+ */
+async function motivosDosCancelamentos(clinicId: string, unitId: string, desde: string) {
+  const motivos = new Map<string, string>()
+  try {
+    const { data, error } = await tabelaCrua('appointments')
+      .select('id,cancellation_reason')
+      .eq('clinic_id', clinicId)
+      .eq('unit_id', unitId)
+      .eq('status', 'cancelled')
+      .gte('starts_at', desde)
+      .order('starts_at')
+    if (error) throw error
+    for (const linha of (data ?? []) as { id: string; cancellation_reason: string | null }[]) {
+      const motivo = (linha.cancellation_reason ?? '').trim()
+      if (motivo) motivos.set(linha.id, motivo)
+    }
+  } catch (erro) {
+    console.warn('Nao li os motivos dos cancelamentos; o historico segue sem eles', erro)
+  }
+  return motivos
 }
 
 /**
@@ -3456,110 +3495,6 @@ function contagens(valor: unknown): Record<string, number> {
   return saida
 }
 
-/**
- * Quem chegou pelos anuncios (19/10/2026, aba Google da Visao geral).
- *
- * O site leva ao WhatsApp do robo; o webhook grava em
- * whatsapp_conversations.origem_anuncio de onde a conversa veio. Daqui sai a
- * lista e quantas dessas conversas viraram consulta (appointments.conversation_id,
- * marcada depois da chegada pelo anuncio).
- *
- * `disponivel: false` quando a coluna ainda nao existe no banco (a tela sobe
- * antes da migration): a aba mostra o aviso em vez de um zero que parece real.
- */
-export interface ChegadaPorAnuncio {
-  conversaId: string
-  nome: string
-  telefone: string
-  origem: OrigemDoAnuncio
-  chegouEm: string
-  tituloDoAnuncio: string | null
-  /** Inicio da consulta marcada depois da chegada (a mais proxima), se houver. */
-  consultaEm: string | null
-  consultaCancelada: boolean
-}
-
-export interface NumerosDosAnuncios {
-  disponivel: boolean
-  chegadas: ChegadaPorAnuncio[]
-}
-
-export async function numerosDosAnuncios(clinicId: string, de: Date, ate: Date): Promise<NumerosDosAnuncios> {
-  type Linha = {
-    id: string
-    patient_id: string | null
-    profile_name: string | null
-    display_phone: string | null
-    wa_id: string | null
-    origem_anuncio: OrigemDoAnuncio
-    origem_anuncio_em: string
-    origem_anuncio_titulo: string | null
-  }
-  let linhas: Linha[] = []
-  try {
-    const { data, error } = await semTipo
-      .from('whatsapp_conversations')
-      .select('id,patient_id,profile_name,display_phone,wa_id,origem_anuncio,origem_anuncio_em,origem_anuncio_titulo')
-      .eq('clinic_id', clinicId)
-      .not('origem_anuncio', 'is', null)
-      .gte('origem_anuncio_em', de.toISOString())
-      .lte('origem_anuncio_em', ate.toISOString())
-      .order('origem_anuncio_em', { ascending: false })
-    if (error) throw error
-    linhas = (data ?? []) as Linha[]
-  } catch (erro) {
-    console.warn('Sem whatsapp_conversations.origem_anuncio; a aba Google fica sem dados', erro)
-    return { disponivel: false, chegadas: [] }
-  }
-  if (!linhas.length) return { disponivel: true, chegadas: [] }
-
-  const ids = linhas.map((l) => l.id)
-  const patientIds = [...new Set(linhas.map((l) => l.patient_id).filter(Boolean))] as string[]
-  const [consultas, pacientes] = await Promise.all([
-    semTipo
-      .from('appointments')
-      .select('conversation_id,starts_at,status,created_at')
-      .eq('clinic_id', clinicId)
-      .in('conversation_id', ids)
-      .order('starts_at'),
-    patientIds.length
-      ? supabase.from('patients').select('id,name').in('id', patientIds)
-      : Promise.resolve({ data: [] as { id: string; name: string }[], error: null }),
-  ])
-  // Consulta e nome sao complemento: se falharem, a lista de chegadas continua.
-  if (consultas.error) console.warn('Nao li as consultas das conversas do anuncio', consultas.error)
-  const nomePorId = new Map(((pacientes.data ?? []) as { id: string; name: string }[]).map((p) => [p.id, p.name]))
-  type Consulta = { conversation_id: string; starts_at: string; status: string; created_at: string }
-  const consultasPorConversa = new Map<string, Consulta[]>()
-  for (const c of ((consultas.data ?? []) as Consulta[])) {
-    const lista = consultasPorConversa.get(c.conversation_id) ?? []
-    lista.push(c)
-    consultasPorConversa.set(c.conversation_id, lista)
-  }
-
-  return {
-    disponivel: true,
-    chegadas: linhas.map((l) => {
-      // So conta a consulta marcada depois que a familia chegou pelo anuncio:
-      // paciente antigo que clicou no anuncio nao vira conversao por causa de
-      // uma consulta de setembro.
-      const depois = (consultasPorConversa.get(l.id) ?? []).filter((c) => c.created_at >= l.origem_anuncio_em)
-      const valendo = depois.find((c) => c.status !== 'cancelled')
-      const escolhida = valendo ?? depois[0] ?? null
-      return {
-        conversaId: l.id,
-        nome: (l.patient_id && nomePorId.get(l.patient_id)) || l.profile_name || 'Contato sem cadastro',
-        telefone: formatarTelefone(l.display_phone || l.wa_id || ''),
-        origem: l.origem_anuncio,
-        chegouEm: l.origem_anuncio_em,
-        tituloDoAnuncio: l.origem_anuncio_titulo,
-        consultaEm: escolhida?.starts_at ?? null,
-        consultaCancelada: Boolean(escolhida && !valendo),
-      }
-    }),
-  }
-}
-
 export async function numerosDoWhatsApp(
   clinicId: string,
   de: Date,
@@ -3680,6 +3615,11 @@ export interface VagaDeCancelamento {
   quando: string
   paciente: string
   canceladoEm: string
+  /**
+   * O que foi gravado ao cancelar (07/11/2026): remarcada ou cancelada pelo
+   * robo, ou pela resposta ao lembrete. Vazio nos cancelamentos antigos.
+   */
+  motivo: string
 }
 
 export async function listVagasDeCancelamento(
@@ -3688,7 +3628,7 @@ export async function listVagasDeCancelamento(
 ): Promise<VagaDeCancelamento[]> {
   const desde = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
   const { data, error } = await tabelaCrua('appointments')
-    .select('starts_at,contact_name,patient_id,cancelled_at,cancelled_by')
+    .select('starts_at,contact_name,patient_id,cancelled_at,cancelled_by,cancellation_reason')
     .eq('clinic_id', clinicId)
     .eq('unit_id', unitId)
     .eq('status', 'cancelled')
@@ -3706,6 +3646,7 @@ export async function listVagasDeCancelamento(
     contact_name: string | null
     patient_id: string | null
     cancelled_at: string | null
+    cancellation_reason: string | null
   }
   const linhas = (data ?? []) as Linha[]
   if (linhas.length === 0) return []
@@ -3723,6 +3664,7 @@ export async function listVagasDeCancelamento(
       linha.contact_name ||
       'Contato sem cadastro',
     canceladoEm: linha.cancelled_at ?? '',
+    motivo: (linha.cancellation_reason ?? '').trim(),
   }))
 }
 
@@ -3760,3 +3702,347 @@ export async function conversasEsperandoEquipe(clinicId: string): Promise<Espera
     maisAntigaDesde: linhas.find((l) => l.last_message_at)?.last_message_at ?? null,
   }
 }
+
+/**
+ * Quem chegou pela campanha, e o que custou (aba Campanha da Visao geral).
+ *
+ * 19/10/2026: a aba Google passou a contar quem chegou pelo anuncio
+ * (whatsapp_conversations.origem_anuncio, gravado pelo webhook).
+ * 07/11/2026: virou a aba Campanha, igual a do sistema do Dr. Marcello - com o
+ * investimento (campanha_gastos), o organico ao lado, e o funil ate a consulta
+ * que aconteceu. As contas moram em src/lib/campanha.ts, com teste.
+ *
+ * `disponivel: false` quando a coluna de origem ainda nao existe no banco (a
+ * tela sobe antes da migration): a aba mostra o aviso em vez de um zero que
+ * parece real.
+ */
+export interface DadosDaCampanha {
+  disponivel: boolean
+  contatos: Contato[]
+  /** Linha de gastos; nula para quem nao e dono (RLS) ou antes da migration. */
+  gastos: GastosDaCampanha | null
+  /** Por que o investimento esta em branco, quando esta. */
+  avisoDosGastos: string | null
+}
+
+type LinhaDeConversa = {
+  id: string
+  patient_id: string | null
+  profile_name: string | null
+  display_phone: string | null
+  wa_id: string | null
+  created_at: string
+  origem_anuncio: 'instagram' | 'facebook' | 'meta' | 'google' | null
+  origem_anuncio_em: string | null
+  origem_anuncio_titulo: string | null
+}
+
+/** .in() com lista longa estoura o tamanho do endereco: vai em lotes. */
+function emLotes<T>(lista: T[], tamanho = 80): T[][] {
+  const lotes: T[][] = []
+  for (let i = 0; i < lista.length; i += tamanho) lotes.push(lista.slice(i, i + tamanho))
+  return lotes
+}
+
+export async function gastosDaCampanha(clinicId: string): Promise<{ gastos: GastosDaCampanha | null; aviso: string | null }> {
+  try {
+    const { data, error } = await semTipo
+      .from('campanha_gastos')
+      .select(
+        'meta_conta,meta_conta_nome,meta_token_de,meta_token_expira_em,meta_token_renovado_em,meta,meta_atualizado_em,meta_erro,meta_situacao,google,google_atualizado_em',
+      )
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+    if (error) throw error
+    // Sem linha: quem nao e dono nao enxerga (RLS), e a tela diz isso.
+    if (!data) return { gastos: null, aviso: 'O investimento aparece só para o responsável pela clínica.' }
+    const d = data as Record<string, unknown>
+    return {
+      aviso: null,
+      gastos: {
+        metaConta: (d.meta_conta as string | null) ?? null,
+        metaContaNome: (d.meta_conta_nome as string | null) ?? null,
+        metaTokenDe: (d.meta_token_de as string | null) ?? null,
+        metaTokenExpiraEm: (d.meta_token_expira_em as string | null) ?? null,
+        metaTokenRenovadoEm: (d.meta_token_renovado_em as string | null) ?? null,
+        meta: (d.meta as GastosDaCampanha['meta'] | null) ?? {},
+        metaAtualizadoEm: (d.meta_atualizado_em as string | null) ?? null,
+        metaErro: (d.meta_erro as string | null) ?? null,
+        metaSituacao: (d.meta_situacao as GastosDaCampanha['metaSituacao']) ?? null,
+        google: (d.google as Record<string, number> | null) ?? {},
+        googleAtualizadoEm: (d.google_atualizado_em as string | null) ?? null,
+        ...(await googleAutomatico(clinicId)),
+      },
+    }
+  } catch (erro) {
+    console.warn('Sem campanha_gastos; o investimento fica em branco', erro)
+    return { gastos: null, aviso: 'O banco ainda não tem a tabela de gastos das campanhas: ela chega com a próxima publicação.' }
+  }
+}
+
+/**
+ * Colunas do gasto do Google pelo script, lidas a parte: se faltarem, falta so
+ * o automatico, e o resto da aba continua (ver CLAUDE.md, "Coluna nova").
+ */
+async function googleAutomatico(clinicId: string): Promise<
+  Pick<GastosDaCampanha, 'googleAuto' | 'googleAutoEm' | 'googleConta' | 'googleErro' | 'googleErroEm' | 'googleChaveCriadaEm'>
+> {
+  const vazio = { googleAuto: null, googleAutoEm: null, googleConta: null, googleErro: null, googleErroEm: null, googleChaveCriadaEm: null }
+  try {
+    const { data, error } = await semTipo
+      .from('campanha_gastos')
+      .select('google_automatico,google_automatico_em,google_conta,google_erro,google_erro_em,google_chave_criada_em')
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+    if (error) throw error
+    if (!data) return vazio
+    const d = data as Record<string, unknown>
+    const auto = (d.google_automatico as GastosDaCampanha['googleAuto']) ?? null
+    return {
+      googleAuto: auto && Object.keys(auto).length ? auto : null,
+      googleAutoEm: (d.google_automatico_em as string | null) ?? null,
+      googleConta: (d.google_conta as string | null) ?? null,
+      googleErro: (d.google_erro as string | null) ?? null,
+      googleErroEm: (d.google_erro_em as string | null) ?? null,
+      googleChaveCriadaEm: (d.google_chave_criada_em as string | null) ?? null,
+    }
+  } catch (erro) {
+    console.warn('Sem as colunas do Google automatico; vale so o lancado a mao', erro)
+    return vazio
+  }
+}
+
+export async function contatosDaCampanha(clinicId: string, de: Date, ate: Date): Promise<DadosDaCampanha> {
+  const colunas = 'id,patient_id,profile_name,display_phone,wa_id,created_at,origem_anuncio,origem_anuncio_em,origem_anuncio_titulo'
+  let doAnuncio: LinhaDeConversa[] = []
+  let organicas: LinhaDeConversa[] = []
+  try {
+    const [anuncio, organico] = await Promise.all([
+      buscarTodas((i, f) =>
+        semTipo
+          .from('whatsapp_conversations')
+          .select(colunas)
+          .eq('clinic_id', clinicId)
+          .not('origem_anuncio', 'is', null)
+          .gte('origem_anuncio_em', de.toISOString())
+          .lt('origem_anuncio_em', ate.toISOString())
+          .order('origem_anuncio_em', { ascending: false })
+          .order('id')
+          .range(i, f),
+      ),
+      // Organico: numero que escreveu pela primeira vez no periodo, sem anuncio.
+      buscarTodas((i, f) =>
+        semTipo
+          .from('whatsapp_conversations')
+          .select(colunas)
+          .eq('clinic_id', clinicId)
+          .is('origem_anuncio', null)
+          .gte('created_at', de.toISOString())
+          .lt('created_at', ate.toISOString())
+          .order('created_at', { ascending: false })
+          .order('id')
+          .range(i, f),
+      ),
+    ])
+    if (anuncio.error) throw anuncio.error
+    if (organico.error) throw organico.error
+    doAnuncio = anuncio.data as LinhaDeConversa[]
+    organicas = organico.data as LinhaDeConversa[]
+  } catch (erro) {
+    console.warn('Sem whatsapp_conversations.origem_anuncio; a aba Campanha fica sem dados', erro)
+    const { gastos, aviso } = await gastosDaCampanha(clinicId)
+    return { disponivel: false, contatos: [], gastos, avisoDosGastos: aviso }
+  }
+
+  const conversas = [...doAnuncio, ...organicas]
+  const ids = conversas.map((c) => c.id)
+  const idsDoAnuncio = doAnuncio.map((c) => c.id)
+  const patientIds = [...new Set(conversas.map((c) => c.patient_id).filter(Boolean))] as string[]
+
+  // Tudo abaixo e complemento: se falhar, a lista de quem chegou continua.
+  const [codigos, mensagens, consultas, pacientes, gastos] = await Promise.all([
+    // Coluna de 07/11, lida a parte (ver CLAUDE.md, "Coluna nova").
+    (async () => {
+      const mapa = new Map<string, string>()
+      try {
+        for (const lote of emLotes(idsDoAnuncio)) {
+          const { data, error } = await semTipo.from('whatsapp_conversations').select('id,origem_anuncio_id').in('id', lote)
+          if (error) throw error
+          for (const l of (data ?? []) as { id: string; origem_anuncio_id: string | null }[]) {
+            if (l.origem_anuncio_id) mapa.set(l.id, l.origem_anuncio_id)
+          }
+        }
+      } catch (erro) {
+        console.warn('Sem whatsapp_conversations.origem_anuncio_id; os anuncios ficam sem codigo', erro)
+      }
+      return mapa
+    })(),
+    (async () => {
+      const porConversa = new Map<string, number[]>()
+      try {
+        for (const lote of emLotes(ids)) {
+          const { data, error } = await buscarTodas((i, f) =>
+            semTipo
+              .from('whatsapp_messages')
+              .select('id,conversation_id,created_at')
+              .in('conversation_id', lote)
+              .eq('direction', 'inbound')
+              .gte('created_at', de.toISOString())
+              .order('created_at')
+              .order('id')
+              .range(i, f),
+          )
+          if (error) throw error
+          for (const m of data as { conversation_id: string; created_at: string }[]) {
+            const lista = porConversa.get(m.conversation_id) ?? []
+            lista.push(Date.parse(m.created_at))
+            porConversa.set(m.conversation_id, lista)
+          }
+        }
+      } catch (erro) {
+        console.warn('Nao li as mensagens das conversas da campanha', erro)
+      }
+      return porConversa
+    })(),
+    (async () => {
+      try {
+        const { data, error } = await buscarTodas((i, f) =>
+          semTipo
+            .from('appointments')
+            .select('id,conversation_id,patient_id,starts_at,status,created_at')
+            .eq('clinic_id', clinicId)
+            .gte('created_at', de.toISOString())
+            .order('created_at')
+            .order('id')
+            .range(i, f),
+        )
+        if (error) throw error
+        return (data as { conversation_id: string | null; patient_id: string | null; starts_at: string; status: ConsultaMarcada['status']; created_at: string }[]).map(
+          (c): ConsultaMarcada => ({
+            conversationId: c.conversation_id,
+            patientId: c.patient_id,
+            startsAt: c.starts_at,
+            createdAt: c.created_at,
+            status: c.status,
+          }),
+        )
+      } catch (erro) {
+        console.warn('Nao li as consultas das conversas da campanha', erro)
+        return [] as ConsultaMarcada[]
+      }
+    })(),
+    (async () => {
+      const nomes = new Map<string, string>()
+      try {
+        for (const lote of emLotes(patientIds)) {
+          const { data, error } = await supabase.from('patients').select('id,name').in('id', lote)
+          if (error) throw error
+          for (const p of (data ?? []) as { id: string; name: string }[]) nomes.set(p.id, p.name)
+        }
+      } catch (erro) {
+        console.warn('Nao li os nomes dos pacientes da campanha', erro)
+      }
+      return nomes
+    })(),
+    gastosDaCampanha(clinicId),
+  ])
+
+  const contatos = conversas.map((l): Contato => {
+    const chegouEm = l.origem_anuncio ? (l.origem_anuncio_em as string) : l.created_at
+    const consulta = consultaDepoisDaChegada(consultas, l.id, l.patient_id, chegouEm)
+    const chegada = Date.parse(chegouEm)
+    return {
+      conversaId: l.id,
+      nome: (l.patient_id && pacientes.get(l.patient_id)) || l.profile_name || 'Contato sem cadastro',
+      telefone: formatarTelefone(l.display_phone || l.wa_id || ''),
+      plataforma: !l.origem_anuncio ? 'organico' : l.origem_anuncio === 'google' ? 'google' : 'meta',
+      origem: l.origem_anuncio,
+      chegouEm,
+      anuncioId: codigos.get(l.id) ?? null,
+      tituloDoAnuncio: l.origem_anuncio_titulo,
+      // A mensagem que trouxe a familia e a primeira; respondeu quem mandou mais uma.
+      respondeu: (mensagens.get(l.id) ?? []).filter((t) => t >= chegada - 60_000).length >= 2,
+      consultaEm: consulta.consultaEm,
+      consultaMarcadaEm: consulta.marcadaEm,
+      consultaCancelada: consulta.cancelada,
+      veio: consulta.veio,
+    }
+  })
+  contatos.sort((a, b) => Date.parse(b.chegouEm) - Date.parse(a.chegouEm))
+
+  return { disponivel: true, contatos, gastos: gastos.gastos, avisoDosGastos: gastos.aviso }
+}
+
+/**
+ * Gasto do Google do mes, lancado a mao pelo dono (07/11/2026). Rele antes de
+ * gravar: outro mes pode ter sido lancado em outra aba.
+ */
+export async function salvarGastoGoogle(clinicId: string, mes: string, valor: number) {
+  const { data: atual, error: erroDeLeitura } = await semTipo.from('campanha_gastos').select('google').eq('clinic_id', clinicId).maybeSingle()
+  if (erroDeLeitura) fail(erroDeLeitura)
+  const google = { ...(((atual as { google?: Record<string, number> } | null)?.google ?? {}) as Record<string, number>) }
+  if (valor > 0) google[mes] = Math.round(valor * 100) / 100
+  else delete google[mes]
+  const { data: usuario } = await supabase.auth.getUser()
+  const { data, error } = await semTipo
+    .from('campanha_gastos')
+    .update({ google, google_atualizado_em: new Date().toISOString(), google_atualizado_por: usuario?.user?.id ?? null, updated_at: new Date().toISOString() })
+    .eq('clinic_id', clinicId)
+    .select('clinic_id')
+  if (error) fail(error)
+  // Update sem linha nao da erro: sem a tabela (antes da migration) ou sem ser dono.
+  if (!data?.length) throw new Error('Não gravou: só o responsável pela clínica lança o gasto, e a tabela de gastos precisa existir no banco.')
+}
+
+async function chamarGastosMeta(body: Record<string, unknown>, padrao: string) {
+  const { data, error } = await supabase.functions.invoke('gastos-meta', { body })
+  if (error) {
+    const contexto = (error as { context?: unknown }).context
+    if (contexto instanceof Response) {
+      const corpo = (await contexto.clone().json().catch(() => null)) as { error?: string; code?: string; contas?: { id: string; nome: string }[] } | null
+      if (corpo?.error) {
+        const falha = new Error(corpo.error) as Error & { code?: string; contas?: { id: string; nome: string }[] }
+        falha.code = corpo.code
+        falha.contas = corpo.contas
+        throw falha
+      }
+    }
+    throw new Error(padrao)
+  }
+  return (data ?? {}) as { ok?: boolean; aviso?: string; expiraEm?: string; conta?: { id: string; nome: string } }
+}
+
+/**
+ * Script do Google Ads (07/11/2026): a funcao gastos-google gera a chave e
+ * devolve o script pronto para o Edu colar na conta. A chave so existe ali.
+ */
+async function chamarGastosGoogle(body: Record<string, unknown>, padrao: string) {
+  const { data, error } = await supabase.functions.invoke('gastos-google', { body })
+  if (error) {
+    const contexto = (error as { context?: unknown }).context
+    if (contexto instanceof Response) {
+      const corpo = (await contexto.clone().json().catch(() => null)) as { error?: string } | null
+      if (corpo?.error) throw new Error(corpo.error)
+    }
+    throw new Error(padrao)
+  }
+  return (data ?? {}) as { ok?: boolean; script?: string }
+}
+
+export async function gerarScriptDoGoogle(clinicId: string): Promise<string> {
+  const r = await chamarGastosGoogle({ acao: 'gerar_chave', clinicId }, 'Não foi possível gerar o script do Google Ads.')
+  if (!r.script) throw new Error('A Central não devolveu o script do Google Ads.')
+  return r.script
+}
+
+export const desligarScriptDoGoogle = (clinicId: string) =>
+  chamarGastosGoogle({ acao: 'desligar', clinicId }, 'Não foi possível desligar o script do Google Ads.')
+
+export const conectarGastoMeta = (clinicId: string, token: string, conta?: string) =>
+  chamarGastosMeta({ acao: 'conectar', clinicId, token, conta }, 'Não foi possível conectar a conta de anúncios.')
+
+export const atualizarGastoMeta = (clinicId: string) =>
+  chamarGastosMeta({ acao: 'atualizar', clinicId }, 'Não foi possível buscar o gasto da Meta.')
+
+export const desconectarGastoMeta = (clinicId: string) =>
+  chamarGastosMeta({ acao: 'desconectar', clinicId }, 'Não foi possível desconectar a conta de anúncios.')

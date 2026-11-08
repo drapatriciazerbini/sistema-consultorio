@@ -192,3 +192,5 @@ jobs:
           supabase functions deploy memed-prescritor --project-ref "$PROJECT_REF"
           supabase functions deploy memed-receita --project-ref "$PROJECT_REF"
           supabase functions deploy notificar-equipe --project-ref "$PROJECT_REF"
+          supabase functions deploy gastos-meta --project-ref "$PROJECT_REF"
+          supabase functions deploy gastos-google --project-ref "$PROJECT_REF"

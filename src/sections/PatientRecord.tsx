@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Ajuda } from '@/components/Ajuda'
 import { invokeWithFormData } from '@/lib/supabase'
 import {
@@ -128,7 +129,7 @@ import type {
   Patient,
 } from '@/types/patient'
 import { opcoesDeUnidade, useUnidades } from '@/lib/unidades'
-import { abrirPrescricao, alergiasParaMemed, faltaParaPrescrever, guardarReceita, marcarReceitaExcluida, prepararPrescricao, ultimoCadastro, type LocalDeAtendimento } from '@/lib/memed'
+import { abrirPrescricao, alergiasParaMemed, faltaParaPrescrever, guardarReceita, marcarReceitaExcluida, memedPronta, prepararPrescricao, ultimoCadastro, type LocalDeAtendimento } from '@/lib/memed'
 import { avisoDoQueFoiParaMemed, dadosParaMemed, hojeEmSaoPaulo, unidadeDaReceita } from '@/lib/dados-para-memed'
 import { unidadesDeVisita } from '@/lib/domicilio'
 import {
@@ -2065,6 +2066,9 @@ function ConsultationCard({
                 patientId={consultation.patientId}
                 consultationId={consultation.id}
                 adendos={adendos}
+                receitas={receitas}
+                prescrevendo={prescrevendo}
+                onPrescrever={() => onPrescrever(consultation)}
                 onRegistrado={onAdendoRegistrado}
               />
             ))}
@@ -2141,8 +2145,44 @@ function EsperaDaAssinatura({ espera, onDesistir }: EsperaDaAssinaturaProps) {
   )
 }
 
+/**
+ * Tela de espera enquanto a Memed abre (07/11/2026, portada do sistema do Dr.
+ * Marcello, onde entrou em 06/11).
+ *
+ * Antes era so o botao girando. Fixa por cima, no meio da tela, nao mexe na
+ * rolagem (a Dra. pode estar no adendo, mais embaixo); some quando a Memed
+ * aparece, que fica por cima de tudo. Vai para o body pelo portal: dentro do
+ * prontuario, um ancestral com transform prenderia o "fixed" na gaveta, e nao
+ * na janela.
+ */
+function AbrindoAMemed({ fria }: { fria: boolean }) {
+  return createPortal(
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-[#193d36]/25 px-4"
+    >
+      <div className="w-full max-w-[340px] rounded-[18px] bg-white px-6 py-5 text-center shadow-[0_18px_50px_rgba(25,61,54,.25)]">
+        <Loader2 className="mx-auto h-7 w-7 animate-spin text-[#1f5f55]" />
+        <p className="mt-3 text-[14px] font-extrabold text-[#193d36]">Abrindo a Memed</p>
+        <p className="mt-1 text-[12px] font-semibold leading-relaxed text-slate-500">
+          {fria
+            ? 'É a primeira abertura desde que você entrou: pode levar até meio minuto.'
+            : 'Só um instante.'}
+        </p>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 type AvisoDoProntuarioProps = {
-  aviso: { tipo: 'ok' | 'erro' | 'info'; texto: string }
+  /**
+   * rolar: false quando a Dra. esta trabalhando mais embaixo e o aviso e so um
+   * recado (receita do adendo). Rolar para o topo a tirava do adendo que estava
+   * escrevendo (06/11/2026, no sistema do Dr. Marcello).
+   */
+  aviso: { tipo: 'ok' | 'erro' | 'info'; texto: string; rolar?: boolean }
   onFechar: () => void
 }
 
@@ -2152,9 +2192,10 @@ function AvisoDoProntuario({ aviso, onFechar }: AvisoDoProntuarioProps) {
   // O texto entra nas dependencias para que um aviso NOVO tambem role a tela:
   // dois erros seguidos no mesmo lugar sao dois avisos, e o segundo precisa
   // ser visto igual ao primeiro.
+  const rolar = aviso.rolar !== false
   useEffect(() => {
-    caixa.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }, [aviso.texto])
+    if (rolar) caixa.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [aviso.texto, rolar])
 
   return (
     <div
@@ -2238,8 +2279,11 @@ export default function PatientRecord({
   // do formulario, porque a barra e os campos sao irmaos na arvore.
   const [campoAtivo, setCampoAtivo] = useState<ControleDeCampo | null>(null)
   const [aviso, setAviso] = useState<
-    { tipo: 'ok' | 'erro' | 'info'; texto: string } | null
+    { tipo: 'ok' | 'erro' | 'info'; texto: string; rolar?: boolean } | null
   >(null)
+  // A Memed ainda nao tinha carregado quando a Dra. clicou: a tela de espera
+  // diz que a primeira abertura demora mais.
+  const [memedFria, setMemedFria] = useState(false)
   const unidadesDaClinica = useUnidades()
   // Adendos do paciente inteiro, carregados de uma vez e repartidos por cartao.
   const [adendos, setAdendos] = useState<Adendo[]>([])
@@ -2459,6 +2503,10 @@ export default function PatientRecord({
       return
     }
 
+    // A espera aparece numa tela fixa por cima (AbrindoAMemed), e nao num aviso
+    // no topo: o aviso rolaria a pagina para cima e tiraria a Dra. do adendo
+    // que estava escrevendo.
+    setMemedFria(!memedPronta())
     setPrescrevendo(true)
     try {
       // Endereco da unidade, para o rodape da receita e para a identificacao
@@ -2513,7 +2561,19 @@ export default function PatientRecord({
                 setReceitas(lista)
               }
               await copiarReceitaParaPrescricao(consultation, lista)
-              setAviso({ tipo: 'ok', texto: 'Receita emitida e guardada no prontuário.' })
+              // Assinado, o texto do atendimento nao muda: a receita entra pelo
+              // adendo aberto (AdendosDaConsulta), e so quando ele e registrado.
+              // Ali o aviso nao rola a pagina: o proprio adendo vem para a
+              // tela, com a receita em "Vai junto no adendo".
+              setAviso(
+                consultation?.assinadoEm
+                  ? {
+                      tipo: 'ok',
+                      texto: 'Receita emitida e guardada. Ela entra no adendo quando você clicar em "Registrar adendo".',
+                      rolar: false,
+                    }
+                  : { tipo: 'ok', texto: 'Receita emitida e guardada no prontuário.' },
+              )
             } catch (causa) {
               setAviso({
                 tipo: 'erro',
@@ -3041,6 +3101,8 @@ export default function PatientRecord({
 
   return (
     <CampoAtivo.Provider value={{ ativo: campoAtivo, ativar: setCampoAtivo }}>
+    {/* Uma vez so, fora das duas colunas: vai para o body pelo portal. */}
+    {prescrevendo && <AbrindoAMemed fria={memedFria} />}
     <Sheet open={open} onOpenChange={handleOpenChange}>
       {/* Metade da tela como piso: em monitores largos o prontuario vai ate o
           meio do monitor, e nunca fica menor do que os 900px de antes. */}

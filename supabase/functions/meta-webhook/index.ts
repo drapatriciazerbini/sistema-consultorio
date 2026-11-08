@@ -806,6 +806,20 @@ Deno.serve(async (req) => {
             } catch (erro) {
               console.warn('Nao gravei de onde a conversa veio', origem.origem, erro)
             }
+            // O codigo do anuncio (07/11/2026, portado do sistema do Dr.
+            // Marcello), que junta a conversa ao gasto dele na aba Campanha.
+            // Coluna mais nova ainda, de novo a parte: sem ela perde-se so a
+            // linha por anuncio. Gravado mesmo nulo - a conversa que voltou por
+            // outro caminho nao fica com o anuncio velho.
+            try {
+              const { error: erroDoCodigo } = await admin
+                .from('whatsapp_conversations')
+                .update({ origem_anuncio_id: origem.anuncioId })
+                .eq('id', conversation.id)
+              if (erroDoCodigo) throw erroDoCodigo
+            } catch (erro) {
+              console.warn('Nao gravei o codigo do anuncio', origem.anuncioId, erro)
+            }
           }
 
           // A Dra. ou o Edu falou com este paciente em cima do aviso: a resposta dele
