@@ -3,6 +3,7 @@ import { Ajuda } from '@/components/Ajuda'
 import {
   AlertTriangle,
   Building2,
+  CalendarClock,
   House,
   Check,
   CalendarOff,
@@ -58,6 +59,8 @@ import {
 import { useDialogos } from '@/components/dialogos-contexto'
 import { avisoDoBloqueio, consultasDeUmDia } from '@/lib/bloqueio-de-dia'
 import { problemaNoWhatsapp, telefoneDoLembrete } from '@/lib/telefone-do-lembrete'
+import { horariosLivresEntre } from '@/lib/prontuario-extra'
+import RemanejarConsulta from '@/sections/agenda/RemanejarConsulta'
 import {
   DURACOES_DO_DOMICILIO,
   consultasNaJanela,
@@ -812,9 +815,29 @@ export default function Agenda({
   })
   const [salvandoConsulta, setSalvandoConsulta] = useState(false)
   const [buscaPaciente, setBuscaPaciente] = useState('')
+  // Mudar data e horario sem cancelar (07/11/2026, ver remanejar.ts).
+  const [remanejando, setRemanejando] = useState(false)
+
+  // Horarios livres de um dia, para remanejar. Vem do mesmo calculo do robo
+  // (horarios_livres_entre), que ja tira o que uma visita em casa ocupou.
+  const horariosDoDia = useCallback(
+    async (dia: string) => {
+      if (!unitId) return []
+      const livres = await horariosLivresEntre(unitId, dia, dia)
+      return [...new Set(livres.map((inicio) => new Date(inicio).toISOString()))].sort()
+    },
+    [unitId],
+  )
+  // Reserva sem paciente tambem ocupa o horario; no aviso de choque ela
+  // aparece como "uma reserva", e nao como "Sem paciente vinculado".
+  const ocupadas = useMemo(
+    () => appointments.map((item) => ({ ...item, patientName: ehReserva(item) ? '' : item.patientName })),
+    [appointments],
+  )
 
   function abrirConsulta(item: Appointment) {
     setEmEdicao(item)
+    setRemanejando(false)
     setBuscaPaciente('')
     setFormConsulta({
       contactName: item.contactName,
@@ -2218,9 +2241,42 @@ export default function Agenda({
                   {emEdicao.rescheduleCount > 0 &&
                     ` Já foi remarcada ${emEdicao.rescheduleCount}x.`}
                 </SheetDescription>
+                {/* Junto da data, que e onde se procura (07/11/2026). So
+                    consulta marcada e ja confirmada: reserva provisoria ainda
+                    nao e consulta, e atendida ou falta ja aconteceu. Visita em
+                    casa fica de fora (ver remanejar.ts). */}
+                {emEdicao.status === 'scheduled' &&
+                  emEdicao.confirmedByClinic &&
+                  !visitas.has(emEdicao.unitId) &&
+                  !remanejando && (
+                    <button
+                      type="button"
+                      onClick={() => setRemanejando(true)}
+                      className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-xl border border-[#2f7f74]/25 bg-[#eef3f2] px-3 py-2 text-[11px] font-extrabold text-[#17564d] transition hover:border-[#2f7f74]/50"
+                    >
+                      <CalendarClock className="h-3.5 w-3.5" />
+                      Mudar data e horário
+                    </button>
+                  )}
               </SheetHeader>
 
               <div className="space-y-5 overflow-y-auto px-5 py-5">
+                {remanejando && (
+                  <RemanejarConsulta
+                    consulta={emEdicao}
+                    ocupadas={ocupadas}
+                    duracaoPadrao={prefs.slotMinutes}
+                    horariosDoDia={horariosDoDia}
+                    onFechar={() => setRemanejando(false)}
+                    onRemanejado={(mensagem) => {
+                      setRemanejando(false)
+                      setEmEdicao(null)
+                      setError('')
+                      setAviso(mensagem)
+                      void carregarUnidade()
+                    }}
+                  />
+                )}
                 {/* Vincular vem primeiro: e o que falta para a consulta virar
                     prontuario e disparar os acompanhamentos. */}
                 <div>

@@ -23,6 +23,8 @@ import { quemAtende } from '../_shared/quem-atende.ts'
 import { montarConteudo } from '../_shared/conteudo.ts'
 import { RegistroDeEventos } from '../_shared/eventos-do-webhook.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
+import { roboRespondeNaConversa } from '../_shared/robo-da-conversa.ts'
+import { bloquearNoWhatsApp, conferirBloqueio } from '../_shared/bloqueio.ts'
 import { textoDaLocalizacao, textoDosContatos } from '../_shared/mensagem-recebida.ts'
 import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
 import { montarAviso } from '../_shared/aviso-da-equipe.ts'
@@ -383,6 +385,49 @@ Deno.serve(async (req) => {
 
           const waId = digits(String(message.from ?? ''))
 
+          // Contato bloqueado pela equipe (07/11/2026, do sistema do Dr.
+          // Marcello; ver _shared/bloqueio.ts): a mensagem e ignorada por
+          // inteiro - sem historico, robo, etiqueta ou aviso no celular.
+          // Bloqueado so na Central (a Meta recusou pelas 24 horas): esta
+          // mensagem abriu as 24 horas, entao tenta de novo no WhatsApp, em
+          // segundo plano.
+          const bloqueio = await conferirBloqueio(async () => {
+            const { data, error } = await admin
+              .from('whatsapp_conversations')
+              .select('id,bloqueado_no_whatsapp')
+              .eq('clinic_id', clinicId)
+              .in('wa_id', variantesDoTelefone(waId))
+              .not('bloqueado_em', 'is', null)
+              .limit(1)
+            if (error) throw error
+            return (data ?? []) as { id: string; bloqueado_no_whatsapp?: boolean | null }[]
+          })
+          if (bloqueio) {
+            console.info(`Contato bloqueado: ${message.type ?? 'mensagem'} do final ${waId.slice(-4)} ignorada`)
+            const token = chaveDoWhatsApp(phoneNumberId)
+            if (!bloqueio.noWhatsApp && token) {
+              const nova = bloquearNoWhatsApp({
+                fetch,
+                versao: Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0',
+                phoneNumberId,
+                token,
+                waId,
+                bloquear: true,
+              }).then(async (meta) => {
+                if (!meta.ok) return
+                const { error } = await admin
+                  .from('whatsapp_conversations')
+                  .update({ bloqueado_no_whatsapp: true })
+                  .eq('id', bloqueio.conversaId)
+                if (error) console.warn('A Meta bloqueou, mas nao consegui gravar', error)
+                else console.info(`Contato do final ${waId.slice(-4)} bloqueado tambem no WhatsApp`)
+              })
+              if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(nova)
+              else await nova
+            }
+            continue
+          }
+
           // A Dra. Patricia respondendo ao aviso do pedido pelo WhatsApp dela
           // (28/10/2026, ver _shared/resposta-ao-alerta.ts): o toque ou o texto
           // dela vai para o paciente, e nao para o robo, que responderia o menu
@@ -547,6 +592,30 @@ Deno.serve(async (req) => {
             convenioEmAndamento =
               (extra as { booking_insurance?: string | null } | null)?.booking_insurance ?? null
           }
+
+          // Robo desligado so nesta conversa pela equipe (07/11/2026, do
+          // sistema do Dr. Marcello; ver _shared/robo-da-conversa.ts). Coluna
+          // nova, lida a parte: sem ela, o robo responde como antes - e o log
+          // diz por que.
+          let roboDesligadoNaConversaEm: string | null = null
+          if (linhaAnterior) {
+            try {
+              const { data: chave, error: erroDaChave } = await admin
+                .from('whatsapp_conversations')
+                .select('robo_desligado_em')
+                .eq('clinic_id', clinicId)
+                .eq('wa_id', waId)
+                .maybeSingle()
+              if (erroDaChave) throw erroDaChave
+              roboDesligadoNaConversaEm = (chave as { robo_desligado_em?: string | null } | null)?.robo_desligado_em ?? null
+            } catch (erro) {
+              console.warn('Sem whatsapp_conversations.robo_desligado_em; o robo responde nesta conversa como antes', erro)
+            }
+          }
+          const roboLigadoAqui = roboRespondeNaConversa({
+            ligadoNaClinica: settings.whatsapp_autoreply_enabled,
+            desligadoNaConversaEm: roboDesligadoNaConversaEm,
+          })
 
           // Etapa vencida: depois de 24h parada, a conversa recomeca do zero.
           //
@@ -822,6 +891,32 @@ Deno.serve(async (req) => {
             }
           }
 
+          // O paciente citou uma mensagem nossa (o "responder" do WhatsApp,
+          // 07/11/2026, do sistema do Dr. Marcello): a tela mostra a citacao em
+          // cima do balao. Coluna nova, gravada a parte - sem ela, so a citacao
+          // some.
+          const idCitado = message.context?.id
+          if (idCitado && externalId) {
+            try {
+              const { data: citada } = await admin
+                .from('whatsapp_messages')
+                .select('id')
+                .eq('conversation_id', conversation.id)
+                .eq('external_message_id', idCitado)
+                .maybeSingle()
+              if (citada?.id) {
+                const { error: erroCitacao } = await admin
+                  .from('whatsapp_messages')
+                  .update({ responde_a: citada.id })
+                  .eq('conversation_id', conversation.id)
+                  .eq('external_message_id', externalId)
+                if (erroCitacao) throw erroCitacao
+              }
+            } catch (erro) {
+              console.warn('Nao gravei qual mensagem o paciente citou', erro)
+            }
+          }
+
           // A Dra. ou o Edu falou com este paciente em cima do aviso: a resposta dele
           // vai ao celular, e nao so a Central (30/10/2026, ver repassarAoCelular).
           // Em segundo plano: o paciente nao espera por isso. A leitura fica fora,
@@ -920,7 +1015,7 @@ Deno.serve(async (req) => {
           // acabou de dizer que precisa de ajuda.
           // Mensagem que a Meta nao entrega o conteudo: o robo nao responde. Costuma
           // vir de outra empresa (codigo de verificacao) e a resposta falha.
-          if (!optedOut && !respondeuLembrete && !isWell && !pediuAjuda && message.type !== 'unsupported' && settings.whatsapp_autoreply_enabled) {
+          if (!optedOut && !respondeuLembrete && !isWell && !pediuAjuda && message.type !== 'unsupported' && roboLigadoAqui) {
             const opcoesDoRobo: Parameters<typeof tratarConversa>[0] = {
               admin,
               clinicId,

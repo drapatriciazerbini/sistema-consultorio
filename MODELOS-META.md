@@ -1,6 +1,6 @@
 # Modelos da Meta, consultório da Dra. Patrícia Zerbini
 
-Sete modelos para submeter no WhatsApp Manager, em Ferramentas de conta,
+Dez modelos para submeter no WhatsApp Manager, em Ferramentas de conta,
 Modelos de mensagem, Criar modelo. Idioma **Português (BR)**, categoria
 **Utilidade** em todos. Os modelos 6 e 7 (27/10/2026) são os do aviso no
 WhatsApp pessoal da Dra. Patrícia e ainda não foram submetidos.
@@ -318,6 +318,41 @@ Sem rodapé e sem botões.
 Enquanto este modelo não estiver aprovado, o aviso pelo WhatsApp não sai, e o
 log diz isso. A notificação no celular da equipe e a faixa vermelha na tela
 de Respostas (aba Instagram) funcionam desde já, sem modelo.
+
+---
+
+## 10. documento_do_consultorio
+
+Nome: `documento_do_consultorio`
+Categoria: Utilidade
+Idioma: Português (BR)
+
+Para mandar receita, 2ª via, atestado, pedido de exame ou outro documento em
+PDF quando a janela de 24 horas já fechou (07/11/2026, igual ao do sistema do
+Dr. Marcello). Na tela de conversas aparece como "Mandar documento", embaixo
+da resposta por modelo, e só vai para telefone de paciente cadastrado.
+
+**Cabeçalho**: Mídia, tipo **Documento**. Na criação a Meta pede um PDF de
+exemplo: qualquer PDF sem dado de paciente (uma página com "Receita de
+exemplo" basta).
+
+**Corpo**
+
+```
+Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini. Segue em anexo {{2}} de {{3}}. Se tiver alguma dúvida, é só responder por aqui.
+```
+
+Sem rodapé e sem botões.
+
+**Exemplos que a Meta pede**
+
+- {{1}} = Ana
+- {{2}} = a 2ª via da receita
+- {{3}} = Maria
+
+Enquanto este modelo não estiver aprovado, o envio volta com a mensagem "O
+modelo ainda não está aprovado na Meta" e a conversa mostra o documento com a
+etiqueta "falhou". Nada sai em silêncio.
 
 ---
 

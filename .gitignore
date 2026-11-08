@@ -89,3 +89,12 @@ tests/respostas-da-equipe.build.mjs
 tests/gastos-meta.build.mjs
 tests/gastos-google.build.mjs
 tests/campanha.build.mjs
+tests/documento.build.mjs
+tests/remanejar.build.mjs
+tests/lembrete-envio.build.mjs
+tests/situacao-da-confirmacao.build.mjs
+tests/robo-da-conversa.build.mjs
+tests/bloqueio.build.mjs
+tests/bom-dia-da-equipe.build.mjs
+tests/depois-do-convenio.build.mjs
+tests/cadastro-do-paciente.build.mjs

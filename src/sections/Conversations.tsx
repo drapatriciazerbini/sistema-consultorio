@@ -24,9 +24,18 @@ import {
   List as ListIcon,
   Lock,
   MoreVertical,
+  Pencil,
+  Reply,
+  Power,
+  Ban,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useDialogos } from '@/components/dialogos-contexto'
+import CadastroNoChat from '@/components/CadastroNoChat'
+import type { Patient } from '@/types/patient'
+import type { PatientDraft } from '@/lib/store'
 import { SeloDaOrigem } from '@/sections/Campanha'
+import DocumentoForaDaJanela from '@/sections/DocumentoForaDaJanela'
 import { criarNota, listarNotas, type NotaDaConversa } from '@/lib/notas-da-conversa'
 import { linhaDoTempo } from '@/lib/linha-do-tempo'
 import { respostasDaEquipe, type OpcaoDaEquipe } from '@/lib/respostas-da-equipe'
@@ -62,7 +71,16 @@ import {
   type Conversation,
   type ConversationMessage,
   type ResumoDoPaciente,
+  consultasParaConfirmar,
+  repetirLembrete,
+  registrarPresencaConfirmada,
+  type ConsultaParaConfirmar,
+  renomearConversa,
+  desligarRoboNaConversa,
+  bloquearContato,
+  desligarConversaDoPaciente,
 } from '@/lib/repository'
+import FaixaDaConsulta from '@/sections/FaixaDaConsulta'
 
 const STATUS_LABEL: Record<Conversation['status'], string> = {
   open: 'Em aberto',
@@ -518,12 +536,75 @@ function imagemDaAreaDeTransferencia(dados: DataTransfer | null): File | null {
   return null
 }
 
+/*
+ * Responder citando, como o "responder" do WhatsApp (07/11/2026, do sistema do
+ * Dr. Marcello). Sem a citacao, "pode ser as 10h" respondido no meio de tres
+ * perguntas do paciente deixava a duvida de a qual delas a equipe respondeu.
+ */
+
+/** O assunto da mensagem citada, numa linha. */
+function resumoDaCitada(m: ConversationMessage) {
+  if (m.anexoUrl && (!m.body || /^\[/.test(m.body))) return m.anexoMime?.startsWith('image/') ? '📷 Foto' : '📎 Arquivo'
+  return (m.body || (m.templateName ? `[modelo: ${m.templateName}]` : '')).replace(/\s+/g, ' ').slice(0, 160)
+}
+
+/** A citacao em cima do balao, como no WhatsApp. */
+function Citacao({ mensagem }: { mensagem: ConversationMessage }) {
+  const nossa = mensagem.direction === 'outbound'
+  return (
+    <div className={`mb-1 rounded-[6px] border-l-4 bg-black/[0.05] px-2 py-1 ${nossa ? 'border-[#06cf9c]' : 'border-[#53bdeb]'}`}>
+      <p className={`text-[11.5px] font-bold ${nossa ? 'text-[#06a17a]' : 'text-[#1f8fc4]'}`}>{nossa ? 'Consultório' : 'Paciente'}</p>
+      <p className="line-clamp-2 text-[12.5px] leading-[16px] text-[#54656f]">{resumoDaCitada(mensagem)}</p>
+    </div>
+  )
+}
+
+/** "Respondendo a..." em cima da caixa de texto, com o X para desistir. */
+function BarraDaCitacao({ mensagem, onTirar }: { mensagem: ConversationMessage; onTirar: () => void }) {
+  return (
+    <div className="mt-2 flex items-start gap-2 rounded-[12px] bg-[#f0f2f5] p-1.5">
+      <div className="min-w-0 flex-1">
+        <Citacao mensagem={mensagem} />
+      </div>
+      <button
+        type="button"
+        onClick={onTirar}
+        title="Não citar esta mensagem"
+        aria-label="Não citar esta mensagem"
+        className="shrink-0 rounded-full p-1 text-[#54656f] hover:bg-white"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
+/**
+ * O "responder" ao lado do balao. Aparece ao passar o mouse (no celular, ao
+ * tocar no balao), para nao encher a conversa de botoes.
+ */
+function BotaoResponder({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Responder esta mensagem (o paciente vê a citação)"
+      aria-label="Responder esta mensagem"
+      className="shrink-0 rounded-full bg-white/90 p-1.5 text-[#54656f] opacity-0 shadow-[0_1px_2px_rgba(12,26,23,.15)] transition focus:opacity-100 group-hover:opacity-100"
+    >
+      <Reply className="h-3.5 w-3.5" />
+    </button>
+  )
+}
+
 export default function Conversations({
   focoPatientId,
   focoConversa,
   onCadastrarContato,
   compacto = false,
   onAlternarCompacto,
+  pacientes,
+  onSalvarCadastro,
 }: {
   focoPatientId?: string | null
   /** Conversa tocada na notificacao do celular. */
@@ -540,6 +621,13 @@ export default function Conversations({
    */
   compacto?: boolean
   onAlternarCompacto?: () => void
+  /**
+   * Cadastros ativos e o mesmo salvar de Pacientes (07/11/2026, do sistema do
+   * Dr. Marcello): o nome do paciente no cabecalho abre os dados cadastrais
+   * num popup, sem sair do chat.
+   */
+  pacientes?: Patient[]
+  onSalvarCadastro?: (id: string, cadastro: PatientDraft) => Promise<void>
 }) {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [busca, setBusca] = useState('')
@@ -581,11 +669,24 @@ export default function Conversations({
   const [loading, setLoading] = useState(true)
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [error, setError] = useState('')
+  const { perguntar } = useDialogos()
   const [clinicId, setClinicId] = useState<string | null>(null)
   const [prontas, setProntas] = useState<OpcaoDaEquipe<RespostaPronta>[]>([])
   // Arquivo escolhido para ir junto da proxima resposta (24/09/2026).
   const [arquivo, setArquivo] = useState<File | null>(null)
   const seletorDeArquivo = useRef<HTMLInputElement>(null)
+  // Mensagem citada na proxima resposta, como o "responder" do WhatsApp
+  // (07/11/2026, do sistema do Dr. Marcello).
+  const [respondendo, setRespondendo] = useState<ConversationMessage | null>(null)
+  // Renomear a conversa (07/11/2026, do sistema do Dr. Marcello): la, a
+  // conversa de um credenciamento aparecia com o nome de um paciente, e so
+  // dava para arrumar no banco. Aqui serve tambem para o numero de um
+  // familiar ou cuidador que fala por mais de um paciente.
+  const [renomeando, setRenomeando] = useState(false)
+  // Id do paciente com a ficha cadastral aberta no popup (ver CadastroNoChat).
+  const [fichaAberta, setFichaAberta] = useState<string | null>(null)
+  const [nomeNovo, setNomeNovo] = useState('')
+  const [salvandoNome, setSalvandoNome] = useState(false)
   // Audio gravado na tela (05/11/2026): toca aqui antes do Enviar, para quem
   // gravou ouvir e poder desistir. O endereco local morre com o arquivo.
   const audioGravado = useMemo(() => (arquivo?.type.startsWith('audio/') ? URL.createObjectURL(arquivo) : null), [arquivo])
@@ -623,6 +724,8 @@ export default function Conversations({
     infoText: '',
   })
   const [autoReplyAberto, setAutoReplyAberto] = useState(false)
+  // Erro ao ligar ou desligar o robo da conversa aberta, ao lado do botao.
+  const [avisoRobo, setAvisoRobo] = useState('')
   const [salvandoAuto, setSalvandoAuto] = useState(false)
   const [avisoAuto, setAvisoAuto] = useState('')
   const [destravando, setDestravando] = useState<string | null>(null)
@@ -801,6 +904,11 @@ export default function Conversations({
   // que autoriza a tela a descer com a conversa ja aberta.
   const acabamosDeEnviar = useRef(false)
   const [resumo, setResumo] = useState<ResumoDoPaciente | null>(null)
+  // Faixa de confirmacao da consulta (07/11/2026, do sistema do Dr. Marcello):
+  // ver consultasParaConfirmar.
+  const [consultasDaConversa, setConsultasDaConversa] = useState<ConsultaParaConfirmar[]>([])
+  const [lembreteEmEnvio, setLembreteEmEnvio] = useState<string | null>(null)
+  const [avisoDoLembrete, setAvisoDoLembrete] = useState<{ texto: string; erro: boolean } | null>(null)
   selectedIdRef.current = selectedId
 
   const load = useCallback(async (silencioso = false) => {
@@ -960,8 +1068,12 @@ export default function Conversations({
   async function openConversation(conversation: Conversation) {
     setSelectedId(conversation.id)
     selectedIdRef.current = conversation.id
-    // Arquivo escolhido numa conversa nao pode ir parar em outra - nem a nota.
+    // Arquivo escolhido numa conversa nao pode ir parar em outra - nem a nota,
+    // nem a citacao, nem o nome que estava sendo editado.
     setArquivo(null)
+    setRespondendo(null)
+    setRenomeando(false)
+    setAvisoRobo('')
     setNotas([])
     setErroDasNotas('')
     setEscrevendoNota(false)
@@ -1008,18 +1120,25 @@ export default function Conversations({
     setEnviando(true)
     setError('')
     try {
+      // A mensagem citada vai na primeira que sair (07/11/2026, do sistema do
+      // Dr. Marcello): e ela que responde, a seguinte so completa.
+      const citada = respondendo?.id ?? null
       // Com arquivo, o texto vira a legenda dele. Audio nao tem legenda na
       // Meta: o texto vai antes, em mensagem propria, e o audio em seguida.
       if (arquivo?.type.startsWith('audio/')) {
         if (texto) {
-          await sendConversationReply(selectedId, texto)
+          await sendConversationReply(selectedId, texto, false, citada)
+          // O texto ja foi, com a citacao: se o audio falhar, tentar de novo
+          // nao pode repetir nenhum dos dois.
           setResposta('')
+          setRespondendo(null)
         }
-        await sendConversationFile(selectedId, arquivo, '')
-      } else if (arquivo) await sendConversationFile(selectedId, arquivo, texto)
-      else await sendConversationReply(selectedId, texto)
+        await sendConversationFile(selectedId, arquivo, '', texto ? null : citada)
+      } else if (arquivo) await sendConversationFile(selectedId, arquivo, texto, citada)
+      else await sendConversationReply(selectedId, texto, false, citada)
       setResposta('')
       setArquivo(null)
+      setRespondendo(null)
       acabamosDeEnviar.current = true
       // O tempo real ja traz a mensagem nova, mas recarregar aqui evita a
       // sensacao de "sumiu" caso a assinatura esteja fora do ar.
@@ -1107,6 +1226,20 @@ export default function Conversations({
     }
   }
 
+  // Documento com a janela fechada (07/11/2026, do sistema do Dr. Marcello): o
+  // componente envia; aqui so recarrega a conversa, como depois da resposta
+  // por modelo.
+  async function aposDocumento() {
+    if (!selectedId) return
+    acabamosDeEnviar.current = true
+    setMessages(await listConversationMessages(selectedId))
+    void load(true)
+  }
+  // Primeiro nome do paciente da conversa, para a frase do documento. Sem
+  // cadastro fica vazio e a equipe escreve (o nome do perfil pode ser o da filha).
+  const pacienteDoDocumento = (conversa: Conversation | null) =>
+    conversa?.patientId ? (conversa.patientName.trim().split(/\s+/)[0] ?? '') : ''
+
   async function salvarAutoReply() {
     if (!clinicId || salvandoAuto) return
     setSalvandoAuto(true)
@@ -1165,6 +1298,130 @@ export default function Conversations({
       )
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível concluir a conversa.')
+    }
+  }
+
+  // Robo so desta conversa (07/11/2026, do sistema do Dr. Marcello). Grava na
+  // hora e mostra o que ficou no banco; erro aparece ao lado do botao.
+  const [trocandoRoboDaConversa, setTrocandoRoboDaConversa] = useState(false)
+  async function alternarRoboDaConversa(conversa: Conversation) {
+    if (trocandoRoboDaConversa) return
+    const desligar = !conversa.roboDesligado
+    setTrocandoRoboDaConversa(true)
+    setAvisoRobo('')
+    try {
+      const ficou = await desligarRoboNaConversa(conversa.id, desligar)
+      setConversations((atual) => atual.map((c) => (c.id === conversa.id ? { ...c, roboDesligado: ficou } : c)))
+      if (ficou !== desligar) setAvisoRobo('O banco não aceitou a mudança. Tente de novo.')
+    } catch (cause) {
+      setAvisoRobo(cause instanceof Error ? cause.message : 'Não foi possível mudar o robô desta conversa.')
+    } finally {
+      setTrocandoRoboDaConversa(false)
+    }
+  }
+
+  // Bloquear contato (07/11/2026, do sistema do Dr. Marcello; ver
+  // supabase/functions/_shared/bloqueio.ts). Pergunta antes: o efeito e grande
+  // (o numero some da Central e, no WhatsApp, nao consegue mais escrever) e o
+  // botao fica ao lado de outros.
+  const [trocandoBloqueio, setTrocandoBloqueio] = useState(false)
+  const [avisoBloqueio, setAvisoBloqueio] = useState<{ conversaId: string; texto: string } | null>(null)
+  async function alternarBloqueio(conversa: Conversation) {
+    if (trocandoBloqueio) return
+    const bloquear = !conversa.bloqueado
+    const quem = conversa.patientName !== 'Contato sem cadastro' ? `${conversa.patientName} (${conversa.phone})` : conversa.phone
+    const pergunta = bloquear
+      ? `Bloquear ${quem}?\n\nO WhatsApp deixa de entregar mensagens e ligações deste número para a clínica. A Central também passa a ignorar o que vier dele: o robô não responde e ninguém recebe aviso.\n\nDá para desbloquear depois, neste mesmo botão.`
+      : `Desbloquear ${quem}?\n\nO número volta a conseguir escrever para a clínica, e o robô volta a responder.`
+    if (!window.confirm(pergunta)) return
+    setTrocandoBloqueio(true)
+    setAvisoBloqueio(null)
+    try {
+      const ficou = await bloquearContato(conversa.id, bloquear)
+      setConversations((atual) =>
+        atual.map((c) =>
+          c.id === conversa.id
+            ? {
+                ...c,
+                bloqueado: ficou.bloqueado,
+                bloqueadoNoWhatsApp: ficou.noWhatsApp,
+                // O servidor conclui a conversa ao bloquear; a lista mostra ja.
+                ...(ficou.bloqueado ? { status: 'resolved' as const, needsAttention: false, attentionReason: null, unreadCount: 0 } : {}),
+              }
+            : c,
+        ),
+      )
+      // Bloqueado so na Central: dizer por que, e o que ainda acontece. Falha
+      // que so aparece no banco foi o que custou semanas aqui duas vezes (o
+      // lembrete da vespera e o robo em laco, ver CLAUDE.md).
+      if (ficou.bloqueado && !ficou.noWhatsApp) {
+        setAvisoBloqueio({
+          conversaId: conversa.id,
+          texto: `Bloqueado só na Central. ${ficou.motivo ?? ''} O WhatsApp ainda deixa este número escrever e ligar; a Central tenta bloquear de novo quando ele escrever.`,
+        })
+      }
+    } catch (cause) {
+      setAvisoBloqueio({
+        conversaId: conversa.id,
+        texto: cause instanceof Error ? cause.message : 'Não foi possível mudar o bloqueio deste contato.',
+      })
+    } finally {
+      setTrocandoBloqueio(false)
+    }
+  }
+
+  async function salvarNome(conversa: Conversation, nome: string) {
+    setSalvandoNome(true)
+    try {
+      await renomearConversa(conversa.id, nome)
+      const limpo = nome.trim().replace(/\s+/g, ' ')
+      setConversations((atual) =>
+        atual.map((item) =>
+          item.id === conversa.id
+            ? {
+                ...item,
+                nomePersonalizado: limpo || null,
+                patientName: limpo || item.nomeDoCadastro || 'Contato sem cadastro',
+              }
+            : item,
+        ),
+      )
+      setRenomeando(false)
+    } catch (causa) {
+      setError(causa instanceof Error ? causa.message : 'Não foi possível renomear a conversa.')
+    } finally {
+      setSalvandoNome(false)
+    }
+  }
+
+  async function desligarDoCadastro(conversa: Conversation) {
+    const doCadastro = conversa.nomeDoCadastro || 'o paciente'
+    const sim = await perguntar({
+      titulo: `Este número não é de ${doCadastro}?`,
+      detalhe:
+        `A conversa deixa de aparecer como de ${doCadastro} e o histórico dele deixa de contar estas mensagens. ` +
+        `Corrija também o telefone no cadastro de ${doCadastro}: com o número antigo lá, a próxima mensagem liga de novo.`,
+      confirmar: 'Desligar do cadastro',
+      cancelar: 'Manter',
+    })
+    if (!sim) return
+    try {
+      await desligarConversaDoPaciente(conversa.id)
+      setConversations((atual) =>
+        atual.map((item) =>
+          item.id === conversa.id
+            ? {
+                ...item,
+                patientId: null,
+                nomeDoCadastro: null,
+                patientName: item.nomePersonalizado || 'Contato sem cadastro',
+              }
+            : item,
+        ),
+      )
+      setResumo(null)
+    } catch (causa) {
+      setError(causa instanceof Error ? causa.message : 'Não foi possível desligar a conversa do cadastro.')
     }
   }
 
@@ -1265,6 +1522,32 @@ export default function Conversations({
   )
   const selected = conversations.find((item) => item.id === selectedId) ?? null
 
+  // O cadastro da conversa aberta, quando existe e esta ativo. Arquivado ou
+  // ainda carregando: o nome fica so como texto, sem prometer uma ficha.
+  const cadastroDaConversa =
+    (selected?.patientId && onSalvarCadastro && pacientes?.find((item) => item.id === selected.patientId)) || null
+
+  // Trocou de conversa (aviso do celular, por exemplo): a ficha fecha e nao
+  // reabre sozinha ao voltar.
+  useEffect(() => {
+    setFichaAberta(null)
+  }, [selectedId])
+
+  async function salvarCadastroDaConversa(id: string, cadastro: PatientDraft) {
+    if (!onSalvarCadastro) return
+    await onSalvarCadastro(id, cadastro)
+    // O nome da conversa vem do cadastro: sem isto o cabecalho e a lista
+    // seguiriam com o nome antigo ate recarregar a pagina. Nome dado pela
+    // equipe na conversa continua mandando.
+    setConversations((atual) =>
+      atual.map((item) =>
+        item.patientId === id
+          ? { ...item, nomeDoCadastro: cadastro.nome, patientName: item.nomePersonalizado || cadastro.nome }
+          : item,
+      ),
+    )
+  }
+
   // Pessoa sem cadastro que ainda nao leu o valor (27/10/2026, caso de
   // 19/10 - ver lib/valores-enviados). So para quem nao e paciente: quem ja
   // tem cadastro ja passou por uma consulta paga.
@@ -1304,6 +1587,60 @@ export default function Conversations({
       vivo = false
     }
   }, [clinicId, selected?.patientId])
+
+  // Consultas marcadas deste contato, para a faixa de confirmacao. Falhando, a
+  // faixa so nao aparece: a conversa segue inteira.
+  const carregarConsultasDaConversa = useCallback(async () => {
+    const conversa = selectedIdRef.current
+    if (!clinicId || !conversa) {
+      setConsultasDaConversa([])
+      return
+    }
+    try {
+      const lista = await consultasParaConfirmar(clinicId, conversa, selected?.patientId ?? null)
+      if (selectedIdRef.current === conversa) setConsultasDaConversa(lista)
+    } catch (causa) {
+      console.warn('Nao consegui ler as consultas da conversa', causa)
+      if (selectedIdRef.current === conversa) setConsultasDaConversa([])
+    }
+  }, [clinicId, selected?.patientId])
+
+  useEffect(() => {
+    setConsultasDaConversa([])
+    setAvisoDoLembrete(null)
+    void carregarConsultasDaConversa()
+  }, [selectedId, carregarConsultasDaConversa])
+
+  async function repetirConfirmacao(consulta: ConsultaParaConfirmar) {
+    if (!selectedId) return
+    setLembreteEmEnvio(consulta.id)
+    setAvisoDoLembrete(null)
+    try {
+      await repetirLembrete(selectedId, consulta.id)
+      setAvisoDoLembrete({ texto: 'Lembrete enviado. A resposta do paciente aparece aqui na conversa.', erro: false })
+      setMessages(await listConversationMessages(selectedId))
+    } catch (causa) {
+      setAvisoDoLembrete({ texto: causa instanceof Error ? causa.message : 'Não foi possível mandar o lembrete.', erro: true })
+    } finally {
+      setLembreteEmEnvio(null)
+      void carregarConsultasDaConversa()
+    }
+  }
+
+  // "Ja confirmou": por ligacao, ou com palavra que o robo nao reconheceu. E o
+  // que para a repeticao automatica do lembrete.
+  async function marcarPresencaConfirmada(consulta: ConsultaParaConfirmar) {
+    setLembreteEmEnvio(consulta.id)
+    setAvisoDoLembrete(null)
+    try {
+      await registrarPresencaConfirmada(consulta.id, true)
+    } catch (causa) {
+      setAvisoDoLembrete({ texto: causa instanceof Error ? causa.message : 'Não foi possível registrar.', erro: true })
+    } finally {
+      setLembreteEmEnvio(null)
+      void carregarConsultasDaConversa()
+    }
+  }
 
 
   /**
@@ -1818,10 +2155,13 @@ export default function Conversations({
               const semCadastro = !conversation.patientId
               // Sem cadastro, o nome do WhatsApp e melhor do que "Contato sem
               // cadastro" - mas vem com etiqueta, porque e o apelido que a
-              // pessoa escolheu, nao um nome conferido pela clinica.
-              const titulo = semCadastro
-                ? conversation.profileName || 'Contato sem cadastro'
-                : conversation.patientName
+              // pessoa escolheu, nao um nome conferido pela clinica. Nome dado
+              // pela equipe (Renomear, 07/11/2026) vence os dois.
+              const titulo = conversation.nomePersonalizado
+                ? conversation.nomePersonalizado
+                : semCadastro
+                  ? conversation.profileName || 'Contato sem cadastro'
+                  : conversation.patientName
 
               // Concluida encolhe. A altura do cartao passa a carregar o
               // significado: pendente e cartao inteiro, concluida e uma linha
@@ -1849,12 +2189,21 @@ export default function Conversations({
                     <button
                       type="button"
                       onClick={() => void openConversation(conversation)}
-                      title="Concluída. Toque para abrir a conversa."
+                      title={conversation.bloqueado ? 'Contato bloqueado. Toque para abrir a conversa.' : 'Concluída. Toque para abrir a conversa.'}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
                     >
-                      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#237128] text-white">
-                        <Check className="h-2.5 w-2.5" />
-                      </span>
+                      {/* Bloqueado tambem encolhe (o servidor conclui ao
+                          bloquear), mas com o sinal vermelho: um check verde
+                          diria que esta tudo resolvido com a pessoa. */}
+                      {conversation.bloqueado ? (
+                        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#b42318] text-white">
+                          <Ban className="h-2.5 w-2.5" />
+                        </span>
+                      ) : (
+                        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#237128] text-white">
+                          <Check className="h-2.5 w-2.5" />
+                        </span>
+                      )}
                       <span className="truncate text-[11px] font-bold text-[#5b6b78]">{titulo}</span>
                     </button>
                     {/* Sem cadastro, a acao continua a mao - compacta. Sumir com
@@ -1954,6 +2303,15 @@ export default function Conversations({
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     {/* De onde veio (19/10/2026): ver a aba Google da Visao geral. */}
                     {conversation.origemAnuncio && <SeloDaOrigem origem={conversation.origemAnuncio} />}
+                    {conversation.bloqueado ? (
+                      <span className="rounded-full bg-[#fde8e8] px-2 py-0.5 text-[9px] font-extrabold text-[#b42318]">
+                        Bloqueado
+                      </span>
+                    ) : conversation.roboDesligado && (
+                      <span className="rounded-full bg-[#fde8e8] px-2 py-0.5 text-[9px] font-extrabold text-[#b42318]">
+                        Robô desligado
+                      </span>
+                    )}
                     {semCadastro && (
                       <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-extrabold text-slate-500">
                         {conversation.profileName ? 'Nome do WhatsApp' : 'Sem cadastro'}
@@ -2097,10 +2455,42 @@ export default function Conversations({
                   </button>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#193d36]/[0.07] pb-3">
-                  <div>
-                    <p className="text-sm font-extrabold text-[#193d36]">{selected.patientName}</p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      {/* Com cadastro, o nome abre a ficha (07/11/2026, do
+                          sistema do Dr. Marcello): conferir ou corrigir um dado
+                          sem sair da conversa. Sem cadastro continua texto; o
+                          caminho e o "Cadastrar como paciente" da lista. */}
+                      {cadastroDaConversa ? (
+                        <button
+                          type="button"
+                          onClick={() => setFichaAberta(cadastroDaConversa.id)}
+                          title="Abrir os dados cadastrais do paciente"
+                          className="rounded-md text-left text-sm font-extrabold text-[#193d36] underline decoration-[#2f7f74]/30 decoration-dotted underline-offset-4 transition hover:text-[#17564d] hover:decoration-[#2f7f74] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2f7f74]/40"
+                        >
+                          {selected.nomePersonalizado || selected.patientName}
+                        </button>
+                      ) : (
+                        <p className="text-sm font-extrabold text-[#193d36]">
+                          {selected.nomePersonalizado || (selected.patientId ? selected.patientName : selected.profileName || selected.patientName)}
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNomeNovo(selected.nomePersonalizado || (selected.patientId ? selected.patientName : selected.profileName))
+                          setRenomeando((aberto) => !aberto)
+                        }}
+                        title="Renomear esta conversa (o cadastro do paciente não muda)"
+                        aria-label="Renomear conversa"
+                        className="rounded-lg p-1 text-slate-400 transition hover:bg-[#eef3f2] hover:text-[#2f7f74]"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                     <p className="text-[10px] font-bold text-slate-400">
                       {selected.phone} · {STATUS_LABEL[selected.status]}
+                      {selected.nomePersonalizado && selected.nomeDoCadastro && ` · cadastro: ${selected.nomeDoCadastro}`}
                     </p>
                     {/* Com quem a equipe esta falando, em quatro numeros. Quem
                         ja veio cinco vezes e quem cancelou tres seguidas
@@ -2130,7 +2520,52 @@ export default function Conversations({
                       </div>
                     )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-col items-end gap-1.5">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                  {/* Bloqueado, o robo nao tem o que responder: o botao dele
+                      sai para nao sugerir que ainda faz diferenca. */}
+                  {!selected.bloqueado && (
+                  <button
+                    type="button"
+                    onClick={() => void alternarRoboDaConversa(selected)}
+                    disabled={trocandoRoboDaConversa}
+                    title={
+                      selected.roboDesligado
+                        ? 'O robô volta a responder este paciente (menu, agendamento e atendente com IA)'
+                        : 'Só este paciente deixa de receber respostas do robô; as outras conversas seguem normais'
+                    }
+                    className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[10px] font-extrabold transition disabled:opacity-60 ${
+                      selected.roboDesligado
+                        ? 'bg-[#2f855a] text-white hover:bg-[#276749]'
+                        : 'border border-[#f3b4b4] bg-white text-[#b42318] hover:bg-[#fde8e8]'
+                    }`}
+                  >
+                    <Power className="h-3.5 w-3.5" />
+                    {trocandoRoboDaConversa
+                      ? 'Aguarde...'
+                      : selected.roboDesligado
+                        ? 'Religar robô nesta conversa'
+                        : 'Desligar robô nesta conversa'}
+                  </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void alternarBloqueio(selected)}
+                    disabled={trocandoBloqueio}
+                    title={
+                      selected.bloqueado
+                        ? 'O número volta a conseguir escrever para a clínica, e o robô volta a responder'
+                        : 'O número para de conseguir escrever e ligar para a clínica, e a Central ignora o que vier dele'
+                    }
+                    className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-[10px] font-extrabold transition disabled:opacity-60 ${
+                      selected.bloqueado
+                        ? 'border-[#b42318] bg-[#b42318] text-white hover:bg-[#912018]'
+                        : 'border-[#193d36]/10 bg-white text-slate-500 hover:border-[#f3b4b4] hover:bg-[#fde8e8] hover:text-[#b42318]'
+                    }`}
+                  >
+                    <Ban className="h-3.5 w-3.5" />
+                    {trocandoBloqueio ? 'Aguarde...' : selected.bloqueado ? 'Desbloquear contato' : 'Bloquear contato'}
+                  </button>
                   {(!selected.origemAnuncio || selected.origemAnuncio === 'google') && (
                     <button
                       type="button"
@@ -2174,7 +2609,105 @@ export default function Conversations({
                     </button>
                   )}
                   </div>
+                  {selected.bloqueado ? (
+                    <span className="rounded-full bg-[#fde8e8] px-2.5 py-0.5 text-[9px] font-extrabold text-[#b42318]">
+                      {selected.bloqueadoNoWhatsApp
+                        ? 'Contato bloqueado: o WhatsApp não entrega mais nada deste número'
+                        : 'Bloqueado só na Central: o robô e os avisos ignoram este número'}
+                    </span>
+                  ) : selected.roboDesligado && (
+                    <span className="rounded-full bg-[#fde8e8] px-2.5 py-0.5 text-[9px] font-extrabold text-[#b42318]">
+                      Robô desligado: só a equipe responde este paciente
+                    </span>
+                  )}
+                  {avisoBloqueio?.conversaId === selected.id && (
+                    <span className="max-w-[420px] text-right text-[10px] font-bold text-[#b42318]">{avisoBloqueio.texto}</span>
+                  )}
+                  {avisoRobo && <span className="text-[10px] font-bold text-[#b42318]">{avisoRobo}</span>}
+                  </div>
                 </div>
+
+                {renomeando && (
+                  <form
+                    className="mt-3 rounded-[14px] border border-[#2f7f74]/25 bg-[#eef3f2] p-3"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      void salvarNome(selected, nomeNovo)
+                    }}
+                  >
+                    <label className="text-[10px] font-extrabold text-[#17564d]" htmlFor="nome-da-conversa">
+                      Nome desta conversa
+                    </label>
+                    <p className="text-[10px] font-semibold text-slate-500">
+                      Muda só o que aparece aqui na Central. O cadastro do paciente continua como está.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <input
+                        id="nome-da-conversa"
+                        value={nomeNovo}
+                        onChange={(e) => setNomeNovo(e.target.value)}
+                        maxLength={120}
+                        autoFocus
+                        placeholder="Ex.: Ana (filha da Dona Maria)"
+                        className="min-w-[220px] flex-1 rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-[12px] outline-none focus:border-[#2f7f74]"
+                      />
+                      <button
+                        type="submit"
+                        disabled={salvandoNome || !nomeNovo.trim()}
+                        className="rounded-xl bg-[#17564d] px-3.5 py-2 text-[10px] font-extrabold text-white disabled:opacity-40"
+                      >
+                        {salvandoNome ? 'Salvando...' : 'Salvar nome'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRenomeando(false)}
+                        className="rounded-xl border border-[#193d36]/10 bg-white px-3.5 py-2 text-[10px] font-bold text-slate-500"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                      {selected.nomePersonalizado && (
+                        <button
+                          type="button"
+                          disabled={salvandoNome}
+                          onClick={() => void salvarNome(selected, '')}
+                          className="text-[10px] font-extrabold text-[#2f7f74] underline-offset-2 hover:underline disabled:opacity-40"
+                        >
+                          Voltar ao nome do {selected.patientId ? 'cadastro' : 'WhatsApp'}
+                        </button>
+                      )}
+                      {/* O nome errado quase sempre vem do telefone casado
+                          com o paciente errado: o numero de um familiar ficou
+                          no cadastro de outro paciente. Renomear sozinho
+                          deixaria o historico dele misturado com o do outro. */}
+                      {selected.patientId && (
+                        <button
+                          type="button"
+                          onClick={() => void desligarDoCadastro(selected)}
+                          className="text-[10px] font-extrabold text-[#b42318] underline-offset-2 hover:underline"
+                        >
+                          Este número não é de {selected.nomeDoCadastro || selected.patientName}: desligar do cadastro
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                )}
+
+                {consultasDaConversa.map((consulta) => (
+                  <FaixaDaConsulta
+                    key={consulta.id}
+                    consulta={consulta}
+                    enviando={lembreteEmEnvio === consulta.id}
+                    onRepetir={() => void repetirConfirmacao(consulta)}
+                    onConfirmada={() => void marcarPresencaConfirmada(consulta)}
+                  />
+                ))}
+                {avisoDoLembrete && (
+                  <p className={`mt-1.5 text-[10px] font-bold ${avisoDoLembrete.erro ? 'text-[#b42318]' : 'text-[#237128]'}`}>
+                    {avisoDoLembrete.texto}
+                  </p>
+                )}
 
                 {/* O bloco inteiro continua no rodape, junto da caixa de
                     resposta que ele explica. Aqui em cima fica so o atalho:
@@ -2286,16 +2819,23 @@ export default function Conversations({
                         }
                         const message = entrada.item
                         const outbound = message.direction === 'outbound'
+                        const citada = message.respondeA ? messages.find((m) => m.id === message.respondeA) ?? null : null
                         return (
                           <div
                             key={message.id}
-                            className={`flex ${outbound ? 'justify-end' : 'justify-start'}`}
+                            className={`group flex items-center gap-1 ${outbound ? 'justify-end' : 'justify-start'}`}
                           >
+                            {/* Citar so com a janela aberta: fora dela sai
+                                modelo aprovado, que nao leva citacao. */}
+                            {outbound && janelaAberta && (
+                              <BotaoResponder onClick={() => setRespondendo(message)} />
+                            )}
                             <div
                               className={`relative max-w-[78%] rounded-[8px] px-2.5 py-1.5 shadow-[0_1px_0.5px_rgba(12,26,23,.13)] ${
                                 outbound ? 'bg-[#d9fdd3]' : 'bg-white'
                               }`}
                             >
+                              {citada && <Citacao mensagem={citada} />}
                               {message.anexoUrl && (
                                 <Anexo
                                   url={message.anexoUrl}
@@ -2325,6 +2865,9 @@ export default function Conversations({
                                 </p>
                               )}
                             </div>
+                            {!outbound && janelaAberta && (
+                              <BotaoResponder onClick={() => setRespondendo(message)} />
+                            )}
                           </div>
                         )
                       })}
@@ -2448,6 +2991,9 @@ export default function Conversations({
                           </p>
                         </div>
                       </div>
+                      {respondendo && (
+                        <BarraDaCitacao mensagem={respondendo} onTirar={() => setRespondendo(null)} />
+                      )}
                       <textarea
                         value={resposta}
                         onChange={(e) => setResposta(e.target.value)}
@@ -2617,6 +3163,16 @@ export default function Conversations({
                       {avisoRetomada && (
                         <p className="mt-2 text-[10px] font-bold text-[#b42318]">{avisoRetomada}</p>
                       )}
+                      {/* Caminho 3 (07/11/2026): receita, 2a via, atestado. */}
+                      {selectedId && (
+                        <DocumentoForaDaJanela
+                          key={selectedId}
+                          conversationId={selectedId}
+                          pacienteSugerido={pacienteDoDocumento(selected)}
+                          consultorio={marcaSemClinicaConhecida(clinicId).consultorioNaResposta}
+                          onEnviado={aposDocumento}
+                        />
+                      )}
                     </div>
                   )}
                 </div>
@@ -2696,9 +3252,11 @@ export default function Conversations({
               <p className="px-6 py-10 text-center text-[13px] text-[#667781]">Nenhuma conversa aqui.</p>
             )}
             {visiveis.map((conversa) => {
-              const nome = conversa.patientId
-                ? conversa.patientName
-                : conversa.profileName || conversa.phone || 'Contato sem cadastro'
+              const nome = conversa.nomePersonalizado
+                ? conversa.nomePersonalizado
+                : conversa.patientId
+                  ? conversa.patientName
+                  : conversa.profileName || conversa.phone || 'Contato sem cadastro'
               const motivo = conversa.needsAttention && conversa.attentionReason ? MOTIVO_ATENCAO[conversa.attentionReason] : null
               const quando = conversa.lastMessageAt ? new Date(conversa.lastMessageAt) : null
               const hoje = diaLocal(new Date().toISOString())
@@ -2843,6 +3401,19 @@ export default function Conversations({
                   >
                     Escrever nota interna
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // Renomear fica no visual padrao, com o aviso de que o
+                      // cadastro nao muda e o "este numero nao e deste paciente".
+                      trocarVisual(false)
+                      setNomeNovo(selected.nomePersonalizado || (selected.patientId ? selected.patientName : selected.profileName))
+                      setRenomeando(true)
+                    }}
+                    className="block w-full px-4 py-2.5 text-left active:bg-black/5"
+                  >
+                    Renomear conversa
+                  </button>
                   <button type="button" onClick={() => trocarVisual(false)} className="block w-full px-4 py-2.5 text-left active:bg-black/5">
                     Voltar ao visual padrão
                   </button>
@@ -2913,6 +3484,7 @@ export default function Conversations({
 
                   const message = entrada.item
                   const outbound = message.direction === 'outbound'
+                  const citada = message.respondeA ? messages.find((m) => m.id === message.respondeA) ?? null : null
                   const mesmoLadoAntes =
                     !novoDia &&
                     anterior?.tipo === 'mensagem' &&
@@ -2922,8 +3494,9 @@ export default function Conversations({
                     separador,
                     <div
                       key={message.id}
-                      className={`flex ${outbound ? 'justify-end' : 'justify-start'} ${comRabinho ? 'mt-1.5' : ''}`}
+                      className={`group flex items-center gap-1 ${outbound ? 'justify-end' : 'justify-start'} ${comRabinho ? 'mt-1.5' : ''}`}
                     >
+                      {outbound && janelaAberta && <BotaoResponder onClick={() => setRespondendo(message)} />}
                       <div
                         className={`relative max-w-[82%] rounded-[7.5px] px-[9px] pb-[6px] pt-[6px] shadow-[0_1px_0.5px_rgba(12,26,23,.13)] ${
                           outbound ? 'bg-[#d9fdd3]' : 'bg-white'
@@ -2943,6 +3516,7 @@ export default function Conversations({
                             />
                           </svg>
                         )}
+                        {citada && <Citacao mensagem={citada} />}
                         {message.anexoUrl && (
                           <Anexo url={message.anexoUrl} mime={message.anexoMime} caminho={message.anexoPath} onAbrir={setArquivoAberto} />
                         )}
@@ -2961,6 +3535,7 @@ export default function Conversations({
                           <p className="mt-1 pb-3 text-[11.5px] font-semibold text-[#b42318]">{message.failureReason}</p>
                         )}
                       </div>
+                      {!outbound && janelaAberta && <BotaoResponder onClick={() => setRespondendo(message)} />}
                     </div>,
                   ]
                 })}
@@ -2987,6 +3562,16 @@ export default function Conversations({
                   {reabrindo ? 'Enviando convite...' : 'Só convidar a responder'}
                 </button>
                 {avisoRetomada && <p className="mt-1 font-semibold text-[#b42318]">{avisoRetomada}</p>}
+                {selectedId && (
+                  <DocumentoForaDaJanela
+                    key={selectedId}
+                    compacto
+                    conversationId={selectedId}
+                    pacienteSugerido={pacienteDoDocumento(selected)}
+                    consultorio={marcaSemClinicaConhecida(clinicId).consultorioNaResposta}
+                    onEnviado={aposDocumento}
+                  />
+                )}
               </div>
             )}
             {janelaAberta && faltaValor && (
@@ -2997,6 +3582,11 @@ export default function Conversations({
                     Colocar os valores na resposta
                   </button>
                 )}
+              </div>
+            )}
+            {respondendo && janelaAberta && (
+              <div className="mx-1 mb-1.5">
+                <BarraDaCitacao mensagem={respondendo} onTirar={() => setRespondendo(null)} />
               </div>
             )}
             {arquivo && janelaAberta && (
@@ -3064,6 +3654,16 @@ export default function Conversations({
         document.body,
       )}
       <VisualizadorDeArquivo arquivo={arquivoAberto} onFechar={fecharArquivo} />
+      {onSalvarCadastro && (
+        <CadastroNoChat
+          // So enquanto a conversa daquele paciente continua aberta: trocar de
+          // conversa fecha a ficha, para ninguem editar um cadastro achando que
+          // e o do paciente que esta na tela.
+          paciente={cadastroDaConversa && cadastroDaConversa.id === fichaAberta ? cadastroDaConversa : null}
+          onFechar={() => setFichaAberta(null)}
+          onSalvar={salvarCadastroDaConversa}
+        />
+      )}
     </div>
   )
 }

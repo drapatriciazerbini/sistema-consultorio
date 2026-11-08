@@ -1,0 +1,89 @@
+import { dentroDoExpediente, EXPEDIENTE } from './expediente.ts'
+
+/**
+ * Bom dia para quem chamou a equipe fora do horario (07/11/2026, portado do
+ * sistema do Dr. Marcello, onde nasceu em 21/10).
+ *
+ * La, uma mae tocou "Falar com a equipe" a 00:15, ouviu que a equipe responde
+ * a partir das 8h e nao escreveu mais nada. O Edu: "se dessa a IA podia agir,
+ * ela consegue automaticamente enviar msg para o cliente as 8h da manha dando
+ * bom dia e perguntar em que pode ajudar?". Pode, enquanto a janela de 24h da
+ * Meta estiver aberta: quem escreveu de madrugada ainda recebe texto livre as
+ * 8h. Aqui pesa mais: a filha que cuida da mae idosa escreve tarde da noite,
+ * depois de colocar a mae para dormir.
+ *
+ * Todo dia, e nao so nos dias de atendimento. A primeira versao la esperava
+ * segunda-feira, e o pedido de sexta a noite perdia a janela. O Edu: "nosso
+ * diferencial de ter robo e atender full time". No sabado, no domingo e no
+ * feriado o texto nao diz que a equipe esta por aqui: diz o que da para
+ * resolver na hora pelo WhatsApp.
+ *
+ * A regra mora aqui, coberta por testes; a funcao agendada (bom-dia-da-equipe)
+ * so le o banco, pergunta e envia.
+ */
+
+export const BOM_DIA_DA_EQUIPE =
+  'Bom dia! 💙 A equipe já está por aqui. Você chamou a gente fora do horário: em que podemos te ajudar?'
+
+export const BOM_DIA_FORA_DO_EXPEDIENTE =
+  'Bom dia! 💙 Você chamou a gente fora do horário: em que posso te ajudar? ' +
+  'Por aqui já dá para tirar dúvidas e pedir a consulta, e o que precisar da equipe eu passo para ela.'
+
+/** O texto de agora: com a equipe trabalhando, ou sem. */
+export function textoDoBomDia(agora: Date): string {
+  return dentroDoExpediente(agora) ? BOM_DIA_DA_EQUIPE : BOM_DIA_FORA_DO_EXPEDIENTE
+}
+
+/**
+ * O fim das nossas respostas ao pedido de falar com a equipe: a do robo
+ * (chamarEquipe) e a da IA quando o pedido vem sem assunto (ESPERA_DO_ASSUNTO).
+ * Os testes conferem que os textos de verdade contem estes trechos: se alguem
+ * reescrever a resposta, o bom dia para de sair sem erro nenhum. O do robo e
+ * o da Dra. ("um atendente da clinica"), e nao o do sistema de origem.
+ */
+export const TRECHOS_DO_PEDIDO = [
+  'Estou direcionando você para um atendente da clínica',
+  'Me conta aqui o que você precisa',
+]
+
+/** Margem antes das 24h da Meta: a mensagem ainda precisa chegar. */
+const JANELA_MS = 23 * 3600 * 1000
+
+/**
+ * "Bom dia" so de manha: das 8h ao meio-dia no relogio do consultorio. O cron
+ * chama as 8h; a trava existe para uma chamada fora de hora nao mandar "bom
+ * dia" as 23h.
+ */
+function deManha(agora: Date): boolean {
+  const hora = Number(
+    new Intl.DateTimeFormat('en-GB', { timeZone: EXPEDIENTE.fuso, hour: '2-digit', hourCycle: 'h23' }).format(agora),
+  )
+  return hora >= EXPEDIENTE.inicio && hora < 12
+}
+
+export type MensagemDaFila = {
+  direction: 'inbound' | 'outbound' | string
+  body: string | null
+  automatic: boolean | null
+  created_at: string
+}
+
+/**
+ * Manda o bom dia agora? `mensagens` em ordem de envio (a mais antiga
+ * primeiro). Sim quando: e de manha; a ultima mensagem da conversa e a nossa
+ * resposta automatica ao pedido de falar com a equipe (ninguem escreveu
+ * depois, nem o paciente nem a equipe); o pedido foi feito fora do
+ * expediente; e a janela de 24h ainda esta aberta. O bom dia ja enviado vira a
+ * ultima mensagem, entao nunca sai duas vezes.
+ */
+export function precisaDoBomDia(mensagens: readonly MensagemDaFila[], agora: Date): boolean {
+  if (!deManha(agora)) return false
+  const ultima = mensagens.at(-1)
+  if (!ultima || ultima.direction !== 'outbound' || ultima.automatic === false) return false
+  if (!TRECHOS_DO_PEDIDO.some((trecho) => String(ultima.body ?? '').includes(trecho))) return false
+  const daFamilia = [...mensagens].reverse().find((m) => m.direction === 'inbound')
+  if (!daFamilia) return false
+  const quando = new Date(daFamilia.created_at)
+  if (Number.isNaN(quando.getTime()) || dentroDoExpediente(quando)) return false
+  return agora.getTime() - quando.getTime() < JANELA_MS
+}

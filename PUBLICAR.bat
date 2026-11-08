@@ -50,7 +50,9 @@ rem tests e CLAUDE.md entram desde 23/09/2026, como no sistema de origem:
 rem sem eles os testes do robo so existiam nesta maquina.
 rem ATENCAO: o repositorio e publico. Nada em tests/ pode ter nome, telefone,
 rem CPF ou data de nascimento de paciente de verdade - so dados inventados.
-git add src supabase .github public index.html package.json vite.config.ts tests CLAUDE.md
+rem scripts entra desde 07/11/2026: a lista dos testes do robo mora em
+rem scripts/testar-robo.mjs (o package.json passou do limite de linha do cmd).
+git add src supabase .github public index.html package.json vite.config.ts tests CLAUDE.md scripts
 if errorlevel 1 goto erro
 
 echo.

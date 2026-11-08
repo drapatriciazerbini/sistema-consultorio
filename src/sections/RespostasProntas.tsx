@@ -76,7 +76,10 @@ export default function RespostasProntas() {
 
   function adicionar() {
     const ordem = (itens.at(-1)?.ordem ?? 0) + 10
-    setItens((antes) => [...antes, { ...NOVA, ordem }])
+    // A chave do envio automatico so aparece se o banco ja tem a coluna (os
+    // outros itens vieram com ela definida).
+    const aposConvenio = itens.some((i) => i.aposConvenio !== undefined) ? false : undefined
+    setItens((antes) => [...antes, { ...NOVA, ordem, aposConvenio }])
     setSalvo(false)
   }
 
@@ -251,6 +254,28 @@ export default function RespostasProntas() {
                   tiver um lugar só.
                 </span>
               </label>
+              {/* "Sobre a Dra." para quem sumiu depois do preco (07/11/2026, do
+                  sistema do Dr. Marcello; ver _shared/depois-do-convenio.ts).
+                  So aparece quando o banco ja tem a coluna. */}
+              {item.aposConvenio !== undefined && (
+                <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-[14px] border border-[#193d36]/[0.06] bg-[#f8f6f0] px-3.5 py-3">
+                  <input
+                    type="checkbox"
+                    checked={item.aposConvenio}
+                    onChange={(e) => mudar(indice, { aposConvenio: e.target.checked })}
+                    className="mt-0.5 h-3.5 w-3.5 accent-[#2f7f74]"
+                  />
+                  <span className="text-[10px] font-bold leading-relaxed text-slate-500">
+                    Mandar sozinha para quem perguntou convênio ou preço, ou parou no meio do pedido de consulta, e não
+                    respondeu mais
+                    <span className="block font-semibold text-slate-400">
+                      6 horas depois da nossa resposta, das 8h às 22h, uma vez por conversa. Funciona mesmo com o
+                      assunto desligado para o robô. Perto de fechar as 24h do WhatsApp, quem continuar calado recebe
+                      o menu de novo.
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
           ))
         )}

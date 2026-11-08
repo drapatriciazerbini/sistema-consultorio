@@ -194,3 +194,7 @@ jobs:
           supabase functions deploy notificar-equipe --project-ref "$PROJECT_REF"
           supabase functions deploy gastos-meta --project-ref "$PROJECT_REF"
           supabase functions deploy gastos-google --project-ref "$PROJECT_REF"
+          supabase functions deploy repetir-lembrete --project-ref "$PROJECT_REF"
+          supabase functions deploy whatsapp-bloqueio --project-ref "$PROJECT_REF"
+          supabase functions deploy bom-dia-da-equipe --project-ref "$PROJECT_REF"
+          supabase functions deploy depois-do-convenio --project-ref "$PROJECT_REF"

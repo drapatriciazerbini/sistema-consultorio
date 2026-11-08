@@ -74,6 +74,14 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
       'Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini.\n\n{{2}}\n\n' +
       'Se precisar, é só responder por aqui.',
   },
+  // Documento com a janela fechada (07/11/2026, do sistema do Dr. Marcello):
+  // cabecalho Documento com o PDF, e esta frase. Ver _shared/documento.ts e o
+  // item correspondente em MODELOS-META.md.
+  documento_do_consultorio: {
+    corpo:
+      'Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini. Segue em anexo {{2}} de {{3}}. ' +
+      'Se tiver alguma dúvida, é só responder por aqui.',
+  },
   // Os dois avisos no WhatsApp pessoal da Dra. Patricia (28/10/2026), itens 6
   // e 7 de MODELOS-META.md. Nao vao para paciente: saem quando alguem pede
   // consulta ou visita pelo robo (ver alerta-de-urgencia.ts), e a resposta

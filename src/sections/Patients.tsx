@@ -22,11 +22,18 @@ import type { Consultation, ConsultationDraft, Patient } from '@/types/patient'
 import type { PatientDraft } from '@/lib/store'
 import PatientRecord from '@/sections/PatientRecord'
 import { fmtBR, idade } from '@/lib/followup'
-import { editarComMascara, mascararCpf, mascararTelefone } from '@/lib/mascaras'
+import { mascararCpf, mascararTelefone } from '@/lib/mascaras'
 import { FOLLOWUP_LABEL } from '@/types/patient'
 import { opcoesDeUnidade, useUnidades } from '@/lib/unidades'
 import { apagarParametrosDoEndereco, parametrosDoEndereco } from '@/lib/endereco'
 import { sexoAoDigitarNome } from '@/lib/sexo-pelo-nome'
+import {
+  cadastroVazio,
+  conferirCadastro,
+  formularioDoCadastro,
+  type FormularioDoPaciente,
+} from '@/lib/cadastro-do-paciente'
+import CamposDoCadastro from '@/components/CamposDoCadastro'
 import {
   Sheet,
   SheetContent,
@@ -86,12 +93,6 @@ function AConferir() {
 }
 
 /**
- * O formulario aceita sexo em branco; o cadastro gravado, nao. Ate aqui o
- * formulario abria com Feminino marcado (ver sexoAoDigitarNome).
- */
-type FormularioDoPaciente = Omit<PatientDraft, 'sexo'> & { sexo: PatientDraft['sexo'] | '' }
-
-/**
  * O nome do cadastro veio do contato do WhatsApp, e nao da ficha (porte de
  * 18/10/2026): aqui quase sempre e o de quem escreveu, a filha ou o cuidador.
  * Vermelho, como a alergia no prontuario.
@@ -104,50 +105,6 @@ function NomeAConfirmar() {
     >
       Nome a confirmar
     </span>
-  )
-}
-
-function emptyDraft(unidadePadrao = ''): FormularioDoPaciente {
-  return {
-    nome: '',
-    responsavel: '',
-    nascimento: '',
-    sexo: '',
-    cpf: '',
-    email: '',
-    telefone: '',
-    cidade: '',
-    bairro: '',
-    convenio: '',
-    cid: '',
-    unidade: unidadePadrao,
-    dataConsulta: new Date().toISOString().slice(0, 10),
-    observacoes: '',
-  }
-}
-
-const inputClass =
-  'mt-1.5 w-full rounded-[13px] border border-[#193d36]/10 bg-[#faf9f4] px-3.5 py-2.5 text-xs font-semibold text-[#193d36] outline-none transition placeholder:font-normal placeholder:text-slate-300 focus:border-[#2f7f74] focus:bg-white focus:ring-4 focus:ring-[#2f7f74]/10'
-
-function Field({
-  label,
-  children,
-  required,
-  className = '',
-}: {
-  label: string
-  children: React.ReactNode
-  required?: boolean
-  className?: string
-}) {
-  return (
-    <label className={`block ${className}`}>
-      <span className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-slate-500">
-        {label}
-        {required && <span className="ml-1 text-[#2f7f74]">*</span>}
-      </span>
-      {children}
-    </label>
   )
 }
 
@@ -281,7 +238,7 @@ export default function Patients({
   const [filtroAberto, setFiltroAberto] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState<FormularioDoPaciente>(emptyDraft)
+  const [form, setForm] = useState<FormularioDoPaciente>(cadastroVazio)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [recordPatientId, setRecordPatientId] = useState<string | null>(null)
@@ -315,7 +272,7 @@ export default function Patients({
           ...(preCadastro.email ? { email: preCadastro.email } : {}),
         }
       : {}
-    setForm({ ...emptyDraft(unidadesDaClinica[0]), ...sugerido })
+    setForm({ ...cadastroVazio(unidadesDaClinica[0]), ...sugerido })
     setSexoSugerido(sexoInicial.sugerido)
     setError('')
     setFormOpen(true)
@@ -409,20 +366,10 @@ export default function Patients({
     apagarParametrosDoEndereco(['paciente'])
   }, [])
 
-  function set<K extends keyof FormularioDoPaciente>(key: K, value: FormularioDoPaciente[K]) {
-    setForm((current) => ({ ...current, [key]: value }))
-  }
-
-  function mudarNome(nome: string) {
-    const { sexo, sugerido } = sexoAoDigitarNome(nome, form.sexo, sexoSugerido)
-    setForm((current) => ({ ...current, nome, sexo }))
-    setSexoSugerido(sugerido)
-  }
-
   function createNew() {
     setEditingId(null)
     setSexoSugerido(false)
-    setForm(emptyDraft(unidadesDaClinica[0]))
+    setForm(cadastroVazio(unidadesDaClinica[0]))
     setError('')
     setFormOpen(true)
   }
@@ -430,23 +377,7 @@ export default function Patients({
   function editRegistration(patient: Patient) {
     setEditingId(patient.id)
     setSexoSugerido(false)
-    setForm({
-      nome: patient.nome,
-      responsavel: patient.responsavel,
-      nascimento: patient.nascimento,
-      sexo: patient.sexo,
-      // Com mascara ao abrir; o repositorio tira de novo antes de gravar.
-      telefone: mascararTelefone(patient.telefone),
-      cpf: mascararCpf(patient.cpf ?? ''),
-      email: patient.email ?? '',
-      cidade: patient.cidade,
-      bairro: patient.bairro,
-      convenio: patient.convenio,
-      cid: patient.cid,
-      unidade: patient.unidade,
-      dataConsulta: patient.dataConsulta,
-      observacoes: patient.observacoes,
-    })
+    setForm(formularioDoCadastro(patient))
     setError('')
     setFormOpen(true)
   }
@@ -459,23 +390,14 @@ export default function Patients({
    * onde a pessoa veio; agora e escolha explicita, no botao.
    */
   async function save(abrirProntuario = false) {
-    if (!form.nome.trim()) {
-      setError('Informe o nome do paciente.')
+    // As regras moram em lib/cadastro-do-paciente (07/11/2026): o popup da
+    // conversa grava o mesmo cadastro e precisa recusar o mesmo que aqui.
+    const conferido = conferirCadastro(form)
+    if ('erro' in conferido) {
+      setError(conferido.erro)
       return
     }
-    if (form.telefone.replace(/\D/g, '').length < 10) {
-      setError('Informe um telefone válido com DDD.')
-      return
-    }
-    if (!form.dataConsulta) {
-      setError('Informe a data da consulta.')
-      return
-    }
-    if (!form.sexo) {
-      setError('Escolha o sexo do paciente: ele vai para a receita da Memed e para o texto do acompanhamento. Se não foi informado, use "Outro / não informado".')
-      return
-    }
-    const cadastro: PatientDraft = { ...form, sexo: form.sexo }
+    const { cadastro } = conferido
 
     setSaving(true)
     try {
@@ -494,7 +416,7 @@ export default function Patients({
       }
       setFormOpen(false)
       setEditingId(null)
-      setForm(emptyDraft())
+      setForm(cadastroVazio())
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível salvar o paciente.')
@@ -966,129 +888,12 @@ export default function Patients({
           </SheetHeader>
 
           <div className="scrollbar-subtle flex-1 overflow-y-auto px-5 py-6 sm:px-7">
-            <div className="mb-5 flex items-center gap-2">
-              <span className="h-px flex-1 bg-[#193d36]/[0.07]" />
-              <span className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-slate-400">Identificação, contato e endereço</span>
-              <span className="h-px flex-1 bg-[#193d36]/[0.07]" />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Nome do paciente" required className="sm:col-span-2">
-                <input className={inputClass} value={form.nome} onChange={(event) => mudarNome(event.target.value)} placeholder="Nome completo do paciente" />
-              </Field>
-              <Field label="Acompanhante">
-                <input className={inputClass} value={form.responsavel} onChange={(event) => set('responsavel', event.target.value)} placeholder="Acompanhante ou cuidador, se houver" />
-              </Field>
-              <Field label="WhatsApp com DDD" required>
-                <input
-                  className={inputClass}
-                  value={form.telefone}
-                  onChange={(event) => set('telefone', editarComMascara(form.telefone, event.target.value, mascararTelefone))}
-                  placeholder="(13) 9 9999-9999"
-                  inputMode="tel"
-                  maxLength={21}
-                />
-              </Field>
-              <Field label="Data de nascimento">
-                <input type="date" className={inputClass} value={form.nascimento} onChange={(event) => set('nascimento', event.target.value)} />
-              </Field>
-              {/* CPF e do PACIENTE, nao do responsavel - inclusive de bebe, que
-                  tem CPF desde o registro de nascimento. A RDC 1000/25 passou a
-                  exigi-lo em toda receita; sem ele a Memed recusa a emissao.
-                  Fica opcional aqui de proposito: travar o cadastro de um
-                  paciente novo por falta de CPF seria pior do que o problema. */}
-              <Field label="CPF do paciente">
-                <input
-                  className={inputClass}
-                  value={form.cpf}
-                  onChange={(event) => set('cpf', editarComMascara(form.cpf, event.target.value, mascararCpf))}
-                  placeholder="Necessário para emitir receita"
-                  inputMode="numeric"
-                  maxLength={14}
-                />
-              </Field>
-              <Field label="E-mail">
-                <input
-                  className={inputClass}
-                  value={form.email}
-                  onChange={(event) => set('email', event.target.value)}
-                  placeholder="Para onde a receita pode ser enviada"
-                  inputMode="email"
-                />
-              </Field>
-              <Field label="Sexo" required>
-                <select
-                  className={inputClass}
-                  value={form.sexo}
-                  onChange={(event) => {
-                    // Escolha da equipe manda: some o aviso de sugestao.
-                    setSexoSugerido(false)
-                    set('sexo', event.target.value as PatientDraft['sexo'])
-                  }}
-                >
-                  <option value="" disabled>Escolha</option>
-                  <option value="F">Feminino</option>
-                  <option value="M">Masculino</option>
-                  <option value="O">Outro / não informado</option>
-                </select>
-                {sexoSugerido && (
-                  <span className="mt-1 block text-[10px] font-semibold text-[#17564d]">
-                    Sugerido pelo nome. Confira antes de salvar.
-                  </span>
-                )}
-              </Field>
-              {/* Onde o paciente MORA. Ate 23/09/2026 estes dois ficavam em
-                  "Agenda e localizacao", ao lado da unidade, e liam como o local
-                  do atendimento - a pergunta foi "cade onde ele mora?". Aqui
-                  pesa mais: e o endereco que decide a visita em casa. */}
-              <Field label="Cidade onde mora">
-                <input className={inputClass} value={form.cidade} onChange={(event) => set('cidade', event.target.value)} placeholder="Santos" />
-              </Field>
-              <Field label="Bairro onde mora">
-                <input className={inputClass} value={form.bairro} onChange={(event) => set('bairro', event.target.value)} placeholder="Gonzaga" />
-              </Field>
-            </div>
-
-            <div className="my-6 flex items-center gap-2">
-              <span className="h-px flex-1 bg-[#193d36]/[0.07]" />
-              <span className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-slate-400">Consulta</span>
-              <span className="h-px flex-1 bg-[#193d36]/[0.07]" />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Data da consulta" required>
-                <input type="date" className={inputClass} value={form.dataConsulta} onChange={(event) => set('dataConsulta', event.target.value)} />
-              </Field>
-              <Field label="Unidade">
-                <select className={inputClass} value={form.unidade} onChange={(event) => set('unidade', event.target.value)}>
-                  {opcoesDeUnidade(unidadesDaClinica, form.unidade).map((unit) => (
-                    <option key={unit} value={unit}>
-                      {unit}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Convênio">
-                <input className={inputClass} value={form.convenio} onChange={(event) => set('convenio', event.target.value)} placeholder="Particular, Unimed..." />
-              </Field>
-              {/* Ate 31/08/2026 este texto e a "Observacoes" do prontuario eram
-                  a MESMA coluna, espelhada por gatilho: o medico escrevia a
-                  observacao clinica e apagava o recado da recepcao sem que
-                  ninguem visse. Agora sao dois campos de verdade, e o rotulo
-                  precisa deixar claro qual e qual. */}
-              <Field label="Recado da recepção" className="sm:col-span-2">
-                <textarea
-                  className={`${inputClass} min-h-[84px] resize-y`}
-                  value={form.observacoes}
-                  onChange={(event) => set('observacoes', event.target.value)}
-                  placeholder="Ex.: prefere contato à tarde, vem sempre com a avó, reembolso pelo convênio."
-                />
-                <p className="mt-1.5 text-[9px] font-semibold text-slate-400">
-                  Fica na ficha da pessoa e acompanha todas as consultas. Observação clínica vai no
-                  prontuário, na próxima etapa.
-                </p>
-              </Field>
-            </div>
+            <CamposDoCadastro
+              form={form}
+              setForm={setForm}
+              sexoSugerido={sexoSugerido}
+              setSexoSugerido={setSexoSugerido}
+            />
 
             {error && (
               <p className="mt-4 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-[11px] font-bold text-red-600">{error}</p>

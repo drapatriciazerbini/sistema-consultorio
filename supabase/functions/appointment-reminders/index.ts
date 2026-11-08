@@ -1,7 +1,12 @@
 import { adminClient, corsHeaders, json, toBrazilE164 } from '../_shared/whatsapp.ts'
-import { textoDoModelo } from '../_shared/modelos.ts'
 import { cadastrarDaFicha } from '../_shared/cadastro.ts'
 import { janelaDeLembrete } from '../_shared/lembrete.ts'
+import {
+  ESPERA_PARA_REPETIR_MS,
+  mandarLembrete,
+  parametrosDoLembrete,
+  repetirOLembrete,
+} from '../_shared/lembrete-envio.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
 import { chaveDoWhatsApp, foraDaListaDeTeste, listaDeTeste } from '../_shared/whatsapp-teste.ts'
 import { retomarConversasDoInstagram } from '../_shared/instagram.ts'
@@ -20,6 +25,10 @@ import { retomarConversasDoInstagram } from '../_shared/instagram.ts'
  *    opt-in em nome da equipe.
  *  - marca reminder_sent_at antes de considerar o trabalho feito, para uma
  *    reexecucao do cron nao mandar a mesma mensagem duas vezes.
+ *
+ * Desde 07/11/2026 (do sistema do Dr. Marcello) a mesma passada pergunta de
+ * novo a quem nao respondeu, ate 3 lembretes no dia (ver repetirLembretes e
+ * _shared/lembrete-envio.ts).
  */
 
 
@@ -50,15 +59,157 @@ function horaLocal(timezone: string) {
   )
 }
 
-function formatarDataHora(iso: string, timezone: string) {
-  const data = new Date(iso)
-  const dataBR = data.toLocaleDateString('pt-BR', { timeZone: timezone })
-  const hora = data.toLocaleTimeString('pt-BR', {
-    timeZone: timezone,
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-  return { dataBR, hora }
+type Resumo = { candidatas: number; enviados: number; repetidos: number; pulados: number; falhas: number }
+type Detalhe = { appointmentId: string; resultado: string }
+
+/**
+ * Pergunta de novo a quem nao respondeu o lembrete (07/11/2026, portado do
+ * sistema do Dr. Marcello, onde nasceu em 29/10).
+ *
+ * Candidatas: consulta ainda marcada, sem confirmacao nem pedido de remarcar,
+ * com o primeiro lembrete ha quase 4 horas ou mais, dentro da mesma janela do
+ * lembrete (mais de 2 horas para a consulta, ate o fim do dia de amanha). A
+ * regra de mandar ou nao esta em repetirOLembrete, coberta por testes.
+ *
+ * Quantos ja sairam e quando foi o ultimo vem das mensagens da consulta, e nao
+ * de coluna nova: elas ja guardam o lembrete da vespera e os do botao da
+ * equipe, e assim nao ha migration para travar o banco (ver CLAUDE.md).
+ *
+ * A repeticao vai para a conversa do lembrete anterior: a resposta cai onde a
+ * equipe ja esta olhando.
+ */
+async function repetirLembretes(
+  admin: ReturnType<typeof adminClient>,
+  clinica: Settings,
+  token: string,
+  graphVersion: string,
+  listaTeste: string[] | null,
+  resumo: Resumo,
+  detalhes: Detalhe[],
+) {
+  const agora = Date.now()
+  const { inicio, fim } = janelaDeLembrete(new Date(agora), clinica.reminderDays, clinica.timezone)
+  const { data: consultas, error } = await admin
+    .from('appointments')
+    .select('id,patient_id,starts_at,modality,contact_name,reminder_sent_at,clinic_units(name)')
+    .eq('clinic_id', clinica.clinic_id)
+    .eq('status', 'scheduled')
+    .lt('reminder_sent_at', new Date(agora - ESPERA_PARA_REPETIR_MS).toISOString())
+    .is('confirmed_at', null)
+    .is('reschedule_requested_at', null)
+    .gte('starts_at', inicio.toISOString())
+    .lt('starts_at', fim.toISOString())
+    .order('starts_at', { ascending: true })
+    .limit(100)
+  if (error) throw new Error(`nao li as consultas: ${error.message}`)
+
+  for (const consulta of consultas ?? []) {
+    const pular = (motivo: string) => {
+      resumo.pulados += 1
+      detalhes.push({ appointmentId: consulta.id, resultado: `repeticao: ${motivo}` })
+    }
+
+    // So a rodada da vespera conta: do lembrete que gravou reminder_sent_at
+    // em diante (1 minuto de folga entre o relogio da funcao e o do banco). Um
+    // "Pedir confirmacao" da recepcao dias antes nao gasta as 3 perguntas.
+    const desdeAVespera = new Date(new Date(consulta.reminder_sent_at).getTime() - 60 * 1000).toISOString()
+    const { data: envios, error: erroEnvios } = await admin
+      .from('whatsapp_messages')
+      .select('conversation_id,created_at')
+      .eq('appointment_id', consulta.id)
+      .eq('direction', 'outbound')
+      .eq('template_name', clinica.templateName)
+      .gte('created_at', desdeAVespera)
+      .order('created_at', { ascending: true })
+      .limit(20)
+    if (erroEnvios) {
+      console.error('Repeticao do lembrete: nao li os envios da consulta', erroEnvios)
+      resumo.falhas += 1
+      detalhes.push({ appointmentId: consulta.id, resultado: `REPETICAO_SEM_ENVIOS: ${erroEnvios.message}` })
+      continue
+    }
+    if (!envios?.length) {
+      pular('nenhum lembrete registrado na conversa')
+      continue
+    }
+    const primeiro = envios[0]
+    const ultimo = envios[envios.length - 1]
+
+    const { count: escritas, error: erroEscritas } = await admin
+      .from('whatsapp_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('conversation_id', ultimo.conversation_id)
+      .eq('direction', 'inbound')
+      .gt('created_at', primeiro.created_at)
+    if (erroEscritas) {
+      console.error('Repeticao do lembrete: nao li as respostas do paciente', erroEscritas)
+      resumo.falhas += 1
+      detalhes.push({ appointmentId: consulta.id, resultado: `REPETICAO_SEM_RESPOSTAS: ${erroEscritas.message}` })
+      continue
+    }
+
+    const decisao = repetirOLembrete(
+      { envios: envios.length, ultimoEnvio: ultimo.created_at, familiaEscreveu: (escritas ?? 0) > 0 },
+      agora,
+    )
+    if (!decisao.repetir) {
+      pular(decisao.motivo)
+      continue
+    }
+
+    // As mesmas travas do primeiro lembrete: quem pediu para sair e a lista
+    // da clinica de teste.
+    const { data: conversa } = await admin
+      .from('whatsapp_conversations')
+      .select('id,wa_id,status,patient_id')
+      .eq('id', ultimo.conversation_id)
+      .maybeSingle()
+    if (!conversa?.wa_id) {
+      pular('conversa nao encontrada')
+      continue
+    }
+    if (conversa.status === 'opted_out') {
+      pular('opt-out')
+      continue
+    }
+    const { data: paciente } = consulta.patient_id
+      ? await admin
+          .from('patients')
+          .select('id,name,whatsapp_opt_out_at')
+          .eq('id', consulta.patient_id)
+          .maybeSingle()
+      : { data: null }
+    if (paciente?.whatsapp_opt_out_at) {
+      pular('opt-out')
+      continue
+    }
+    if (foraDaListaDeTeste(listaTeste, conversa.wa_id)) {
+      pular('fora da lista de teste')
+      continue
+    }
+
+    const envio = await mandarLembrete(admin, {
+      clinicId: clinica.clinic_id,
+      conversationId: conversa.id,
+      patientId: paciente?.id ?? conversa.patient_id ?? null,
+      appointmentId: consulta.id,
+      waId: conversa.wa_id,
+      phoneNumberId: clinica.phoneNumberId,
+      token,
+      graphVersion,
+      modelo: clinica.templateName,
+      idioma: clinica.templateLanguage,
+      parametros: parametrosDoLembrete(consulta, paciente?.name || consulta.contact_name || 'paciente', clinica.timezone),
+      automatico: true,
+    })
+    if (envio.ok) {
+      resumo.repetidos += 1
+      detalhes.push({ appointmentId: consulta.id, resultado: `repetido (lembrete ${envios.length + 1})` })
+    } else {
+      resumo.falhas += 1
+      detalhes.push({ appointmentId: consulta.id, resultado: `REPETICAO_RECUSADA: ${envio.motivo}` })
+    }
+  }
 }
 
 Deno.serve(async (req) => {
@@ -112,8 +263,8 @@ Deno.serve(async (req) => {
       enabled: true,
     }))
 
-    const resumo = { candidatas: 0, enviados: 0, pulados: 0, falhas: 0 }
-    const detalhes: { appointmentId: string; resultado: string }[] = []
+    const resumo: Resumo = { candidatas: 0, enviados: 0, repetidos: 0, pulados: 0, falhas: 0 }
+    const detalhes: Detalhe[] = []
 
     for (const clinica of clinicas) {
       const hora = horaLocal(clinica.timezone)
@@ -232,19 +383,10 @@ Deno.serve(async (req) => {
           detalhes.push({ appointmentId: consulta.id, resultado: 'opt-out' })
           continue
         }
-        const { dataBR, hora } = formatarDataHora(consulta.starts_at, clinica.timezone)
-        // Na telemedicina o lembrete diz "por vídeo", e nao o nome da unidade
-        // que cedeu o horario - senao a familia sai de casa para uma consulta
-        // que era online.
-        //
-        // O texto em volta e do modelo aprovado na Meta ("na unidade {{4}}") e
-        // nao muda sem nova aprovacao. Ate 22/09/2026 o parametro era
-        // "telemedicina (por vídeo)", e a familia lia "na unidade telemedicina
-        // (por vídeo)". Com "virtual", a frase fecha: "na unidade virtual
-        // (consulta por vídeo)".
-        const unidade = consulta.modality === 'telemedicina'
-          ? 'virtual (consulta por vídeo)'
-          : (consulta.clinic_units as { name?: string } | null)?.name || 'a clínica'
+        // Nome, data, hora e lugar do modelo. Na telemedicina o lugar diz "por
+        // video", e nao o nome da unidade que cedeu o horario (ver
+        // unidadeDoLembrete em _shared/lembrete-envio.ts).
+        const parametros = parametrosDoLembrete(consulta, nomeParaMensagem, clinica.timezone)
 
         const { data: conversa, error: conversaError } = await admin
           .from('whatsapp_conversations')
@@ -272,89 +414,51 @@ Deno.serve(async (req) => {
           continue
         }
 
-        const resposta = await fetch(
-          `https://graph.facebook.com/${graphVersion}/${clinica.phoneNumberId}/messages`,
-          {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              messaging_product: 'whatsapp',
-              recipient_type: 'individual',
-              to: waId,
-              type: 'template',
-              template: {
-                name: clinica.templateName,
-                language: { code: clinica.templateLanguage },
-                components: [
-                  {
-                    type: 'body',
-                    parameters: [
-                      { type: 'text', text: nomeParaMensagem },
-                      { type: 'text', text: dataBR },
-                      { type: 'text', text: hora },
-                      { type: 'text', text: unidade },
-                    ],
-                  },
-                ],
-              },
-            }),
-          },
-        )
+        // O envio e o registro na conversa sao os mesmos da repeticao e do
+        // botao da conversa (mandarLembrete em _shared/lembrete-envio.ts).
+        const envio = await mandarLembrete(admin, {
+          clinicId: clinica.clinic_id,
+          conversationId: conversa.id,
+          patientId: paciente?.id ?? null,
+          appointmentId: consulta.id,
+          waId,
+          phoneNumberId: clinica.phoneNumberId,
+          token,
+          graphVersion,
+          modelo: clinica.templateName,
+          idioma: clinica.templateLanguage,
+          parametros,
+          automatico: true,
+        })
 
-        const corpo = await resposta.json()
-        // Igual ao acompanhamento: guarda a mensagem que a pessoa leu, para a
-        // conversa na plataforma bater com o celular dela.
-        const resumoTexto =
-          textoDoModelo(clinica.templateName, [nomeParaMensagem, dataBR, hora, unidade]) ??
-          `Lembrete de consulta em ${dataBR} às ${hora} (${unidade}) enviado para ${nomeParaMensagem}.`
-
-        if (!resposta.ok) {
-          const motivo = corpo?.error?.message || 'Meta recusou o envio.'
-          await admin.from('whatsapp_messages').insert({
-            clinic_id: clinica.clinic_id,
-            conversation_id: conversa.id,
-            patient_id: paciente?.id ?? null,
-            appointment_id: consulta.id,
-            direction: 'outbound',
-            automatic: true,
-            message_type: 'template',
-            template_name: clinica.templateName,
-            body: resumoTexto,
-            status: 'failed',
-            failed_at: agora,
-            failure_reason: motivo,
-          })
+        if (!envio.ok) {
           await admin
             .from('appointments')
-            .update({ reminder_failed_at: agora, reminder_failure_reason: motivo })
+            .update({ reminder_failed_at: envio.quando, reminder_failure_reason: envio.motivo })
             .eq('id', consulta.id)
           resumo.falhas += 1
-          detalhes.push({ appointmentId: consulta.id, resultado: `META_REJECTED: ${motivo}` })
+          detalhes.push({ appointmentId: consulta.id, resultado: `META_REJECTED: ${envio.motivo}` })
           continue
         }
 
-        await admin.from('whatsapp_messages').insert({
-          clinic_id: clinica.clinic_id,
-          conversation_id: conversa.id,
-          patient_id: paciente?.id ?? null,
-          appointment_id: consulta.id,
-          external_message_id: corpo?.messages?.[0]?.id ?? null,
-          direction: 'outbound',
-          automatic: true,
-          message_type: 'template',
-          template_name: clinica.templateName,
-          body: resumoTexto,
-          status: 'accepted',
-          sent_at: agora,
-        })
-
         await admin
           .from('appointments')
-          .update({ reminder_sent_at: agora, reminder_failed_at: null, reminder_failure_reason: null })
+          .update({ reminder_sent_at: envio.quando, reminder_failed_at: null, reminder_failure_reason: null })
           .eq('id', consulta.id)
 
         resumo.enviados += 1
         detalhes.push({ appointmentId: consulta.id, resultado: 'enviado' })
+      }
+
+      // Depois dos lembretes novos, a repeticao de quem nao respondeu. Em
+      // try/catch: um defeito aqui custa a repeticao, nunca o lembrete da
+      // vespera, que ja saiu acima.
+      try {
+        await repetirLembretes(admin, clinica, token, graphVersion, listaTeste, resumo, detalhes)
+      } catch (erro) {
+        console.error('Repeticao do lembrete falhou', erro)
+        resumo.falhas += 1
+        detalhes.push({ appointmentId: '-', resultado: `REPETICAO_FALHOU: ${erro instanceof Error ? erro.message : String(erro)}` })
       }
     }
 

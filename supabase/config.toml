@@ -54,3 +54,23 @@ verify_jwt = false
 # pelo sha-256 guardado no banco. A tela manda a sessao, e a funcao confere se
 # a pessoa e dona da clinica.
 verify_jwt = false
+
+[functions.repetir-lembrete]
+# Botao "Repetir confirmacao" da conversa (07/11/2026, do sistema do Dr.
+# Marcello). Exige sessao e checa RLS.
+verify_jwt = true
+
+[functions.whatsapp-bloqueio]
+# Botao "Bloquear contato" da conversa (07/11/2026, do sistema do Dr.
+# Marcello). Exige sessao e checa RLS.
+verify_jwt = true
+
+[functions.bom-dia-da-equipe]
+# Bom dia das 8h para quem pediu a equipe fora do horario (07/11/2026, do
+# sistema do Dr. Marcello). Chamada pelo pg_cron com x-cron-secret.
+verify_jwt = false
+
+[functions.depois-do-convenio]
+# "Sobre a Dra." e menu de novo (07/11/2026, do sistema do Dr. Marcello).
+# Chamada pelo pg_cron a cada 10 minutos com x-cron-secret.
+verify_jwt = false

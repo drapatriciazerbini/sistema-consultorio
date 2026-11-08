@@ -838,6 +838,8 @@ export default function Home() {
                 onCadastrarContato={cadastrarContato}
                 compacto={topoRecolhido}
                 onAlternarCompacto={tela.computador ? alternarTopo : undefined}
+                pacientes={db.patients}
+                onSalvarCadastro={updatePatient}
               />
             )}
             {tab === 'pacientes' && (
