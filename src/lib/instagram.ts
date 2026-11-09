@@ -22,6 +22,20 @@ export interface ConversaInstagram {
   previaDe: 'pessoa' | 'robo' | 'equipe' | null
 }
 
+/**
+ * Anexo do Direct (08/11/2026). `url` e o link temporario do acervo quando o
+ * arquivo foi guardado; `original` e o link da Meta, que vence, e so serve de
+ * ultimo recurso. `caminho` nulo quer dizer que o servidor nao conseguiu
+ * guardar - a tela diz isso, em vez de esconder.
+ */
+export interface AnexoInstagram {
+  tipo: string
+  mime: string | null
+  caminho: string | null
+  url: string | null
+  original: string | null
+}
+
 export interface MensagemInstagram {
   id: string
   direcao: 'inbound' | 'outbound'
@@ -30,6 +44,7 @@ export interface MensagemInstagram {
   status: 'recebida' | 'enviada' | 'falhou'
   erro: string | null
   createdAt: string
+  anexos: AnexoInstagram[]
 }
 
 /**
@@ -110,6 +125,7 @@ export async function listarMensagensInstagram(conversaId: string): Promise<Mens
     .order('created_at', { ascending: true })
     .limit(500)
   if (error) throw new Error('Não consegui ler a conversa. ' + error.message)
+  const anexos = await anexosDaConversa(conversaId)
   return ((data ?? []) as {
     id: string
     direction: MensagemInstagram['direcao']
@@ -126,7 +142,59 @@ export async function listarMensagensInstagram(conversaId: string): Promise<Mens
     status: m.status,
     erro: m.error,
     createdAt: m.created_at,
+    anexos: anexos.get(m.id) ?? [],
   }))
+}
+
+/**
+ * Os anexos da conversa, cada arquivo guardado com um link de cinco minutos.
+ *
+ * Consulta a parte, dentro de try/catch: a coluna anexos e de 08/11/2026, e
+ * pedir coluna nova na consulta principal derruba a tela inteira enquanto a
+ * migration nao roda (licao de 19/09/2026). Sem ela, a conversa abre so com os
+ * rotulos, como antes.
+ */
+async function anexosDaConversa(conversaId: string): Promise<Map<string, AnexoInstagram[]>> {
+  const porMensagem = new Map<string, AnexoInstagram[]>()
+  try {
+    const { data, error } = await semTipo
+      .from('instagram_messages')
+      .select('id,anexos')
+      .eq('conversation_id', conversaId)
+      .limit(500)
+    if (error) throw error
+    type Bruto = { tipo?: string; url?: string | null; path?: string | null; mime?: string | null }
+    const linhas = ((data ?? []) as { id: string; anexos: Bruto[] | null }[]).filter((l) => Array.isArray(l.anexos) && l.anexos.length)
+    const caminhos = linhas.flatMap((l) => (l.anexos ?? []).map((a) => a.path).filter((p): p is string => Boolean(p)))
+    const links = new Map<string, string>()
+    if (caminhos.length) {
+      const { data: assinados, error: erroDosLinks } = await supabase.storage.from('instagram-anexos').createSignedUrls(caminhos, 300)
+      if (erroDosLinks) console.warn('Instagram: sem link para os anexos', erroDosLinks)
+      for (const l of assinados ?? []) if (l.path && l.signedUrl) links.set(l.path, l.signedUrl)
+    }
+    for (const linha of linhas) {
+      porMensagem.set(
+        linha.id,
+        (linha.anexos ?? []).map((a) => ({
+          tipo: String(a.tipo ?? 'desconhecido'),
+          mime: a.mime ?? null,
+          caminho: a.path ?? null,
+          url: a.path ? (links.get(a.path) ?? null) : null,
+          original: a.url ?? null,
+        })),
+      )
+    }
+  } catch (erro) {
+    console.warn('Instagram: sem os anexos da conversa (migration 20261108120000 aplicada?)', erro)
+  }
+  return porMensagem
+}
+
+/** Link novo, de cinco minutos, para um anexo guardado (o da conversa vence). */
+export async function linkDoAnexoInstagram(caminho: string): Promise<string> {
+  const { data, error } = await supabase.storage.from('instagram-anexos').createSignedUrl(caminho, 300)
+  if (error || !data?.signedUrl) throw new Error('Não consegui abrir o anexo. Tente de novo.')
+  return data.signedUrl
 }
 
 export async function marcarInstagramComoLida(conversaId: string): Promise<void> {

@@ -24,7 +24,15 @@ import {
   chaveRecusada,
   deveAvisarChave,
   ESPERA_DO_AVISO_DA_CHAVE_MS,
+  anexosDoDirect,
+  urlDaMeta,
+  caminhoDoAnexo,
+  tipoParaOAcervo,
+  TIPOS_DO_ACERVO,
+  TETO_DO_ANEXO,
+  guardarAnexosDoDirect,
 } from './instagram.build.mjs'
+import { readFileSync } from 'node:fs'
 
 let ok = 0
 function caso(nome, fn) {
@@ -447,5 +455,233 @@ caso('aviso da chave recusada: na primeira recusa e depois de 12 em 12 horas', (
   assert.equal(deveAvisarChave(horasAtras(12), agora), true)
   assert.equal(deveAvisarChave('data estragada', agora), true)
 })
+
+// Anexos do Direct na Central (08/11/2026): a Rita mandou tres "[anexo]" junto
+// com a pergunta do anuncio e ninguem soube o que eram.
+caso('tipos da documentação do Direct ganham rótulo; desconhecido segue "[anexo]"', () => {
+  assert.equal(textoRecebido({ attachments: [{ type: 'ig_post' }] }), '[post compartilhado]')
+  assert.equal(textoRecebido({ attachments: [{ type: 'story' }] }), '[story compartilhado]')
+  assert.equal(textoRecebido({ attachments: [{ type: 'media' }] }), '[mídia]')
+  assert.equal(textoRecebido({ attachments: [{ type: 'coisa_da_meta_de_2027' }] }), '[anexo]')
+})
+
+caso('anexo guarda o tipo cru e o link que a Meta mandou', () => {
+  const url = 'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=123&signature=abc'
+  assert.deepEqual(anexosDoDirect({ attachments: [{ type: 'image', payload: { url } }] }), [{ tipo: 'image', url }])
+  // Sem payload (ou com lixo no lugar da URL): o tipo fica, o link nao.
+  assert.deepEqual(anexosDoDirect({ attachments: [{ type: 'ig_post' }, { type: 'audio', payload: { url: 42 } }] }), [
+    { tipo: 'ig_post', url: null },
+    { tipo: 'audio', url: null },
+  ])
+  assert.deepEqual(anexosDoDirect({ attachments: [{}] }), [{ tipo: 'desconhecido', url: null }])
+  assert.deepEqual(anexosDoDirect({ text: 'oi' }), [])
+  assert.deepEqual(anexosDoDirect(undefined), [])
+  assert.deepEqual(anexosDoDirect({ attachments: 'nao e lista' }), [])
+  // O Direct manda no maximo dez fotos; mais que isso e lixo.
+  assert.equal(anexosDoDirect({ attachments: Array.from({ length: 14 }, () => ({ type: 'image', payload: { url } })) }).length, 10)
+})
+
+caso('só baixa de servidor da Meta, por https', () => {
+  assert.equal(urlDaMeta('https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1'), true)
+  assert.equal(urlDaMeta('https://scontent-gru2-1.cdninstagram.com/v/t51/abc.mp4?oh=1'), true)
+  assert.equal(urlDaMeta('https://video.xx.fbcdn.net/v/abc.mp4'), true)
+  assert.equal(urlDaMeta('http://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1'), false)
+  assert.equal(urlDaMeta('https://fbsbx.com.golpe.net/foto.jpg'), false)
+  assert.equal(urlDaMeta('https://naofbsbx.com/foto.jpg'), false)
+  assert.equal(urlDaMeta('https://169.254.169.254/latest/meta-data'), false)
+  assert.equal(urlDaMeta('nao e url'), false)
+  assert.equal(urlDaMeta(null), false)
+})
+
+caso('caminho no acervo: pasta da clínica e mid sem caractere que vire pasta', () => {
+  const clinica = '11111111-2222-3333-4444-555555555555'
+  const caminho = caminhoDoAnexo(clinica, 'aWdf/ZAG1+faXRlb=Tox', 2)
+  assert.equal(caminho, `${clinica}/aWdf_ZAG1_faXRlb_Tox-2`)
+  // Uma barra a mais e o arquivo cairia fora da pasta da clinica, e a
+  // permissao de leitura (pasta = clinica) deixaria de valer.
+  assert.equal(caminho.split('/').length, 2)
+})
+
+caso('tipo do arquivo: vale o que o acervo aceita; octet-stream usa o tipo do anexo', () => {
+  assert.equal(tipoParaOAcervo('image/jpeg; charset=binary', 'image'), 'image/jpeg')
+  assert.equal(tipoParaOAcervo('audio/mp4', 'audio'), 'audio/mp4')
+  assert.equal(tipoParaOAcervo('video/quicktime', 'video'), 'video/quicktime')
+  assert.equal(tipoParaOAcervo('application/octet-stream', 'audio'), 'audio/mp4')
+  assert.equal(tipoParaOAcervo('', 'ig_reel'), 'video/mp4')
+  assert.equal(tipoParaOAcervo(null, 'image'), 'image/jpeg')
+  // Pagina de erro da CDN com status 200 nao entra no acervo como se fosse foto.
+  assert.equal(tipoParaOAcervo('text/html', 'image'), null)
+  assert.equal(tipoParaOAcervo('application/octet-stream', 'share'), null)
+  assert.equal(TETO_DO_ANEXO, 25 * 1024 * 1024)
+})
+
+caso('lista de tipos do código é a mesma do bucket na migration', () => {
+  const sql = readFileSync(new URL('../supabase/migrations/20261108120000_anexos_do_instagram.sql', import.meta.url), 'utf8')
+  const lista = sql.match(/'instagram-anexos',\s*false,\s*\d+,\s*array\[([^\]]+)\]/)?.[1] ?? ''
+  const doBucket = new Set([...lista.matchAll(/'([^']+)'/g)].map((m) => m[1]))
+  assert.ok(doBucket.size > 10, 'nao achei a lista do bucket na migration')
+  assert.deepEqual([...TIPOS_DO_ACERVO].sort(), [...doBucket].sort())
+  // E todo tipo que o codigo deduz cabe no bucket.
+  for (const tipo of ['image', 'audio', 'video', 'ig_reel']) assert.ok(doBucket.has(tipoParaOAcervo('', tipo)), tipo)
+})
+
+// A copia para o acervo, contra um banco, um acervo e uma Meta falsos.
+function bancoFalso({ semColuna = false, acervoRecusa = false } = {}) {
+  const gravacoes = []
+  const uploads = []
+  return {
+    gravacoes,
+    uploads,
+    from(tabela) {
+      return {
+        update(valores) {
+          return {
+            eq: async (coluna, valor) => {
+              if (semColuna) return { error: { message: 'column "anexos" of relation "instagram_messages" does not exist' } }
+              gravacoes.push({ tabela, valores: structuredClone(valores), coluna, valor })
+              return { error: null }
+            },
+          }
+        },
+      }
+    },
+    storage: {
+      from(bucket) {
+        return {
+          upload: async (caminho, corpo, opcoes) => {
+            uploads.push({ bucket, caminho, tamanho: corpo.byteLength, ...opcoes })
+            return { error: acervoRecusa ? { message: 'mime type not supported' } : null }
+          },
+        }
+      },
+    },
+  }
+}
+
+async function comMetaFalsa(respostas, fn) {
+  const fetchOriginal = globalThis.fetch
+  const errorOriginal = console.error
+  const pedidos = []
+  const gritos = []
+  globalThis.fetch = async (url) => {
+    pedidos.push(String(url))
+    const r = respostas[String(url)]
+    return r ? r() : new Response('nao achei', { status: 404 })
+  }
+  console.error = (...partes) => gritos.push(partes.join(' '))
+  try {
+    await fn({ pedidos, gritos })
+  } finally {
+    globalThis.fetch = fetchOriginal
+    console.error = errorOriginal
+  }
+}
+
+const casosAssincronos = []
+function casoAssincrono(nome, fn) {
+  casosAssincronos.push(async () => {
+    try {
+      await fn()
+      ok++
+    } catch (erro) {
+      console.error('FALHOU:', nome)
+      throw erro
+    }
+  })
+}
+
+const CLINICA = '11111111-2222-3333-4444-555555555555'
+const FOTO = 'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1&signature=x'
+const AUDIO = 'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=2&signature=y'
+
+casoAssincrono('foto e áudio vão para o acervo e a mensagem ganha o caminho', async () => {
+  const banco = bancoFalso()
+  await comMetaFalsa(
+    {
+      [FOTO]: () => new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/jpeg' } }),
+      [AUDIO]: () => new Response(new Uint8Array([4, 5]), { headers: { 'content-type': 'application/octet-stream' } }),
+    },
+    async ({ gritos }) => {
+      await guardarAnexosDoDirect(banco, CLINICA, 'mid/1', [
+        { tipo: 'image', url: FOTO },
+        { tipo: 'audio', url: AUDIO },
+      ])
+      assert.deepEqual(gritos, [])
+    },
+  )
+  // Primeiro o tipo e o link (a tela sabe o que chegou mesmo se o download cair)...
+  assert.equal(banco.gravacoes.length, 2)
+  assert.deepEqual(banco.gravacoes[0].valores.anexos.map((a) => a.tipo), ['image', 'audio'])
+  assert.equal(banco.gravacoes[0].valores.anexos[0].path, undefined)
+  assert.equal(banco.gravacoes[0].valor, 'mid/1')
+  // ...depois o caminho no acervo privado.
+  assert.deepEqual(banco.uploads.map((u) => [u.bucket, u.caminho, u.contentType]), [
+    ['instagram-anexos', `${CLINICA}/mid_1-0`, 'image/jpeg'],
+    ['instagram-anexos', `${CLINICA}/mid_1-1`, 'audio/mp4'],
+  ])
+  assert.deepEqual(banco.gravacoes[1].valores.anexos, [
+    { tipo: 'image', url: FOTO, path: `${CLINICA}/mid_1-0`, mime: 'image/jpeg' },
+    { tipo: 'audio', url: AUDIO, path: `${CLINICA}/mid_1-1`, mime: 'audio/mp4' },
+  ])
+})
+
+casoAssincrono('Meta não entrega o arquivo: fica o tipo e o link, e o log grita', async () => {
+  const banco = bancoFalso()
+  await comMetaFalsa({}, async ({ gritos }) => {
+    await guardarAnexosDoDirect(banco, CLINICA, 'mid2', [{ tipo: 'video', url: FOTO }])
+    assert.equal(gritos.length, 1)
+    assert.match(gritos[0], /nao entregou o anexo/)
+  })
+  assert.equal(banco.gravacoes.length, 1)
+  assert.deepEqual(banco.gravacoes[0].valores.anexos, [{ tipo: 'video', url: FOTO }])
+  assert.equal(banco.uploads.length, 0)
+})
+
+casoAssincrono('endereço fora da Meta nem é pedido', async () => {
+  const banco = bancoFalso()
+  await comMetaFalsa({}, async ({ pedidos, gritos }) => {
+    await guardarAnexosDoDirect(banco, CLINICA, 'mid3', [{ tipo: 'image', url: 'https://169.254.169.254/latest/meta-data' }])
+    assert.deepEqual(pedidos, [])
+    assert.match(gritos[0], /fora da Meta/)
+  })
+  assert.equal(banco.uploads.length, 0)
+})
+
+casoAssincrono('acervo recusa: não grava caminho falso e grita', async () => {
+  const banco = bancoFalso({ acervoRecusa: true })
+  await comMetaFalsa(
+    { [FOTO]: () => new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } }) },
+    async ({ gritos }) => {
+      await guardarAnexosDoDirect(banco, CLINICA, 'mid4', [{ tipo: 'image', url: FOTO }])
+      assert.match(gritos.join('\n'), /acervo recusou/)
+    },
+  )
+  assert.equal(banco.gravacoes.length, 1)
+  assert.equal(banco.gravacoes[0].valores.anexos[0].path, undefined)
+})
+
+casoAssincrono('sem a coluna nova (migration atrasada): nem baixa, avisa e não lança', async () => {
+  const banco = bancoFalso({ semColuna: true })
+  await comMetaFalsa({}, async ({ pedidos, gritos }) => {
+    await guardarAnexosDoDirect(banco, CLINICA, 'mid5', [{ tipo: 'image', url: FOTO }])
+    assert.deepEqual(pedidos, [])
+    assert.match(gritos[0], /migration 20261108120000/)
+  })
+  assert.equal(banco.uploads.length, 0)
+})
+
+casoAssincrono('arquivo acima de 25 MB fica só com o link', async () => {
+  const banco = bancoFalso()
+  await comMetaFalsa(
+    { [FOTO]: () => new Response('x', { headers: { 'content-type': 'video/mp4', 'content-length': String(TETO_DO_ANEXO + 1) } }) },
+    async ({ gritos }) => {
+      await guardarAnexosDoDirect(banco, CLINICA, 'mid6', [{ tipo: 'ig_reel', url: FOTO }])
+      assert.match(gritos[0], /maior que 25 MB/)
+    },
+  )
+  assert.equal(banco.uploads.length, 0)
+})
+
+for (const rodar of casosAssincronos) await rodar()
 
 console.log(`instagram: ${ok} casos ok`)

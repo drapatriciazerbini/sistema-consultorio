@@ -808,6 +808,8 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
           texto: textoRecebido(mensagem),
           mid: mensagem.mid,
         }, agora)
+        // Foto ou video que a equipe mandou pelo app tambem aparece na Central.
+        await anexarEmSegundoPlano(admin, clinicId, mensagem)
         const { error } = await admin
           .from('instagram_conversations')
           .update({ last_human_reply_at: agora.toISOString(), bot_replies_in_row: 0 })
@@ -830,6 +832,7 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
         texto: textoRecebido(mensagem),
         mid: mensagem.mid,
       }, agora)
+      await anexarEmSegundoPlano(admin, clinicId, mensagem)
 
       await contar(admin, clinicId, conversa.id, 'mensagem')
       if (mensagem.quick_reply?.payload) await contar(admin, clinicId, conversa.id, 'botao', mensagem.quick_reply.payload)
@@ -942,24 +945,215 @@ export async function tratarInstagram(admin: Admin, payload: { entry?: unknown[]
  * pessoa sem resposta.
  */
 
+/**
+ * Rotulo de cada tipo de anexo, pelo nome cru da Meta. ig_post, story e media
+ * entraram em 08/11/2026, da lista da documentacao do Direct: ate ali caiam em
+ * "[anexo]" e ninguem sabia o que tinha chegado.
+ */
+const ROTULOS_DOS_ANEXOS: Record<string, string> = {
+  image: '[foto]',
+  video: '[vídeo]',
+  audio: '[áudio]',
+  file: '[arquivo]',
+  media: '[mídia]',
+  share: '[post compartilhado]',
+  ig_post: '[post compartilhado]',
+  ig_reel: '[reel compartilhado]',
+  reel: '[reel compartilhado]',
+  story_mention: '[mencionou nos stories]',
+  ig_story: '[resposta a um story]',
+  story: '[story compartilhado]',
+}
+
 /** O texto que vai para o historico. Anexo sem texto vira um rotulo legivel. */
 export function textoRecebido(mensagem: { text?: string; attachments?: unknown[] } | undefined): string {
   const texto = String(mensagem?.text ?? '').trim()
   if (texto) return texto
   const anexos = (mensagem?.attachments ?? []) as Array<{ type?: string }>
   if (!anexos.length) return '[mensagem sem texto]'
-  const NOMES: Record<string, string> = {
-    image: '[foto]',
-    video: '[vídeo]',
-    audio: '[áudio]',
-    file: '[arquivo]',
-    share: '[post compartilhado]',
-    ig_reel: '[reel compartilhado]',
-    reel: '[reel compartilhado]',
-    story_mention: '[mencionou nos stories]',
-    ig_story: '[resposta a um story]',
+  return anexos.map((a) => ROTULOS_DOS_ANEXOS[String(a?.type ?? '')] ?? '[anexo]').join(' ')
+}
+
+// ---------------------------------------------------------------------------
+// Anexos do Direct na Central (08/11/2026)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pedido do Edu: ver na Central a foto, o audio, o video e o reel que chegam
+ * no Direct, e nao so "[foto]" ou "[anexo]". A Meta manda a URL do arquivo no
+ * proprio aviso (attachments[].payload.url), mas e URL de CDN assinada, que
+ * vence: o arquivo e copiado para o acervo privado instagram-anexos logo
+ * depois de a mensagem ser gravada (migration 20261108120000).
+ *
+ * A copia roda em segundo plano (EdgeRuntime.waitUntil): um reel de 15 MB nao
+ * pode atrasar a resposta do robo. E nunca derruba nada - se falhar, o anexo
+ * fica com o tipo e o link da Meta, a Central mostra "nao guardado" e o log
+ * grita o motivo.
+ */
+
+/** Um anexo como fica em instagram_messages.anexos. */
+export type AnexoDoDirect = { tipo: string; url: string | null; path?: string | null; mime?: string | null }
+
+/** Teto do acervo (o mesmo da Meta para anexo no Direct): 25 MB. */
+export const TETO_DO_ANEXO = 25 * 1024 * 1024
+
+/** Os anexos como a Meta mandou: tipo cru e URL, quando veio. Puro. */
+export function anexosDoDirect(mensagem: { attachments?: unknown[] } | undefined): AnexoDoDirect[] {
+  const brutos = Array.isArray(mensagem?.attachments) ? mensagem.attachments : []
+  // O Direct manda no maximo dez fotos por mensagem; o resto seria lixo.
+  return brutos.slice(0, 10).map((bruto) => {
+    const a = (bruto ?? {}) as { type?: unknown; payload?: { url?: unknown } | null }
+    const url = typeof a.payload?.url === 'string' && a.payload.url.trim() ? a.payload.url.trim() : null
+    return { tipo: String(a.type ?? '').trim() || 'desconhecido', url }
+  })
+}
+
+/**
+ * So baixa de servidor da Meta, por https. O aviso vem assinado pela Meta, mas
+ * o servidor buscar qualquer endereco que apareca no corpo seria um convite:
+ * se um dia vier outro host, fica o link e o log, sem download.
+ */
+export function urlDaMeta(url: string | null | undefined): boolean {
+  if (!url) return false
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' && /(^|\.)(fbsbx\.com|fbcdn\.net|cdninstagram\.com|instagram\.com|facebook\.com)$/i.test(u.hostname)
+  } catch {
+    return false
   }
-  return anexos.map((a) => NOMES[String(a?.type ?? '')] ?? '[anexo]').join(' ')
+}
+
+/** Caminho no acervo: <clinica>/<mid sem caractere estranho>-<n>. */
+export function caminhoDoAnexo(clinicId: string, mid: string, n: number): string {
+  return `${clinicId}/${mid.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 400)}-${n}`
+}
+
+/**
+ * Os tipos que o acervo aceita. Tem de ser a mesma lista da migration
+ * 20261108120000: o teste compara as duas, porque tipo aceito aqui e recusado
+ * no bucket seria upload falhando em silencio para sempre.
+ */
+export const TIPOS_DO_ACERVO = new Set([
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic',
+  'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/webm',
+  'video/mp4', 'video/quicktime', 'video/webm', 'video/3gpp',
+  'application/pdf',
+])
+
+/**
+ * O tipo do arquivo para o acervo, ou null se ele nao entra. CDN as vezes
+ * responde "application/octet-stream" para audio e video; ai vale o tipo do
+ * anexo que a Meta declarou, para o player da Central saber o que fazer.
+ */
+export function tipoParaOAcervo(contentType: string | null | undefined, tipo: string): string | null {
+  const mime = String(contentType ?? '').split(';')[0].trim().toLowerCase()
+  if (TIPOS_DO_ACERVO.has(mime)) return mime
+  if (mime && mime !== 'application/octet-stream' && mime !== 'binary/octet-stream') return null
+  if (tipo === 'image') return 'image/jpeg'
+  if (tipo === 'audio') return 'audio/mp4'
+  if (['video', 'ig_reel', 'reel'].includes(tipo)) return 'video/mp4'
+  return null
+}
+
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined
+
+type Acervo = {
+  storage?: {
+    from(bucket: string): {
+      upload(path: string, corpo: Uint8Array, opcoes: { contentType: string; upsert: boolean }): Promise<{ error: unknown }>
+    }
+  }
+}
+
+/** Copia um anexo para o acervo. Devolve o anexo com path e mime, ou como veio. Nunca lanca. */
+async function copiarParaOAcervo(admin: Admin & Acervo, clinicId: string, mid: string, n: number, anexo: AnexoDoDirect): Promise<AnexoDoDirect> {
+  if (!anexo.url) return anexo
+  if (!urlDaMeta(anexo.url)) {
+    console.error('Instagram: anexo com endereco fora da Meta; nao baixei', anexo.tipo, anexo.url.slice(0, 60))
+    return anexo
+  }
+  try {
+    let resposta = await fetch(anexo.url)
+    if (resposta.status === 401 || resposta.status === 403) {
+      // A URL do Direct costuma abrir sem chave. Se um dia pedir, tenta com ela.
+      await resposta.body?.cancel()
+      const token = Deno.env.get('INSTAGRAM_PAGE_TOKEN')?.trim()
+      if (token) resposta = await fetch(anexo.url, { headers: { Authorization: `Bearer ${token}` } })
+    }
+    if (!resposta.ok) {
+      console.error('Instagram: a Meta nao entregou o anexo; fica so o link', anexo.tipo, resposta.status)
+      await resposta.body?.cancel()
+      return anexo
+    }
+    const declarado = Number(resposta.headers.get('content-length') ?? 0)
+    if (declarado > TETO_DO_ANEXO) {
+      console.error('Instagram: anexo maior que 25 MB; fica so o link', anexo.tipo, declarado)
+      await resposta.body?.cancel()
+      return anexo
+    }
+    const mime = tipoParaOAcervo(resposta.headers.get('content-type'), anexo.tipo)
+    if (!mime) {
+      console.error('Instagram: tipo de arquivo fora do acervo; fica so o link', anexo.tipo, resposta.headers.get('content-type'))
+      await resposta.body?.cancel()
+      return anexo
+    }
+    const bytes = new Uint8Array(await resposta.arrayBuffer())
+    if (bytes.byteLength > TETO_DO_ANEXO) {
+      console.error('Instagram: anexo maior que 25 MB; fica so o link', anexo.tipo, bytes.byteLength)
+      return anexo
+    }
+    if (!admin.storage) {
+      console.error('Instagram: cliente sem storage; anexo nao guardado')
+      return anexo
+    }
+    const path = caminhoDoAnexo(clinicId, mid, n)
+    const { error } = await admin.storage.from('instagram-anexos').upload(path, bytes, { contentType: mime, upsert: true })
+    if (error) {
+      console.error('Instagram: o acervo recusou o anexo (bucket instagram-anexos existe?)', anexo.tipo, mime, error)
+      return anexo
+    }
+    return { ...anexo, path, mime }
+  } catch (erro) {
+    console.error('Instagram: falha ao copiar o anexo; fica so o link', anexo.tipo, erro instanceof Error ? erro.message : erro)
+    return anexo
+  }
+}
+
+/**
+ * Grava os anexos da mensagem e copia os arquivos. Primeiro o tipo e o link
+ * (rapido: mesmo que o download caia, a Central sabe o que chegou); depois
+ * cada arquivo, e grava de novo com o caminho no acervo. Nunca lanca.
+ */
+export async function guardarAnexosDoDirect(admin: Admin & Acervo, clinicId: string, mid: string, anexos: AnexoDoDirect[]) {
+  try {
+    // Coluna nova: update separado do insert da mensagem. Sem a migration, o
+    // insert continua passando e so o anexo se perde - com aviso.
+    const gravar = async (lista: AnexoDoDirect[]) => {
+      const { error } = await admin.from('instagram_messages').update({ anexos: lista }).eq('mid', mid)
+      if (error) throw error
+    }
+    try {
+      await gravar(anexos)
+    } catch (erro) {
+      console.error('Instagram: nao gravei os anexos da mensagem (migration 20261108120000 aplicada?)', erro instanceof Error ? erro.message : erro)
+      return
+    }
+    const copiados: AnexoDoDirect[] = []
+    for (const [n, anexo] of anexos.entries()) copiados.push(await copiarParaOAcervo(admin, clinicId, mid, n, anexo))
+    if (!copiados.some((a) => a.path)) return
+    await gravar(copiados)
+  } catch (erro) {
+    console.error('Instagram: falha ao guardar os anexos', erro instanceof Error ? erro.message : erro)
+  }
+}
+
+/** Dispara a copia dos anexos sem segurar a resposta do robo. */
+async function anexarEmSegundoPlano(admin: Admin, clinicId: string, mensagem: { mid?: string; attachments?: unknown[] }) {
+  const anexos = anexosDoDirect(mensagem)
+  if (!anexos.length || !mensagem.mid) return
+  const tarefa = guardarAnexosDoDirect(admin as Admin & Acervo, clinicId, mensagem.mid, anexos)
+  if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(tarefa)
+  else await tarefa
 }
 
 export type LinhaDoChat = {

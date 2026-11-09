@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Bot, Instagram, Send, UserRound } from 'lucide-react'
+import { AlertTriangle, Bot, ExternalLink, Instagram, Paperclip, Send, UserRound } from 'lucide-react'
 import { useDialogos } from '@/components/dialogos-contexto'
+import { VisualizadorDeArquivo, type ArquivoAberto } from '@/components/VisualizadorDeArquivo'
 import {
   chaveDoInstagramRecusadaEm,
+  linkDoAnexoInstagram,
   listarConversasInstagram,
   listarMensagensInstagram,
   marcarInstagramComoLida,
   podeResponder,
   responderInstagram,
+  type AnexoInstagram,
   type ConversaInstagram,
   type MensagemInstagram,
 } from '@/lib/instagram'
@@ -43,6 +46,125 @@ const DE_QUEM: Record<MensagemInstagram['autor'], string> = {
   equipe: 'Equipe',
 }
 
+/** Nome de cada tipo de anexo da Meta, para o aviso de "nao guardado". */
+const NOME_DO_ANEXO: Record<string, string> = {
+  image: 'Foto',
+  video: 'Vídeo',
+  audio: 'Áudio',
+  file: 'Arquivo',
+  media: 'Mídia',
+  share: 'Post compartilhado',
+  ig_post: 'Post compartilhado',
+  ig_reel: 'Reel compartilhado',
+  reel: 'Reel compartilhado',
+  story_mention: 'Menção nos stories',
+  ig_story: 'Story',
+  story: 'Story compartilhado',
+}
+
+/** Texto que e so rotulo de anexo ("[foto]", "[áudio] [foto]"): some quando o anexo aparece. */
+const SO_ROTULOS = /^(\[[^\]]*\]\s*)+$/
+
+/** Minutos em que o anexo sem arquivo ainda conta como "guardando". */
+const COPIANDO_MS = 2 * 60_000
+
+/**
+ * Anexo dentro do balao (08/11/2026).
+ *
+ * Mesmas escolhas do WhatsApp: foto abre por cima da tela, audio e video tocam
+ * ali mesmo, e o link de cinco minutos e renovado no clique ou quando a previa
+ * falha. O link fica no estado: a conversa recarrega a cada 15 s com links
+ * novos, e trocar o src no meio reiniciaria o audio que alguem estiver ouvindo.
+ *
+ * Sem arquivo guardado, diz isso com todas as letras - nos primeiros minutos
+ * como "carregando" (a copia roda depois da resposta do robo), depois como
+ * "nao guardado", com o link original da Meta, que pode ja ter vencido.
+ */
+function AnexoDoDirect({
+  anexo,
+  criadoEm,
+  agora,
+  escuro,
+  onAbrir,
+}: {
+  anexo: AnexoInstagram
+  criadoEm: string
+  /** Do relogio de 15 s da tela: "carregando" vira "nao guardado" sozinho. */
+  agora: number
+  escuro: boolean
+  onAbrir: (arquivo: ArquivoAberto) => void
+}) {
+  const [url, setUrl] = useState(anexo.url)
+  const [erro, setErro] = useState('')
+  const renovou = useRef(false)
+  const mime = anexo.mime ?? ''
+  const nome = NOME_DO_ANEXO[anexo.tipo] ?? `Anexo (${anexo.tipo})`
+
+  async function linkNovo() {
+    if (!anexo.caminho) throw new Error('Arquivo não guardado.')
+    const novo = await linkDoAnexoInstagram(anexo.caminho)
+    setUrl(novo)
+    return novo
+  }
+
+  function renovarUmaVez() {
+    if (renovou.current) return
+    renovou.current = true
+    void linkNovo().catch(() => undefined)
+  }
+
+  async function abrir() {
+    setErro('')
+    try {
+      onAbrir({ url: await linkNovo(), mime: anexo.mime, titulo: nome })
+    } catch (causa) {
+      setErro(causa instanceof Error ? causa.message : 'Não consegui abrir o anexo.')
+    }
+  }
+
+  if (anexo.caminho && url) {
+    if (mime.startsWith('image/')) {
+      return (
+        <button type="button" onClick={() => void abrir()} className="mb-1 block w-full" title="Ver a foto">
+          <img src={url} alt={nome} loading="lazy" onError={renovarUmaVez} className="max-h-[320px] w-full rounded-[10px] object-cover" />
+          {erro && <span className="block text-[10px] font-bold text-red-600">{erro}</span>}
+        </button>
+      )
+    }
+    if (mime.startsWith('audio/')) {
+      return <audio src={url} controls preload="none" onError={renovarUmaVez} className="mb-1 w-[260px] max-w-full" />
+    }
+    if (mime.startsWith('video/')) {
+      return <video src={url} controls preload="metadata" onError={renovarUmaVez} className="mb-1 max-h-[320px] w-full rounded-[10px]" />
+    }
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => void abrir()}
+          className={`mb-1 flex items-center gap-2 rounded-[10px] px-2 py-1.5 text-[11px] font-bold transition ${escuro ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10'}`}
+        >
+          <Paperclip className="h-3.5 w-3.5 shrink-0" /> Abrir {nome.toLowerCase()}
+        </button>
+        {erro && <span className="block text-[10px] font-bold text-red-600">{erro}</span>}
+      </>
+    )
+  }
+
+  const copiando = !anexo.caminho && agora - Date.parse(criadoEm) < COPIANDO_MS
+  return (
+    <span className={`mb-1 flex flex-wrap items-center gap-1.5 rounded-[10px] px-2 py-1.5 text-[10px] font-bold ${escuro ? 'bg-white/10' : 'bg-amber-50 text-amber-800'}`}>
+      <Paperclip className="h-3 w-3 shrink-0" />
+      {copiando ? `${nome}: carregando o arquivo…` : `${nome}: não foi guardado na Central`}
+      {anexo.original && (
+        <a href={anexo.original} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-0.5 underline">
+          abrir o original <ExternalLink className="h-3 w-3" />
+        </a>
+      )}
+    </span>
+  )
+}
+
 export default function InstagramInbox({ clinicId }: { clinicId: string }) {
   const { avisar } = useDialogos()
   const [conversas, setConversas] = useState<ConversaInstagram[]>([])
@@ -53,6 +175,8 @@ export default function InstagramInbox({ clinicId }: { clinicId: string }) {
   const [erro, setErro] = useState<string | null>(null)
   const [carregou, setCarregou] = useState(false)
   const [chaveRecusadaEm, setChaveRecusadaEm] = useState<string | null>(null)
+  const [arquivoAberto, setArquivoAberto] = useState<ArquivoAberto | null>(null)
+  const [agora, setAgora] = useState(() => Date.now())
   const fim = useRef<HTMLLIElement | null>(null)
 
   const carregar = useCallback(async () => {
@@ -78,6 +202,7 @@ export default function InstagramInbox({ clinicId }: { clinicId: string }) {
   useEffect(() => {
     void carregar()
     const relogio = setInterval(() => {
+      setAgora(Date.now())
       void carregar()
       if (aberta) void carregarMensagens(aberta)
     }, 15000)
@@ -209,7 +334,20 @@ export default function InstagramInbox({ clinicId }: { clinicId: string }) {
                           {m.autor === 'robo' ? <Bot className="h-3 w-3" /> : <UserRound className="h-3 w-3" />} {DE_QUEM[m.autor]}
                         </span>
                       )}
-                      {m.texto}
+                      {m.anexos.map((anexo, i) => (
+                        <AnexoDoDirect
+                          // O caminho na chave: quando a copia termina, o anexo
+                          // remonta e pega o link; antes disso o estado guardaria o vazio.
+                          key={`${m.id}-${i}-${anexo.caminho ?? ''}`}
+                          anexo={anexo}
+                          criadoEm={m.createdAt}
+                          agora={agora}
+                          escuro={m.direcao === 'outbound'}
+                          onAbrir={setArquivoAberto}
+                        />
+                      ))}
+                      {/* "[foto]" embaixo da propria foto e ruido; rotulo de anexo que nao apareceu fica. */}
+                      {m.anexos.length > 0 && m.anexos.every((a) => a.caminho) && SO_ROTULOS.test(m.texto.trim()) ? null : m.texto}
                       <span className={`mt-1 block text-[9px] ${m.direcao === 'outbound' ? 'text-white/50' : 'text-slate-400'}`}>
                         {quando(m.createdAt)}
                         {m.status === 'falhou' && <strong className="ml-1 text-red-200">não enviada{m.erro ? `: ${m.erro}` : ''}</strong>}
@@ -251,6 +389,7 @@ export default function InstagramInbox({ clinicId }: { clinicId: string }) {
           )}
         </div>
       </div>
+      <VisualizadorDeArquivo arquivo={arquivoAberto} onFechar={() => setArquivoAberto(null)} />
     </section>
   )
 }
