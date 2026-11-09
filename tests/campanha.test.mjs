@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import {
   alertasDaConta,
   consultaDepoisDaChegada,
+  contatosDoDirect,
   gastoGoogleNaJanela,
   gastoMetaNaJanela,
   investimento,
@@ -50,6 +51,8 @@ function contato(extra = {}) {
     consultaMarcadaEm: null,
     consultaCancelada: false,
     veio: false,
+    canal: 'whatsapp',
+    pediuAgendar: false,
     ...extra,
   }
 }
@@ -113,7 +116,7 @@ caso('funil: cancelada nao conta como marcou; quem veio conta', () => {
     contato({ consultaEm: local(11, 3), veio: true, respondeu: false }),
     contato(),
   ])
-  assert.deepEqual(n, { contatos: 4, responderam: 3, marcaram: 2, vieram: 1 })
+  assert.deepEqual(n, { contatos: 4, responderam: 3, marcaram: 2, vieram: 1, doDirect: 0, pediramNoDirect: 0 })
 })
 
 // ------------------------------------------------------------ janelas
@@ -287,6 +290,92 @@ caso('alertas da conta da Meta', () => {
   const acabou = alertasDaConta({ ...bem, limite: 1000, limiteRestante: 0, limiteDias: 0 })
   assert.equal(acabou[0].tom, 'erro')
   assert.match(acabou[0].texto, /acabou/)
+})
+
+// ------------------------------------------------------------ Direct do Instagram
+// 09/11/2026: os anuncios da Meta da Dra. levam para o Direct, e a aba mostrava
+// a Meta com zero contatos e R$ 449 gastos, com 58 pessoas de anuncio no Direct.
+
+const NOVEMBRO = janelaDoMes('2026-11')
+const ev = (conversaId, evento, mes, dia, hora, detalhe = '') => ({ conversaId, evento, detalhe, em: local(mes, dia, hora) })
+
+caso('Direct: quem veio de anúncio conta como Meta, com o código para cruzar com o gasto', () => {
+  const conversas = [{ id: 'rita', nome: 'Rita', criadaEm: local(11, 8, 22) }]
+  const eventos = [
+    ev('rita', 'mensagem', 11, 8, 22),
+    ev('rita', 'anuncio', 11, 8, 22, '120238411234567890'),
+    ev('rita', 'mensagem', 11, 8, 23),
+    ev('rita', 'agendar', 11, 8, 23),
+  ]
+  const [c] = contatosDoDirect(conversas, eventos, NOVEMBRO)
+  assert.equal(c.plataforma, 'meta')
+  assert.equal(c.origem, 'instagram')
+  assert.equal(c.canal, 'direct')
+  assert.equal(c.anuncioId, '120238411234567890')
+  assert.equal(c.chegouEm, local(11, 8, 22))
+  assert.equal(c.respondeu, true)
+  assert.equal(c.pediuAgendar, true)
+  assert.equal(c.nome, 'Rita')
+  // Gasto do anuncio cruza com quem ele trouxe: deixa de ser "gastou e nao trouxe ninguem".
+  const meta = { anuncios: { '120238411234567890': { nome: 'Video - Tudo bem filha', dias: { '2026-11-08': 124.84 } } } }
+  const [linha] = porAnuncio([c], meta, NOVEMBRO)
+  assert.equal(linha.contatos, 1)
+  assert.equal(linha.gasto, 124.84)
+  assert.equal(linha.pediramNoDirect, 1)
+})
+
+caso('Direct sem anúncio: orgânico se começou no período; conversa antiga fica de fora', () => {
+  const conversas = [
+    { id: 'nova', nome: null, criadaEm: local(11, 5) },
+    { id: 'antiga', nome: 'Sonia', criadaEm: local(10, 20) },
+  ]
+  const eventos = [ev('nova', 'mensagem', 11, 5), ev('antiga', 'mensagem', 11, 6)]
+  const contatos = contatosDoDirect(conversas, eventos, NOVEMBRO)
+  assert.deepEqual(contatos.map((c) => c.conversaId), ['nova'])
+  assert.equal(contatos[0].plataforma, 'organico')
+  assert.equal(contatos[0].origem, null)
+  assert.equal(contatos[0].nome, 'Pessoa do Instagram')
+  // So o primeiro "oi": nao respondeu, nao pediu nada.
+  assert.equal(contatos[0].respondeu, false)
+  assert.equal(contatos[0].pediuAgendar, false)
+})
+
+caso('Direct: conversa antiga que voltou por um anúncio conta na hora do anúncio', () => {
+  const conversas = [{ id: 'sonia', nome: 'Sonia', criadaEm: local(10, 20) }]
+  const eventos = [ev('sonia', 'anuncio', 10, 20, 9, '120238400000000001'), ev('sonia', 'anuncio', 11, 6, 15, '120238400000000002')]
+  const [c] = contatosDoDirect(conversas, eventos, NOVEMBRO)
+  assert.equal(c.plataforma, 'meta')
+  assert.equal(c.chegouEm, local(11, 6, 15))
+  assert.equal(c.anuncioId, '120238400000000002')
+})
+
+caso('Direct: "ADS" sem código é anúncio, mas vai para a linha sem código', () => {
+  const [c] = contatosDoDirect([{ id: 'x', nome: 'Lua', criadaEm: local(11, 3) }], [ev('x', 'anuncio', 11, 3, 10, 'ADS')], NOVEMBRO)
+  assert.equal(c.plataforma, 'meta')
+  assert.equal(c.anuncioId, null)
+  assert.equal(porAnuncio([c], null, NOVEMBRO)[0].chave, 'sem-codigo')
+})
+
+caso('Direct: pedido para agendar de antes da chegada não conta', () => {
+  const conversas = [{ id: 'm', nome: 'Marta', criadaEm: local(10, 1) }]
+  const eventos = [ev('m', 'agendar', 10, 2), ev('m', 'anuncio', 11, 4, 10, '120238400000000003'), ev('m', 'mensagem', 11, 4, 10)]
+  const [c] = contatosDoDirect(conversas, eventos, NOVEMBRO)
+  assert.equal(c.pediuAgendar, false)
+})
+
+caso('números: Direct entra em contatos e no ritmo; consulta do Direct não vira "marcou"', () => {
+  const lista = [
+    contato({ conversaId: 'w1', canal: 'whatsapp', consultaEm: local(11, 10), consultaMarcadaEm: local(11, 3) }),
+    contato({ conversaId: 'd1', canal: 'direct', pediuAgendar: true, chegouEm: local(11, 2, 11) }),
+    contato({ conversaId: 'd2', canal: 'direct', pediuAgendar: false, chegouEm: local(11, 2, 12) }),
+  ]
+  const n = numeros(lista)
+  assert.equal(n.contatos, 3)
+  assert.equal(n.doDirect, 2)
+  assert.equal(n.pediramNoDirect, 1)
+  assert.equal(n.marcaram, 1)
+  const dia = serieDiaria(lista, NOVEMBRO).find((d) => d.dia === '2026-11-02')
+  assert.equal(dia.porPlataforma.meta, 3)
 })
 
 console.log(`campanha: ${ok} verificacoes ok`)

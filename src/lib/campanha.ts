@@ -37,6 +37,19 @@ export interface Contato {
   consultaCancelada: boolean
   /** A consulta aconteceu (status attended na agenda). */
   veio: boolean
+  /**
+   * Por onde escreveu (09/11/2026). Os anuncios da Meta da Dra. Patricia levam
+   * para o Direct, nao para o WhatsApp como os do Dr. Marcello, de onde esta
+   * aba veio: so com o WhatsApp, a Meta aparecia com zero contatos e R$ 450
+   * gastos no mesmo periodo em que o Direct recebeu 58 pessoas de anuncio.
+   */
+  canal: 'whatsapp' | 'direct'
+  /**
+   * Direct: o robo registrou que a pessoa pediu para agendar. E o mais perto de
+   * "marcou" que o Direct tem - a conversa nao tem telefone nem cadastro, e a
+   * consulta marcada depois nao se liga a ela. No WhatsApp fica falso.
+   */
+  pediuAgendar: boolean
 }
 
 export interface GastoMetaSalvo {
@@ -199,6 +212,10 @@ export interface Numeros {
   responderam: number
   marcaram: number
   vieram: number
+  /** Dos contatos, quantos escreveram pelo Direct do Instagram. */
+  doDirect: number
+  /** Do Direct, quantos pediram para agendar (ver Contato.pediuAgendar). */
+  pediramNoDirect: number
 }
 
 /** Marcou = tem consulta que vale (ou que ja aconteceu); a que cancelou nao conta. */
@@ -207,12 +224,88 @@ export function marcou(c: Contato): boolean {
 }
 
 export function numeros(lista: Contato[]): Numeros {
+  const doDirect = lista.filter((c) => c.canal === 'direct')
   return {
     contatos: lista.length,
     responderam: lista.filter((c) => c.respondeu).length,
     marcaram: lista.filter(marcou).length,
     vieram: lista.filter((c) => c.veio).length,
+    doDirect: doDirect.length,
+    pediramNoDirect: doDirect.filter((c) => c.pediuAgendar).length,
   }
+}
+
+/** O que o robo do Direct registrou (instagram_bot_events), so o que a aba usa. */
+export interface EventoDoDirect {
+  conversaId: string
+  evento: 'anuncio' | 'mensagem' | 'agendar'
+  /** No 'anuncio': o codigo do anuncio, ou "ADS" quando a Meta nao mandou o codigo. */
+  detalhe: string
+  em: string
+}
+
+export interface ConversaDoDirect {
+  id: string
+  nome: string | null
+  criadaEm: string
+}
+
+/** Codigo de anuncio da Meta: so digitos. "ADS" (sem codigo) nao e anuncio nenhum. */
+function codigoDoAnuncio(detalhe: string): string | null {
+  const limpo = detalhe.trim()
+  return /^\d{6,}$/.test(limpo) ? limpo : null
+}
+
+/**
+ * As conversas do Direct como contatos da campanha (09/11/2026), com a mesma
+ * regra do WhatsApp:
+ * - veio de anuncio (o robo registrou o referral da Meta) no periodo: Meta,
+ *   chegando na hora do anuncio, com o codigo para cruzar com o gasto dele;
+ * - senao, conversa que comecou no periodo: organico. A Meta nem sempre manda
+ *   o referral, entao parte do organico do Direct pode ser anuncio - o rodape
+ *   da aba diz isso.
+ * Respondeu = mandou mais uma mensagem depois da que trouxe; marcar consulta
+ * nao se calcula (ver Contato.pediuAgendar).
+ */
+export function contatosDoDirect(conversas: ConversaDoDirect[], eventos: EventoDoDirect[], j: Janela): Contato[] {
+  const dentro = (iso: string) => {
+    const t = Date.parse(iso)
+    return t >= j.inicio && t < j.fim
+  }
+  const porConversa = new Map<string, EventoDoDirect[]>()
+  for (const e of eventos) {
+    const lista = porConversa.get(e.conversaId) ?? []
+    lista.push(e)
+    porConversa.set(e.conversaId, lista)
+  }
+  const contatos: Contato[] = []
+  for (const conversa of conversas) {
+    const dela = (porConversa.get(conversa.id) ?? []).slice().sort((a, b) => Date.parse(a.em) - Date.parse(b.em))
+    const anuncio = dela.find((e) => e.evento === 'anuncio' && dentro(e.em))
+    if (!anuncio && !dentro(conversa.criadaEm)) continue
+    const chegouEm = anuncio ? anuncio.em : conversa.criadaEm
+    // O robo grava 'mensagem' e 'anuncio' no mesmo instante, em qualquer ordem.
+    const desde = Date.parse(chegouEm) - 60_000
+    const depois = dela.filter((e) => Date.parse(e.em) >= desde)
+    contatos.push({
+      conversaId: conversa.id,
+      nome: conversa.nome?.trim() || 'Pessoa do Instagram',
+      telefone: '',
+      plataforma: anuncio ? 'meta' : 'organico',
+      origem: anuncio ? 'instagram' : null,
+      chegouEm,
+      anuncioId: anuncio ? codigoDoAnuncio(anuncio.detalhe) : null,
+      tituloDoAnuncio: null,
+      respondeu: depois.filter((e) => e.evento === 'mensagem').length >= 2,
+      consultaEm: null,
+      consultaMarcadaEm: null,
+      consultaCancelada: false,
+      veio: false,
+      canal: 'direct',
+      pediuAgendar: depois.some((e) => e.evento === 'agendar'),
+    })
+  }
+  return contatos
 }
 
 /** Meio-dia local: a virada de fuso nao joga o gasto para o dia vizinho. */
@@ -342,6 +435,8 @@ export interface LinhaDeAnuncio {
   contatos: number
   marcaram: number
   vieram: number
+  /** Do Direct: pediram para agendar (a consulta deles nao se liga ao anuncio). */
+  pediramNoDirect: number
   gasto: number
 }
 
@@ -356,7 +451,7 @@ export function porAnuncio(lista: Contato[], meta: GastoMetaSalvo | null | undef
   const linha = (chave: string, id: string | null, titulo: string) => {
     let l = linhas.get(chave)
     if (!l) {
-      l = { chave, id, titulo, contatos: 0, marcaram: 0, vieram: 0, gasto: 0 }
+      l = { chave, id, titulo, contatos: 0, marcaram: 0, vieram: 0, pediramNoDirect: 0, gasto: 0 }
       linhas.set(chave, l)
     }
     return l
@@ -371,6 +466,7 @@ export function porAnuncio(lista: Contato[], meta: GastoMetaSalvo | null | undef
     l.contatos++
     if (marcou(c)) l.marcaram++
     if (c.veio) l.vieram++
+    if (c.canal === 'direct' && c.pediuAgendar) l.pediramNoDirect++
   }
   for (const [id, anuncio] of Object.entries(meta?.anuncios ?? {})) {
     const gasto = gastoDoAnuncioNaJanela(meta, id, j)

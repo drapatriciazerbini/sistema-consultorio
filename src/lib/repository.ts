@@ -21,7 +21,15 @@ import {
   type HorarioDaAgenda,
 } from '../../supabase/functions/_shared/consulta-aconteceu.ts'
 import { pacientesAtendidos } from '@/lib/paciente-atendido'
-import { consultaDepoisDaChegada, type ConsultaMarcada, type Contato, type GastosDaCampanha } from '@/lib/campanha'
+import {
+  consultaDepoisDaChegada,
+  contatosDoDirect,
+  type ConsultaMarcada,
+  type Contato,
+  type ConversaDoDirect,
+  type EventoDoDirect,
+  type GastosDaCampanha,
+} from '@/lib/campanha'
 import type { camposDoRemanejamento } from '@/lib/remanejar'
 
 type PatientInsert = Database['public']['Tables']['patients']['Insert']
@@ -4326,11 +4334,60 @@ export async function contatosDaCampanha(clinicId: string, de: Date, ate: Date):
       consultaMarcadaEm: consulta.marcadaEm,
       consultaCancelada: consulta.cancelada,
       veio: consulta.veio,
+      canal: 'whatsapp',
+      pediuAgendar: false,
     }
   })
+  contatos.push(...(await contatosDoDirectNaCampanha(clinicId, de, ate)))
   contatos.sort((a, b) => Date.parse(b.chegouEm) - Date.parse(a.chegouEm))
 
   return { disponivel: true, contatos, gastos: gastos.gastos, avisoDosGastos: gastos.aviso }
+}
+
+/**
+ * Quem chegou pelo Direct do Instagram, para a aba Campanha (09/11/2026).
+ *
+ * Os anuncios da Meta da Dra. Patricia levam para o Direct; a aba so lia o
+ * WhatsApp e mostrava a Meta com zero contatos. O robo do Direct ja registra,
+ * desde 02/10, cada mensagem, o anuncio de onde a pessoa veio (quando a Meta
+ * informa) e o pedido para agendar (instagram_bot_events). A conta e de
+ * contatosDoDirect, em campanha.ts.
+ *
+ * A parte, em try/catch: se falhar, a aba abre com o WhatsApp e avisa no
+ * console, como antes.
+ */
+async function contatosDoDirectNaCampanha(clinicId: string, de: Date, ate: Date): Promise<Contato[]> {
+  try {
+    const { data: brutos, error } = await buscarTodas((i, f) =>
+      semTipo
+        .from('instagram_bot_events')
+        .select('id,conversation_id,evento,detalhe,criado_em')
+        .eq('clinic_id', clinicId)
+        .in('evento', ['anuncio', 'mensagem', 'agendar'])
+        .gte('criado_em', de.toISOString())
+        .lt('criado_em', ate.toISOString())
+        .order('criado_em')
+        .order('id')
+        .range(i, f),
+    )
+    if (error) throw error
+    const eventos = (brutos as { conversation_id: string; evento: EventoDoDirect['evento']; detalhe: string | null; criado_em: string }[]).map(
+      (e): EventoDoDirect => ({ conversaId: e.conversation_id, evento: e.evento, detalhe: e.detalhe ?? '', em: e.criado_em }),
+    )
+    const ids = [...new Set(eventos.map((e) => e.conversaId))]
+    const conversas: ConversaDoDirect[] = []
+    for (const lote of emLotes(ids)) {
+      const { data, error: erroDasConversas } = await semTipo.from('instagram_conversations').select('id,first_name,created_at').in('id', lote)
+      if (erroDasConversas) throw erroDasConversas
+      for (const c of (data ?? []) as { id: string; first_name: string | null; created_at: string }[]) {
+        conversas.push({ id: c.id, nome: c.first_name, criadaEm: c.created_at })
+      }
+    }
+    return contatosDoDirect(conversas, eventos, { inicio: de.getTime(), fim: ate.getTime() })
+  } catch (erro) {
+    console.warn('Campanha: nao li o Direct do Instagram; a Meta fica so com o WhatsApp', erro)
+    return []
+  }
 }
 
 /**

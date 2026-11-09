@@ -133,7 +133,7 @@ function Cartao({ titulo, sub, icone: I, children, acao }: { titulo: string; sub
 /** Funil desenhado: largura proporcional a quem chegou em cada etapa. */
 function Funil({ n }: { n: Numeros }) {
   const etapas: [string, number, string][] = [
-    ['Chegaram pelo WhatsApp', n.contatos, 'escreveram no robô'],
+    ['Chegaram', n.contatos, n.doDirect ? `${n.contatos - n.doDirect} no WhatsApp · ${n.doDirect} no Direct` : 'escreveram no robô'],
     ['Responderam o robô', n.responderam, 'passaram do primeiro "oi"'],
     ['Marcaram consulta', n.marcaram, 'depois de chegar, sem cancelar'],
     ['Vieram à consulta', n.vieram, 'presença marcada na agenda'],
@@ -162,6 +162,14 @@ function Funil({ n }: { n: Numeros }) {
           </li>
         )
       })}
+      {/* Sem isto, a Meta pareceria nao converter nada: quem vem pelo Direct
+          marca por telefone ou WhatsApp, e essa consulta nao se liga a conversa. */}
+      {n.doDirect > 0 && (
+        <li className="rounded-xl bg-[#fdf2f8] px-3 py-2 text-[10px] leading-relaxed text-[#9d174d]">
+          <b>Do Direct, {n.pediramNoDirect} pediram para agendar.</b> A consulta de quem veio pelo Direct não entra em "Marcaram": a conversa do Instagram não tem
+          telefone nem cadastro para ligar à agenda.
+        </li>
+      )}
     </ol>
   )
 }
@@ -240,6 +248,13 @@ function Barrinha({ valor, max, cor }: { valor: number; max: number; cor: string
 }
 
 function Situacao({ c }: { c: Contato }) {
+  if (c.canal === 'direct') {
+    return c.pediuAgendar ? (
+      <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[9px] font-extrabold text-amber-800">Pediu para agendar</span>
+    ) : (
+      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-extrabold text-slate-500">Conversa no Direct</span>
+    )
+  }
   if (c.veio) return <span className="rounded-full bg-[#e8f3ef] px-2 py-0.5 text-[9px] font-extrabold text-[#2f6b5c]">Veio à consulta</span>
   if (c.consultaEm && !c.consultaCancelada) {
     return <span className="rounded-full bg-[#e8f3ef] px-2 py-0.5 text-[9px] font-extrabold text-[#2f6b5c]">Marcou para {quando(c.consultaEm)}</span>
@@ -669,7 +684,7 @@ export default function Campanha() {
     const ultimoMeta = (dados?.contatos ?? []).filter((c) => c.plataforma === 'meta').reduce((m, c) => Math.max(m, Date.parse(c.chegouEm)), 0)
     const diasSemMeta = ultimoMeta ? Math.floor((agora - ultimoMeta) / 86400000) : null
     if (diasSemMeta !== null && diasSemMeta >= 3) a.push({ tom: 'erro', texto: `Meta: ${diasSemMeta} dias sem nenhuma família nova pelo anúncio. Confira se a campanha está ligada e com saldo.` })
-    for (const l of anuncios) if (l.gasto >= 100 && !l.contatos) a.push({ tom: 'aviso', texto: `Anúncio "${l.titulo}": ${dinheiro(l.gasto)} no período e nenhuma família no WhatsApp.` })
+    for (const l of anuncios) if (l.gasto >= 100 && !l.contatos) a.push({ tom: 'aviso', texto: `Anúncio "${l.titulo}": ${dinheiro(l.gasto)} no período e ninguém no WhatsApp nem no Direct.` })
     return a
   }, [gastos, dados, anuncios, agora])
 
@@ -751,7 +766,14 @@ export default function Campanha() {
               delta={!semDinheiro && filtro !== 'organico' && <Delta v={variacao(gasto, gastoAntes)} menorEMelhor />}
               cor={ROSA}
             />
-            <Kpi icone={UsersRound} rotulo="Contatos" valor={n.contatos} detalhe="famílias que escreveram no WhatsApp" delta={<Delta v={variacao(n.contatos, nAntes.contatos)} />} cor={AZUL} />
+            <Kpi
+              icone={UsersRound}
+              rotulo="Contatos"
+              valor={n.contatos}
+              detalhe={n.doDirect ? `${n.contatos - n.doDirect} no WhatsApp · ${n.doDirect} no Direct` : 'pessoas que escreveram no WhatsApp ou no Direct'}
+              delta={<Delta v={variacao(n.contatos, nAntes.contatos)} />}
+              cor={AZUL}
+            />
             <Kpi
               icone={CircleDollarSign}
               rotulo="Custo por contato"
@@ -763,7 +785,7 @@ export default function Campanha() {
               icone={CalendarCheck2}
               rotulo="Marcaram consulta"
               valor={n.marcaram}
-              detalhe={`${n.contatos ? pct(n.marcaram / n.contatos) : '0%'} dos contatos`}
+              detalhe={`${n.contatos ? pct(n.marcaram / n.contatos) : '0%'} dos contatos${n.pediramNoDirect ? ` · ${n.pediramNoDirect} pediram no Direct` : ''}`}
               delta={<Delta v={variacao(n.marcaram, nAntes.marcaram)} />}
               cor={SAGE}
             />
@@ -860,7 +882,10 @@ export default function Campanha() {
                           )}
                           {l.titulo}
                         </p>
-                        <p className="text-[10px] text-slate-400">{l.id ? `Anúncio ${l.id}` : 'Chegou pela frase pronta ou antes de 07/11, sem o código guardado'}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {l.id ? `Anúncio ${l.id}` : 'Sem o código: a Meta não informou, ou chegou antes de 07/11'}
+                          {l.pediramNoDirect > 0 && <span className="font-bold text-amber-700">{` · ${l.pediramNoDirect} pediram para agendar no Direct`}</span>}
+                        </p>
                       </div>
                       {(
                         [
@@ -883,7 +908,11 @@ export default function Campanha() {
             </Cartao>
           )}
 
-          <Cartao titulo="Quem chegou" sub="A mais recente em cima. Para abrir a conversa, procure o telefone em Respostas." icone={UsersRound}>
+          <Cartao
+            titulo="Quem chegou"
+            sub="A mais recente em cima. Para abrir a conversa, procure o telefone em Respostas (ou o nome, na aba Instagram)."
+            icone={UsersRound}
+          >
             {lista.length === 0 ? (
               <p className="text-[11px] text-slate-500">Ninguém chegou por aqui neste período.</p>
             ) : (
@@ -893,7 +922,7 @@ export default function Campanha() {
                     <div className="min-w-0">
                       <p className="truncate text-[12px] font-extrabold text-[#193d36]">{c.nome}</p>
                       <p className="text-[10px] text-slate-500">
-                        {c.telefone} · chegou {quando(c.chegouEm)}
+                        {c.canal === 'direct' ? 'Direct do Instagram' : c.telefone} · chegou {quando(c.chegouEm)}
                         {c.tituloDoAnuncio ? ` · anúncio "${c.tituloDoAnuncio}"` : ''}
                       </p>
                     </div>
@@ -910,10 +939,12 @@ export default function Campanha() {
           {clinica?.dono && gastos && <PainelDoGasto clinicId={clinica.id} gastos={gastos} agora={agora} aoMudar={recarregar} />}
 
           <p className="text-[10px] leading-relaxed text-slate-400">
-            Contato conta quem escreveu no WhatsApp; quem viu ou clicou e desistiu antes de mandar a mensagem aparece só no Gerenciador da Meta e no
-            Google Ads. Do Google, só entra quem mandou a frase pronta "Encontrei a Dra. Patrícia Zerbini no Google" sem mudar. Orgânico é o número
-            que escreveu pela primeira vez no período sem vir de anúncio. Marcou conta a consulta feita depois da
-            chegada, na conversa ou no cadastro do paciente. O gasto da Meta é o do Gerenciador, sem o imposto cobrado à parte.
+            Contato conta quem escreveu no WhatsApp ou no Direct do Instagram; quem viu ou clicou e desistiu antes de mandar a mensagem aparece só no
+            Gerenciador da Meta e no Google Ads. Do Google, só entra quem mandou a frase pronta "Encontrei a Dra. Patrícia Zerbini no Google" sem
+            mudar. Do Direct, entra como Meta quem chegou com o código do anúncio, que a Meta nem sempre manda: parte do orgânico do Direct pode ser
+            anúncio. Orgânico é quem escreveu pela primeira vez no período sem vir de anúncio. Marcou conta a consulta feita depois da chegada, na
+            conversa do WhatsApp ou no cadastro do paciente; quem veio pelo Direct não tem como ser ligado à agenda e aparece como "pediu para
+            agendar". O gasto da Meta é o do Gerenciador, sem o imposto cobrado à parte.
             {lista.some((c) => marcou(c) && !c.veio) ? ' Quem marcou para depois de hoje ainda não pode ter vindo.' : ''}
           </p>
         </>
