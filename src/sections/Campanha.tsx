@@ -130,6 +130,11 @@ function Cartao({ titulo, sub, icone: I, children, acao }: { titulo: string; sub
   )
 }
 
+/** "1 pediu", "14 pediram": a tela no ar mostrou "1 pediram" em 09/11/2026. */
+function pediram(n: number) {
+  return `${n} ${n === 1 ? 'pediu' : 'pediram'}`
+}
+
 /** Funil desenhado: largura proporcional a quem chegou em cada etapa. */
 function Funil({ n }: { n: Numeros }) {
   const etapas: [string, number, string][] = [
@@ -166,7 +171,7 @@ function Funil({ n }: { n: Numeros }) {
           marca por telefone ou WhatsApp, e essa consulta nao se liga a conversa. */}
       {n.doDirect > 0 && (
         <li className="rounded-xl bg-[#fdf2f8] px-3 py-2 text-[10px] leading-relaxed text-[#9d174d]">
-          <b>Do Direct, {n.pediramNoDirect} pediram para agendar.</b> A consulta de quem veio pelo Direct não entra em "Marcaram": a conversa do Instagram não tem
+          <b>Do Direct, {pediram(n.pediramNoDirect)} para agendar.</b> A consulta de quem veio pelo Direct não entra em "Marcaram": a conversa do Instagram não tem
           telefone nem cadastro para ligar à agenda.
         </li>
       )}
@@ -785,7 +790,7 @@ export default function Campanha() {
               icone={CalendarCheck2}
               rotulo="Marcaram consulta"
               valor={n.marcaram}
-              detalhe={`${n.contatos ? pct(n.marcaram / n.contatos) : '0%'} dos contatos${n.pediramNoDirect ? ` · ${n.pediramNoDirect} pediram no Direct` : ''}`}
+              detalhe={`${n.contatos ? pct(n.marcaram / n.contatos) : '0%'} dos contatos${n.pediramNoDirect ? ` · ${pediram(n.pediramNoDirect)} no Direct` : ''}`}
               delta={<Delta v={variacao(n.marcaram, nAntes.marcaram)} />}
               cor={SAGE}
             />
@@ -884,7 +889,7 @@ export default function Campanha() {
                         </p>
                         <p className="text-[10px] text-slate-400">
                           {l.id ? `Anúncio ${l.id}` : 'Sem o código: a Meta não informou, ou chegou antes de 07/11'}
-                          {l.pediramNoDirect > 0 && <span className="font-bold text-amber-700">{` · ${l.pediramNoDirect} pediram para agendar no Direct`}</span>}
+                          {l.pediramNoDirect > 0 && <span className="font-bold text-amber-700">{` · ${pediram(l.pediramNoDirect)} para agendar no Direct`}</span>}
                         </p>
                       </div>
                       {(
