@@ -495,13 +495,23 @@ export default function Home() {
             um retangulo de borda visivel. O degrade por cima protege o logo
             e o rodape. Trocar a arte: pedir de novo em 9:16, corpo inteiro,
             centralizada, fundo escuro liso, sem texto, e conferir na altura
-            real da tela. */}
+            real da tela.
+            Ajuste de 08/11/2026 (pedido do Edu: figura pequena e o dourado
+            de dentro do corpo quase sumido):
+            - o arquivo foi reprocessado: fundo zerado para preto (com o
+              screen, preto nao soma nada) e o corpo verde a 40%, com o
+              dourado inteiro. Por isso a opacidade subiu de 0.17 para 0.42:
+              o corpo continua com a mesma presenca e o dourado ficou ~2,5x.
+            - a altura e 130% da coluna, mas no maximo 1600 px. Com zoom
+              reduzido no navegador (a aba da Dra. estava em 67%) a coluna
+              chega a 1969 px e o cover puro jogava os bracos para fora; com o
+              teto, a figura nunca passa de ~275 px de largura. */}
         <img
           src={arteGeriatria}
           alt=""
           aria-hidden="true"
           draggable={false}
-          className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-center opacity-[0.17] mix-blend-screen"
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[min(130%,1600px)] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 select-none opacity-[0.42] mix-blend-screen"
         />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#193d36]/80 via-[#193d36]/25 to-[#193d36]/80" />
         <div className="soft-grid absolute inset-0 opacity-40" />

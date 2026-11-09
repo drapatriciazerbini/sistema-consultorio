@@ -106,13 +106,16 @@ export default function Login() {
       <div className="relative mx-auto grid min-h-dvh max-w-[1500px] lg:grid-cols-[minmax(0,1.08fr)_minmax(440px,.92fr)]">
         <section className="soft-grid relative hidden overflow-hidden bg-[#193d36] p-12 text-white lg:flex lg:flex-col lg:justify-between">
           {/* A mesma marca-d'agua do menu (ver Home.tsx), na metade direita,
-              atras de um degrade que deixa o texto da esquerda limpo. */}
+              atras de um degrade que deixa o texto da esquerda limpo.
+              08/11/2026: scale 1.3 para a figura ocupar a altura do painel, e
+              opacidade 0.55 porque o arquivo agora tem o corpo a 40% (ver o
+              comentario no Home.tsx). */}
           <img
             src={arteGeriatria}
             alt=""
             aria-hidden="true"
             draggable={false}
-            className="pointer-events-none absolute inset-y-0 right-0 h-full w-[54%] select-none object-cover object-center opacity-[0.22] mix-blend-screen"
+            className="pointer-events-none absolute inset-y-0 right-0 h-full w-[54%] scale-[1.3] select-none object-cover object-center opacity-[0.55] mix-blend-screen"
           />
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#193d36] via-[#193d36]/75 to-[#193d36]/30" />
           <div className="absolute -right-24 top-20 h-80 w-80 rounded-full bg-[#2f7f74]/15 blur-3xl" />
