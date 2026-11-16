@@ -505,13 +505,21 @@ export default function Home() {
             - a altura e 130% da coluna, mas no maximo 1600 px. Com zoom
               reduzido no navegador (a aba da Dra. estava em 67%) a coluna
               chega a 1969 px e o cover puro jogava os bracos para fora; com o
-              teto, a figura nunca passa de ~275 px de largura. */}
+              teto, a figura nunca passa de ~275 px de largura.
+              16/11/2026: a arte passou a ser so contorno, em traco branco
+              fino: duas maos jovens segurando a mao de um idoso, e delas sobe
+              um ramo de oliveira. O Edu pediu algo discreto como o menu do Dr.
+              Marcello; antes tentamos uma idosa com a filha de corpo inteiro e
+              ele nao gostou - rosto atras do menu disputa com os itens. Por
+              ser desenho estreito, a altura virou 125% com teto de 1300 px
+              (as maos, a parte mais larga, ficam em ~275 px). O arquivo tem o
+              dobro da resolucao (1280 x 2840) para o traco nao borrar. */}
         <img
           src={arteGeriatria}
           alt=""
           aria-hidden="true"
           draggable={false}
-          className="pointer-events-none absolute left-1/2 top-1/2 h-[min(130%,1600px)] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 select-none opacity-[0.42] mix-blend-screen"
+          className="pointer-events-none absolute left-1/2 top-1/2 h-[min(125%,1300px)] w-auto max-w-none -translate-x-1/2 -translate-y-1/2 select-none opacity-[0.24] mix-blend-screen"
         />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#193d36]/80 via-[#193d36]/25 to-[#193d36]/80" />
         <div className="soft-grid absolute inset-0 opacity-40" />
