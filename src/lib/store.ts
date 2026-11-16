@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type {
   ConsultationDraft,
   Db,
@@ -26,6 +26,7 @@ import {
   type ClinicRole,
 } from '@/lib/repository'
 import { supabase } from '@/lib/supabase'
+import { criarVezDaRecarga } from '@/lib/vez-da-recarga'
 
 export const DEFAULT_TEMPLATES: Record<FollowupKey, string> = {
   d15: 'Olá! Aqui é da equipe da Dra. Patrícia Zerbini. Já se passaram 15 dias da consulta de {nome}. Como {pronome} está se adaptando às orientações? Se surgiu qualquer dúvida, é só responder por aqui. 💙',
@@ -66,7 +67,10 @@ export function useDb() {
   // inteiro pela tela de "nao foi possivel carregar os dados", como se o
   // sistema tivesse caido.
   const [loadError, setLoadError] = useState('')
-  const loadSequence = useRef(0)
+  // So a ultima recarga vale, e e ela que desliga o carregando, silenciosa ou
+  // nao (ver vez-da-recarga.ts, portado em 16/11/2026 do sistema do Dr.
+  // Marcello: la a tela ficava presa ao restaurar paciente).
+  const [recargas] = useState(() => criarVezDaRecarga(setLoading))
 
   /**
    * Recarrega a base da clinica.
@@ -76,35 +80,34 @@ export function useDb() {
    * da clinica" enquanto a recepcao estava lendo alguma coisa.
    */
   const load = useCallback(async (silencioso = false) => {
-    const sequence = ++loadSequence.current
-    if (!silencioso) setLoading(true)
+    const vez = recargas.comecar(silencioso)
     setError('')
     setLoadError('')
     try {
       const membership = clinicId ? null : await getCurrentMembership()
       const id = clinicId ?? membership?.clinicId ?? (await ensureClinic())
       const next = await fetchDb(id, DEFAULT_TEMPLATES)
-      if (loadSequence.current !== sequence) return
+      if (!vez.ehAUltima()) return
       setClinicId(id)
       if (membership) setRole(membership.role)
       setDb(next)
     } catch (cause) {
-      if (loadSequence.current === sequence) {
+      if (vez.ehAUltima()) {
         const texto = errorMessage(cause)
         setError(texto)
         setLoadError(texto)
       }
     } finally {
-      if (loadSequence.current === sequence && !silencioso) setLoading(false)
+      vez.terminar()
     }
-  }, [clinicId])
+  }, [clinicId, recargas])
 
   useEffect(() => {
     void load()
     return () => {
-      loadSequence.current += 1
+      recargas.descartarTodas()
     }
-  }, [load])
+  }, [load, recargas])
 
   /**
    * A lista se atualiza sozinha.

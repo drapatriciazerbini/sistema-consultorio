@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import type { Consultation, Patient } from '@/types/patient'
 import { CAIXA_V4, memedAberta, prescricaoCarregada } from '@/lib/memed-na-pagina'
+import { idParaReabrir } from '@/lib/reimpressao'
 import { criarEsperaDaMemed, memedAceitaComando, type PortaoDaMemed } from '@/lib/memed-carga'
 
 /**
@@ -589,6 +590,40 @@ export async function abrirPrescricao(
   medir('show da tela', inicioDoShow)
   medir('TOTAL do clique ao abrir', inicioDoClique)
   return { alergiasEnviadas }
+}
+
+/**
+ * Reabre na Memed uma receita ja emitida, para a segunda via (16/11/2026,
+ * portado do sistema do Dr. Marcello, onde entrou em 13/11).
+ *
+ * O comando e o viewPrescription, que a Memed documenta "para reimpressao e
+ * edicao". Sem setPaciente nem setWorkplace: a receita ja carrega os dois. Se
+ * o comando nao responde, para aqui com erro na tela - abrir a Memed em
+ * branco faria a Dra. achar que a receita sumiu.
+ *
+ * A documentacao nao diz se o comando ja mostra a tela; o show vai depois,
+ * como no abrirPrescricao (mostrar o que ja esta a mostra nao faz nada).
+ */
+export async function reabrirReceita(memedId: string, ouvir: Ouvintes) {
+  const id = idParaReabrir(memedId)
+  if (!id) throw new Error('Esta receita não tem o número da Memed guardado, então não dá para reabrir daqui.')
+
+  await prepararPrescricao()
+  ouvintes.onReceita = ouvir.onReceita
+  ouvintes.onExcluida = ouvir.onExcluida
+  ouvintes.onFechar = ouvir.onFechar
+
+  const hub = janela().MdHub
+  if (!hub) throw new Error('A prescrição da Memed não está pronta.')
+
+  // 20 s: abrir uma receita antiga carrega mais do que mandar o paciente.
+  if (!(await comando(hub, 'viewPrescription', id, 20000))) {
+    throw new Error('A Memed não abriu esta receita. Tente de novo em instantes; se repetir, a receita pode ter sido excluída lá.')
+  }
+  await Promise.race([
+    hub.module.show('plataforma.prescricao'),
+    new Promise((resolver) => window.setTimeout(resolver, 8000)),
+  ])
 }
 
 /**

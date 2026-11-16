@@ -129,7 +129,8 @@ import type {
   Patient,
 } from '@/types/patient'
 import { opcoesDeUnidade, useUnidades } from '@/lib/unidades'
-import { abrirPrescricao, alergiasParaMemed, faltaParaPrescrever, guardarReceita, marcarReceitaExcluida, memedPronta, prepararPrescricao, ultimoCadastro, type LocalDeAtendimento } from '@/lib/memed'
+import { abrirPrescricao, alergiasParaMemed, faltaParaPrescrever, guardarReceita, marcarReceitaExcluida, memedPronta, prepararPrescricao, reabrirReceita, ultimoCadastro, type LocalDeAtendimento } from '@/lib/memed'
+import { avisoDaReimpressao } from '@/lib/reimpressao'
 import { avisoDoQueFoiParaMemed, dadosParaMemed, hojeEmSaoPaulo, unidadeDaReceita } from '@/lib/dados-para-memed'
 import { unidadesDeVisita } from '@/lib/domicilio'
 import {
@@ -1700,6 +1701,7 @@ function ConsultationCard({
   onAssinar,
   onAbrirAssinado,
   onPrescrever,
+  onReimprimir,
   onImprimir,
   prescrevendo,
   receitas,
@@ -1720,6 +1722,7 @@ function ConsultationCard({
   onAssinar: (consultation: Consultation) => void
   onAbrirAssinado: (consultation: Consultation) => void
   onPrescrever: (consultation: Consultation) => void
+  onReimprimir: (receita: Receita, consultation: Consultation) => void
   /** Imprime so este atendimento, sem o resto do historico. */
   onImprimir: (consultation: Consultation) => void
   prescrevendo: boolean
@@ -2034,16 +2037,32 @@ function ConsultationCard({
                           Receita cancelada pelo médico
                         </span>
                       ) : (
-                        receita.link && (
-                          <a
-                            href={receita.link}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={`text-[10px] font-extrabold underline underline-offset-2 ${estilo.texto}`}
+                        <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          {receita.link && (
+                            <a
+                              href={receita.link}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`text-[10px] font-extrabold underline underline-offset-2 ${estilo.texto}`}
+                            >
+                              Abrir receita
+                            </a>
+                          )}
+                          {/* Segunda via (16/11/2026, portado do sistema do Dr.
+                              Marcello): o link acima quase nunca vem da Memed;
+                              o que ha e o numero da receita, e a Memed reabre
+                              por ele. Ver reimpressao.ts. */}
+                          <button
+                            type="button"
+                            disabled={prescrevendo}
+                            onClick={() => onReimprimir(receita, consultation)}
+                            title="Abre esta receita na Memed para imprimir ou mandar de novo. Não precisa de adendo."
+                            className={`inline-flex items-center gap-1 text-[10px] font-extrabold underline underline-offset-2 disabled:opacity-40 ${estilo.texto}`}
                           >
-                            Abrir receita
-                          </a>
-                        )
+                            <Printer className="h-3 w-3" />
+                            Reimprimir na Memed
+                          </button>
+                        </span>
                       )}
                     </div>
                     <ul className="mt-2 space-y-1.5">
@@ -2619,6 +2638,40 @@ export default function PatientRecord({
         tipo: 'erro',
         texto: causa instanceof Error ? causa.message : 'Não foi possível abrir a prescrição.',
       })
+    } finally {
+      setPrescrevendo(false)
+    }
+  }
+
+  /**
+   * Segunda via (16/11/2026, portado do sistema do Dr. Marcello): reabre na
+   * Memed a receita ja emitida. Nao copia nada para o texto do atendimento: a
+   * receita e a mesma. Se a Memed devolver outro numero, a Dra. editou e saiu
+   * uma receita nova - ela e guardada no mesmo atendimento e o aviso diz o que
+   * fazer (ver reimpressao.ts).
+   */
+  async function reimprimir(receita: Receita, consultation: Consultation) {
+    if (!patient || prescrevendo) return
+    setAviso(null)
+    setMemedFria(!memedPronta())
+    setPrescrevendo(true)
+    try {
+      await reabrirReceita(receita.memedId, {
+        onReceita: (dados) => {
+          void (async () => {
+            try {
+              await guardarReceita(patient.id, consultation.id, dados)
+              if (clinicId) setReceitas(await listPrescriptions(clinicId, patient.id))
+              setAviso({ ...avisoDaReimpressao(receita.memedId, dados, Boolean(consultation.assinadoEm)), rolar: false })
+            } catch (causa) {
+              setAviso({ tipo: 'erro', texto: causa instanceof Error ? causa.message : 'A receita não pôde ser arquivada.' })
+            }
+          })()
+        },
+        onExcluida: (id) => void marcarReceitaExcluida(id),
+      })
+    } catch (causa) {
+      setAviso({ tipo: 'erro', texto: causa instanceof Error ? causa.message : 'Não foi possível reabrir a receita na Memed.' })
     } finally {
       setPrescrevendo(false)
     }
@@ -3504,6 +3557,7 @@ export default function PatientRecord({
                           onAssinar={(item) => void pedirAssinatura(item)}
                           onAbrirAssinado={(item) => void abrirAssinado(item)}
                           onPrescrever={(item) => void prescrever(item)}
+                          onReimprimir={(receita, item) => void reimprimir(receita, item)}
                           onImprimir={(item) => void imprimirProntuario(patient, [item], integridade, true, adendos)}
                           prescrevendo={prescrevendo}
                           receitas={receitas.filter((r) => r.consultationId === consultation.id)}
