@@ -43,6 +43,7 @@ import { registrarServiceWorker } from '@/lib/notificacoes'
 import { ligarModoWhatsApp } from '@/lib/modo-whatsapp'
 import ConviteParaAvisos from '@/components/ConviteParaAvisos'
 import InstagramInbox from '@/sections/InstagramInbox'
+import type { ContatoDaAgenda } from '@/lib/conversa-do-contato'
 import arteGeriatria from '@/assets/arte-geriatria.jpg'
 
 type Tab = 'dashboard' | 'agenda' | 'followups' | 'conversas' | 'pacientes' | 'config' | 'admin'
@@ -187,6 +188,10 @@ export default function Home() {
   })
   // Paciente cuja conversa deve abrir ao entrar em Respostas pelo atalho.
   const [conversaFoco, setConversaFoco] = useState<string | null>(null)
+  // Icone do WhatsApp na Agenda (porte de 17/11/2026 do sistema do Dr.
+  // Marcello; la, 10/11/2026): a conversa de quem esta na linha da consulta.
+  // O `vez` faz o mesmo clique abrir de novo, como no aviso do celular.
+  const [conversaDaAgenda, setConversaDaAgenda] = useState<(ContatoDaAgenda & { vez: number }) | null>(null)
   // Respostas mostra o WhatsApp ou o Direct do Instagram (19/10/2026).
   const [canalDasRespostas, setCanalDasRespostas] = useState<'whatsapp' | 'instagram'>('whatsapp')
   /**
@@ -854,6 +859,16 @@ export default function Home() {
                 patients={db.patients}
                 onSolicitacoesMudaram={carregarSolicitacoes}
                 onCadastrarContato={(dados) => cadastrarContato(dados, 'agenda')}
+                onAbrirConversa={(contato) => {
+                  setConversaDaAgenda({ ...contato, vez: Date.now() })
+                  // O atalho antigo dos Acompanhamentos fica guardado e
+                  // disputaria a tela com este: vale o clique mais recente.
+                  setConversaFoco(null)
+                  // A aba de Respostas pode ter ficado no Instagram, e ai a
+                  // tela de Conversas nem monta: o clique cairia no Direct.
+                  setCanalDasRespostas('whatsapp')
+                  setTab('conversas')
+                }}
               />
             )}
             {tab === 'conversas' && clinicaId && (
@@ -877,6 +892,10 @@ export default function Home() {
               <Conversations
                 focoPatientId={conversaFoco}
                 focoConversa={conversaDoAviso}
+                focoContato={conversaDaAgenda}
+                // Atendido, some: sem isto, voltar a Conversas pelo menu
+                // reabriria a conversa do ultimo clique na Agenda.
+                onFocoContatoAtendido={() => setConversaDaAgenda(null)}
                 onCadastrarContato={cadastrarContato}
                 compacto={topoRecolhido}
                 onAlternarCompacto={tela.computador ? alternarTopo : undefined}

@@ -73,6 +73,7 @@ tests/aviso-mudanca.build.mjs
 tmp-badge-prev.png
 tests/meta-tentativa.build.mjs
 tests/telefone-do-lembrete.build.mjs
+tests/conversa-do-contato.build.mjs
 tests/sexo-pelo-nome.build.mjs
 tests/cadastro.build.mjs
 tests/consulta-aconteceu.build.mjs

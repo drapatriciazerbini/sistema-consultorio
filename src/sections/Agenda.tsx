@@ -62,6 +62,7 @@ import { avisoDoBloqueio, consultasDeUmDia } from '@/lib/bloqueio-de-dia'
 import { feriasEmVigor, problemaDoPeriodo, separarExcecoes } from '@/lib/agenda-extra'
 import { getFeriasVoltaEm, saveFeriasVoltaEm } from '@/lib/ferias'
 import { problemaNoWhatsapp, telefoneDoLembrete } from '@/lib/telefone-do-lembrete'
+import { temComoAcharConversa, type ContatoDaAgenda } from '@/lib/conversa-do-contato'
 import { horariosLivresEntre } from '@/lib/prontuario-extra'
 import RemanejarConsulta from '@/sections/agenda/RemanejarConsulta'
 import {
@@ -171,6 +172,36 @@ function agruparPorDia(slots: string[], appointments: Appointment[], bloqueios: 
 }
 
 /**
+ * Atalho para a conversa de WhatsApp de quem esta na consulta (porte de
+ * 17/11/2026 do sistema do Dr. Marcello; la, 10/11/2026, pedido do Edu).
+ *
+ * A Agenda dizia "Lembrete enviado, sem resposta" e parava ai: para falar com o
+ * paciente ou com a familia, a recepcao ia em Conversas e procurava pelo nome.
+ * O icone leva direto. So aparece quando ha por onde procurar (cadastro ou
+ * numero com DDD); se a conversa nao existir, quem avisa e a tela de Conversas,
+ * na chegada.
+ *
+ * O desenho e o do WhatsApp, e nao um balao generico: foi o que o Edu pediu, e
+ * a recepcao reconhece sem ler o title. O verde e o da marca do WhatsApp, e nao
+ * o da casa, pelo mesmo motivo.
+ */
+function BotaoDoWhatsApp({ nome, onClick }: { nome: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="Abrir a conversa do WhatsApp"
+      aria-label={`Abrir a conversa do WhatsApp de ${nome}`}
+      className="inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-[#25d366] text-white transition hover:bg-[#1eb859]"
+    >
+      <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor" aria-hidden="true">
+        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+      </svg>
+    </button>
+  )
+}
+
+/**
  * O que já aconteceu, dia a dia, do mais recente para trás.
  *
  * Existe por um pedido simples que não tinha resposta: "quero ver em formato de
@@ -185,10 +216,13 @@ function HistoricoDaAgenda({
   itens,
   marcando,
   onMarcar,
+  onConversa,
 }: {
   itens: Appointment[]
   marcando: string | null
   onMarcar: (id: string, presenca: 'attended' | 'no_show' | 'scheduled') => void
+  /** Nulo quando nao ha por onde procurar a conversa (ver BotaoDoWhatsApp). */
+  onConversa: (item: Appointment) => (() => void) | null
 }) {
   const dias = new Map<string, Appointment[]>()
   for (const item of itens) {
@@ -269,6 +303,7 @@ function HistoricoDaAgenda({
                   )}
                 </div>
 
+                {onConversa(item) && <BotaoDoWhatsApp nome={item.patientName} onClick={onConversa(item)!} />}
                 {item.status === 'cancelled' ? (
                   <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[9px] font-extrabold text-slate-500">
                     Cancelada
@@ -567,8 +602,11 @@ export default function Agenda({
   /** Avisa o Home para o contador do menu e o aviso da Visao geral acompanharem. */
   onSolicitacoesMudaram,
   onCadastrarContato,
+  onAbrirConversa,
 }: {
   patients: Patient[]
+  /** Leva para Conversas ja na conversa de quem esta na consulta (ver BotaoDoWhatsApp). */
+  onAbrirConversa?: (contato: ContatoDaAgenda) => void
   onSolicitacoesMudaram?: () => void
   /** Abre a tela de pacientes com nome e telefone da consulta ja preenchidos. */
   onCadastrarContato?: (dados: {
@@ -634,6 +672,20 @@ export default function Agenda({
   // Dia que o usuario mandou bloquear e ainda espera o motivo.
   const [bloqueandoDia, setBloqueandoDia] = useState<{ dia: string; motivo: string } | null>(null)
   const { perguntar } = useDialogos()
+
+  // O clique do icone do WhatsApp, ou nulo quando nao ha por onde procurar a
+  // conversa. O numero e o do lembrete: e nessa conversa que a recepcao quer
+  // cair quando a etiqueta diz "sem resposta".
+  function conversaDe(contato: ContatoDaAgenda): (() => void) | null {
+    if (!onAbrirConversa || !temComoAcharConversa(contato)) return null
+    return () => onAbrirConversa(contato)
+  }
+  const conversaDaConsulta = (item: Appointment) =>
+    conversaDe({
+      patientId: item.patientId,
+      telefone: telefoneDoLembrete(item, patients),
+      nome: item.patientName,
+    })
 
   // Dia com consulta marcada pede confirmacao antes de bloquear (ver
   // bloqueio-de-dia.ts): bloquear nao cancela nem avisa ninguem.
@@ -1147,6 +1199,7 @@ export default function Agenda({
               itens={historico}
               marcando={marcando}
               onMarcar={registrarPresenca}
+              onConversa={conversaDaConsulta}
             />
           ) : aba === 'calendario' ? (
             <div className="space-y-3">
@@ -1165,24 +1218,32 @@ export default function Agenda({
                   <div className="mt-2.5 space-y-1.5">
                     {ligarHoje.map((p) => {
                       const estilo = ESTILO_DE_LIGAR[p.motivo]
+                      const conversa = conversaDe({ patientId: p.patientId, telefone: p.telefone, nome: p.nome })
+                      // A linha era um botao so; com o icone do WhatsApp virou
+                      // dois lado a lado (botao dentro de botao nao existe).
                       return (
-                        <button
+                        <div
                           key={p.id}
-                          type="button"
-                          onClick={() => setUnitId(p.unitId)}
-                          title={p.detalhe ?? 'Abrir a agenda desta unidade'}
-                          className="flex w-full flex-wrap items-center gap-2 rounded-xl bg-[#faf9f4] px-3 py-2 text-left transition hover:bg-[#f9f8f3]"
+                          className="flex items-center gap-2 rounded-xl bg-[#faf9f4] pr-3 transition hover:bg-[#f9f8f3]"
                         >
-                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold ${estilo.classe}`}>
-                            {estilo.rotulo}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-[#193d36]">
-                            {quandoCurto(p.startsAt)} · {p.nome}
-                          </span>
-                          <span className="text-[10px] font-semibold text-slate-500">
-                            {p.telefone || 'sem telefone'} · {p.unitName}
-                          </span>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setUnitId(p.unitId)}
+                            title={p.detalhe ?? 'Abrir a agenda desta unidade'}
+                            className="flex min-w-0 flex-1 flex-wrap items-center gap-2 py-2 pl-3 text-left"
+                          >
+                            <span className={`rounded-full px-2 py-0.5 text-[9px] font-extrabold ${estilo.classe}`}>
+                              {estilo.rotulo}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-[11px] font-bold text-[#193d36]">
+                              {quandoCurto(p.startsAt)} · {p.nome}
+                            </span>
+                            <span className="text-[10px] font-semibold text-slate-500">
+                              {p.telefone || 'sem telefone'} · {p.unitName}
+                            </span>
+                          </button>
+                          {conversa && <BotaoDoWhatsApp nome={p.nome} onClick={conversa} />}
+                        </div>
                       )
                     })}
                   </div>
@@ -1492,6 +1553,9 @@ export default function Agenda({
                                 }
                               />
                             </div>
+                          )}
+                          {conversaDaConsulta(item) && (
+                            <BotaoDoWhatsApp nome={item.patientName} onClick={conversaDaConsulta(item)!} />
                           )}
                           <button
                             type="button"

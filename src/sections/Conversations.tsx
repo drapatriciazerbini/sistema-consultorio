@@ -44,6 +44,7 @@ import { VisualizadorDeArquivo, type ArquivoAberto } from '@/components/Visualiz
 import { GravadorDeAudio } from '@/components/GravadorDeAudio'
 import { marcaSemClinicaConhecida } from '@/lib/marca'
 import { respostaDeValor, valoresJaEnviados } from '@/lib/valores-enviados'
+import { conversaDoContato, type ContatoDaAgenda } from '@/lib/conversa-do-contato'
 import {
   getAutoReply,
   getCurrentMembership,
@@ -600,6 +601,8 @@ function BotaoResponder({ onClick }: { onClick: () => void }) {
 export default function Conversations({
   focoPatientId,
   focoConversa,
+  focoContato,
+  onFocoContatoAtendido,
   onCadastrarContato,
   compacto = false,
   onAlternarCompacto,
@@ -609,6 +612,12 @@ export default function Conversations({
   focoPatientId?: string | null
   /** Conversa tocada na notificacao do celular. */
   focoConversa?: { id: string; vez: number } | null
+  /**
+   * Icone do WhatsApp na Agenda: o paciente (ou a familia) de uma consulta
+   * (porte de 17/11/2026 do sistema do Dr. Marcello; la, 10/11/2026).
+   */
+  focoContato?: (ContatoDaAgenda & { vez: number }) | null
+  onFocoContatoAtendido?: () => void
   /** Abre a tela de pacientes com nome e telefone do contato ja preenchidos. */
   onCadastrarContato?: (dados: PreCadastro) => void
   /**
@@ -996,6 +1005,35 @@ export default function Conversations({
     if (alvo.id !== selectedId) void openConversation(alvo)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focoConversa, conversations])
+
+  /**
+   * Icone do WhatsApp na Agenda (porte de 17/11/2026 do sistema do Dr.
+   * Marcello; la, 10/11/2026): abre a conversa de quem esta na consulta,
+   * achada pelo numero do lembrete ou pelo cadastro (ver
+   * conversa-do-contato.ts). Cada clique vale uma vez, como no aviso acima.
+   *
+   * Espera a lista carregar de verdade (`loading`), e nao so "ter alguma
+   * coisa": aqui a falta da conversa e uma resposta, e ela precisa aparecer.
+   * Sem a faixa, o clique cairia na lista sem dizer nada e a recepcao ficaria
+   * procurando uma conversa que nao existe. Se a lista falhou ao carregar, o
+   * erro dela ja esta na tela e nao se afirma nada sobre o paciente.
+   */
+  const [semConversa, setSemConversa] = useState<{ nome: string; telefone: string } | null>(null)
+  const contatoAtendido = useRef(0)
+  useEffect(() => {
+    if (!focoContato || focoContato.vez === contatoAtendido.current || loading) return
+    contatoAtendido.current = focoContato.vez
+    onFocoContatoAtendido?.()
+    if (conversations.length === 0 && error) return
+    const alvo = conversaDoContato(conversations, focoContato)
+    if (!alvo) {
+      setSemConversa({ nome: focoContato.nome, telefone: focoContato.telefone })
+      return
+    }
+    setSemConversa(null)
+    if (alvo.id !== selectedId) void openConversation(alvo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focoContato, conversations, loading])
 
   /**
    * Tempo real: a tela se atualiza sozinha quando um paciente responde, sem
@@ -1770,6 +1808,21 @@ export default function Conversations({
         <div className="sticky top-2 z-30 flex items-start gap-2 rounded-[16px] border border-red-200 bg-red-50 p-3 text-[11px] font-semibold text-red-700 shadow-[0_4px_14px_rgba(12,26,23,.12)]">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {/* Veio da Agenda e nao ha conversa com esse numero (ver focoContato). */}
+      {semConversa && (
+        <div className="flex items-start gap-2 rounded-[16px] border border-[#c98a2b]/40 bg-[#fdf4e3] p-3 text-[11px] font-semibold text-[#8a5a12]">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="flex-1">
+            Não há conversa no WhatsApp com {semConversa.nome}
+            {semConversa.telefone ? ` (${semConversa.telefone})` : ''}: nenhuma mensagem foi trocada com esse número
+            por aqui. Confira o telefone no cadastro ou ligue para o paciente ou a família.
+          </span>
+          <button type="button" onClick={() => setSemConversa(null)} aria-label="Fechar aviso" className="shrink-0">
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 

@@ -1253,6 +1253,8 @@ export interface PendenciaDeLigar {
   id: string
   unitId: string
   unitName: string
+  /** Para o icone do WhatsApp achar a conversa (ver conversa-do-contato.ts). */
+  patientId: string | null
   nome: string
   telefone: string
   startsAt: string
@@ -1317,6 +1319,7 @@ export async function listLigarHoje(clinicId: string): Promise<PendenciaDeLigar[
       id: row.id,
       unitId: row.unit_id,
       unitName: nomePorUnidade.get(row.unit_id) ?? 'Unidade',
+      patientId: row.patient_id ?? null,
       nome: paciente?.name || row.contact_name || 'Sem nome',
       telefone: formatarTelefone(telefone),
       startsAt: row.starts_at,
