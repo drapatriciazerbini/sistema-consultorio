@@ -9,7 +9,7 @@
 // O banco aqui e falso e mora neste arquivo. Isso e proposital: o objetivo e
 // exercitar as DECISOES do robo (o que responder, o que gravar, quando ficar
 // calado), e nao o Supabase.
-import { tratarConversa, iniciarQuestionario, colherEventos, periodosComData, negouConsulta, remarcarPeloLembrete, pareceNome } from './atendimento.build.mjs'
+import { tratarConversa, iniciarQuestionario, colherEventos, periodosComData, negouConsulta, remarcarPeloLembrete, pareceNome, feriasEmVigor, diaPorExtenso, conhecimentoDaClinica, periodosEmTexto } from './atendimento.build.mjs'
 import { avisoDeHorario } from './expediente.build.mjs'
 import { readFileSync } from 'node:fs'
 
@@ -41,6 +41,8 @@ function fazerAdmin({
   daConsulta = {},
   // Consultas futuras com pedido de remarcar (ver remarcacaoPendente).
   remarcacoesPendentes = [],
+  // Ferias (17/11/2026): o dia da volta, como esta em clinic_settings.
+  feriasVoltaEm = null,
 }) {
   const conversa = {
     booking_state: null,
@@ -143,6 +145,7 @@ function fazerAdmin({
                 telemedicine_enabled: telemedicina.ativa,
                 telemedicine_info_text: telemedicina.texto,
                 agendamento_por_pedido: porPedido,
+                ferias_volta_em: feriasVoltaEm,
               },
             }),
         }
@@ -301,6 +304,7 @@ async function caso(titulo, passos, opcoes = {}) {
     domicilios: opcoes.domicilios ?? [],
     daConsulta: opcoes.daConsulta ?? {},
     remarcacoesPendentes: opcoes.remarcacoesPendentes ?? [],
+    feriasVoltaEm: opcoes.feriasVoltaEm ?? null,
   })
 
   // A conversa começa como se o menu já tivesse aparecido alguma vez.
@@ -3514,6 +3518,192 @@ await caso('Só a visita cadastrada vai direto para o endereço', [
   ['Oi', 'Como podemos ajudar'],
   ['2', ['Consulta em casa', 'endereço']],
 ], { unidades: [CONSULTORIO_E_CASA[1]], slots: { 'u-casa': [] } })
+
+// ---------------------------------------------------------------
+// Ferias e horario extra numa data so (17/11/2026)
+// ---------------------------------------------------------------
+//
+// A Dra. Patricia saiu de ferias e liberou horarios soltos para a volta. O
+// robo precisa: dizer que ela esta de ferias e quando volta, oferecer so os
+// horarios liberados (com a hora exata), nao oferecer nada antes da volta e
+// lembrar do caminho da urgencia. As datas sao contadas a partir de hoje, para
+// o caso nao vencer sozinho no calendario.
+{
+  const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+  const daqui = (dias) => new Date(Date.now() - 3 * 3_600_000 + dias * 86_400_000).toISOString().slice(0, 10)
+  const rotulo = (data, hora) => {
+    const [, mes, dia] = data.split('-')
+    return `${DIAS[new Date(`${data}T12:00:00Z`).getUTCDay()]} ${dia}/${mes} às ${hora}`
+  }
+  const volta = daqui(27)
+  const antes = daqui(5)
+  const depois = daqui(31)
+  const EXTRAS = [
+    { exception_date: volta, unit_id: 'u-cons', is_closed: false, starts_at: '09:00:00', ends_at: '09:40:00' },
+    { exception_date: volta, unit_id: 'u-cons', is_closed: false, starts_at: '10:30:00', ends_at: '11:10:00' },
+    // Antes da volta: horario que ficou aberto por engano nao pode ser oferecido.
+    { exception_date: antes, unit_id: 'u-cons', is_closed: false, starts_at: '15:00:00', ends_at: '15:40:00' },
+    // Da visita em casa: nao aparece para quem escolheu o consultorio.
+    { exception_date: depois, unit_id: 'u-casa', is_closed: false, starts_at: '14:30:00', ends_at: '15:10:00' },
+  ]
+  const extenso = diaPorExtenso(volta)
+
+  {
+    const { transcricao, conversa } = await caso('Férias: o pedido avisa, oferece só os horários da volta e lembra da urgência', [
+      ['Oi', 'Como podemos ajudar'],
+      ['2', 'Onde vai ser a consulta'],
+      ['1', 'primeira consulta'],
+      ['1', [
+        'está de *férias*',
+        `reiniciado a partir de *${extenso}*`,
+        `*1* ${rotulo(volta, '9h')}`,
+        `*2* ${rotulo(volta, '10h30')}`,
+        '*3* Outro dia (a combinar)',
+        'URGENTE',
+      ]],
+      ['2', 'restrição de dia ou horário'],
+      ['não tenho', 'A consulta é particular'],
+      ['1', 'nome completo do paciente'],
+      ['Maria Teste da Silva', 'data de nascimento'],
+      ['01/02/1940', ['Pedido de consulta anotado', rotulo(volta, '10h30'), `Atendimento a partir de ${extenso}`]],
+    ], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true, bloqueios: EXTRAS, feriasVoltaEm: volta })
+    const tudo = transcricao.join('\n')
+    // Para alguem LER: teste que passa nao garante que o texto faz sentido.
+    achados.push('Pedido de consulta nas férias, do menu ao resumo:\n' + tudo)
+    if (tudo.includes(rotulo(antes, '15h'))) falhas.push('férias: ofereceu horário antes da volta')
+    else passou++
+    if (tudo.includes(rotulo(depois, '14h30'))) falhas.push('férias: horário da visita apareceu no consultório')
+    else passou++
+    if (conversa.booking_state !== 'atendente') falhas.push(`férias: estado ${conversa.booking_state}`)
+    else passou++
+  }
+
+  await caso('Férias: a visita em casa oferece o horário dela', [
+    ['Oi', 'Como podemos ajudar'],
+    ['2', 'Onde vai ser a consulta'],
+    ['2', 'endereço'],
+    ['Rua das Flores, 100, Gonzaga, Santos', ['está de *férias*', extenso, `*1* ${rotulo(depois, '14h30')}`, 'URGENTE']],
+  ], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true, bloqueios: EXTRAS, feriasVoltaEm: volta })
+
+  // Sem horario nenhum aberto, o aviso vai na pergunta seguinte, e o "a partir
+  // de quando" nao oferece "Esta semana".
+  {
+    const { transcricao } = await caso('Férias sem horário aberto: avisa na restrição e não oferece "esta semana"', [
+      ['Oi', 'Como podemos ajudar'],
+      ['2', 'Onde vai ser a consulta'],
+      ['1', 'primeira consulta'],
+      ['1', ['está de *férias*', extenso, 'URGENTE', 'restrição de dia ou horário']],
+      ['não tenho', [`volta a atender em *${extenso}*`, 'depois dessa data']],
+    ], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true, feriasVoltaEm: volta })
+    if (/Esta semana/.test(transcricao[transcricao.length - 1])) falhas.push('férias: ofereceu "Esta semana"')
+    else passou++
+  }
+
+  // Urgencia no meio do pedido, nas ferias: vai para a equipe, como sempre.
+  await caso('Férias: "urgente" no meio do pedido chama a equipe', [
+    ['Oi', 'Como podemos ajudar'],
+    ['2', 'Onde vai ser a consulta'],
+    ['1', 'primeira consulta'],
+    ['1', 'URGENTE'],
+    ['é urgente, ela está muito fraca', 'Entendi que é urgência'],
+  ], {
+    unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true, bloqueios: EXTRAS, feriasVoltaEm: volta,
+    verificar: ({ ultimoToque, titulo }) => {
+      if (ultimoToque.atencao !== 'urgencia') falhas.push(`${titulo} | atenção ${ultimoToque.atencao}`)
+      else passou++
+    },
+  })
+
+  // Fora das ferias o horario extra entra na lista de sempre, sem aviso, e o
+  // que e anterior a volta nao e mais cortado.
+  {
+    const { transcricao } = await caso('Horário extra sem férias: entra nos períodos, sem aviso', [
+      ['Oi', 'Como podemos ajudar'],
+      ['2', 'Onde vai ser a consulta'],
+      ['1', 'primeira consulta'],
+      ['1', ['Em quais *períodos*', `*1* ${rotulo(antes, '15h')}`, rotulo(volta, '9h'), 'Outro dia (a combinar)']],
+    ], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true, bloqueios: EXTRAS })
+    if (/férias|URGENTE/.test(transcricao.join('\n'))) falhas.push('sem férias: o aviso apareceu')
+    else passou++
+  }
+
+  // Ferias que ja acabaram nao avisam mais: ninguem precisa apagar a data.
+  {
+    const { transcricao } = await caso('Férias vencidas: o aviso some sozinho', [
+      ['Oi', 'Como podemos ajudar'],
+      ['2', 'Onde vai ser a consulta'],
+      ['1', 'primeira consulta'],
+      ['1', 'Em quais *períodos*'],
+    ], { unidades: CONSULTORIO_E_CASA, slots: SLOTS_CONSULTORIO, porPedido: true, bloqueios: EXTRAS, feriasVoltaEm: daqui(-1) })
+    if (/férias/.test(transcricao.join('\n'))) falhas.push('férias vencidas: o aviso apareceu')
+    else passou++
+  }
+
+  // A regra, sem banco. Terca, 17/11/2026, 4h de Sao Paulo.
+  {
+    const agora = new Date('2026-11-17T07:00:00Z')
+    const base = { regras: [], fechados: new Set(), ocupados: [], agora }
+    const extras = [
+      { data: '2026-12-14', inicio: '09:00:00', fim: '09:40:00' },
+      { data: '2026-12-14', inicio: '10:30:00', fim: '11:10:00' },
+      { data: '2026-12-15', inicio: '15:00:00', fim: '15:40:00' },
+      { data: '2026-12-16', inicio: '18:00:00', fim: '18:40:00' },
+      { data: '2026-11-20', inicio: '08:00:00', fim: '08:40:00' },
+      { data: '2026-11-16', inicio: '08:00:00', fim: '08:40:00' },
+    ]
+    const confere = (nome, veio, esperado) => {
+      if (JSON.stringify(veio) === JSON.stringify(esperado)) passou++
+      else falhas.push(`${nome}: veio ${JSON.stringify(veio)}, esperado ${JSON.stringify(esperado)}`)
+    }
+    confere('extras: em ordem, com a hora, sem o que passou', periodosComData({ ...base, extras }), [
+      'Sexta 20/11 às 8h', 'Segunda 14/12 às 9h', 'Segunda 14/12 às 10h30', 'Terça 15/12 às 15h', 'Quarta 16/12 às 18h',
+    ])
+    confere('extras nas férias: nada antes da volta', periodosComData({ ...base, extras, naoAntesDe: '2026-12-14' }), [
+      'Segunda 14/12 às 9h', 'Segunda 14/12 às 10h30', 'Terça 15/12 às 15h', 'Quarta 16/12 às 18h',
+    ])
+    confere('extras: consulta marcada tira só o horário que cruza', periodosComData({
+      ...base, extras, naoAntesDe: '2026-12-14',
+      marcadas: [{ inicio: '2026-12-14T12:00:00Z', fim: '2026-12-14T12:40:00Z' }],
+    }), ['Segunda 14/12 às 10h30', 'Terça 15/12 às 15h', 'Quarta 16/12 às 18h'])
+    confere('extras: visita em casa tira com a margem', periodosComData({
+      ...base, extras, naoAntesDe: '2026-12-14',
+      ocupados: [{ inicio: '2026-12-15T18:50:00Z', fim: '2026-12-15T20:00:00Z' }],
+    }), ['Segunda 14/12 às 9h', 'Segunda 14/12 às 10h30', 'Quarta 16/12 às 18h'])
+    confere('extras: dia bloqueado ganha do extra', periodosComData({
+      ...base, extras, naoAntesDe: '2026-12-14', fechados: new Set(['2026-12-16']),
+    }), ['Segunda 14/12 às 9h', 'Segunda 14/12 às 10h30', 'Terça 15/12 às 15h'])
+    confere('férias: regra semanal antes da volta não sai', periodosComData({
+      ...base, regras: [{ weekday: 1, starts_at: '08:00:00', ends_at: '12:00:00' }], dias: 40, naoAntesDe: '2026-12-14', maximo: 2,
+    }), ['Segunda 14/12 de manhã', 'Segunda 21/12 de manhã'])
+    confere('feriasEmVigor: futura vale', feriasEmVigor('2026-12-14', agora), '2026-12-14')
+    confere('feriasEmVigor: o próprio dia da volta já não é férias', feriasEmVigor('2026-11-17', agora), null)
+    // 1h de Sao Paulo do dia 17 ainda e dia 17 la, embora ja seja 04h UTC.
+    confere('feriasEmVigor: usa o dia de São Paulo', feriasEmVigor('2026-11-17', new Date('2026-11-17T02:00:00Z')), '2026-11-17')
+    confere('feriasEmVigor: vazio ou lixo não é férias', [feriasEmVigor(null, agora), feriasEmVigor('amanha', agora)], [null, null])
+    confere('diaPorExtenso', diaPorExtenso('2026-12-14'), '14 de dezembro')
+  }
+
+  // O que o atendente com IA le: as ferias na frente e os horarios da volta.
+  {
+    const { admin } = fazerAdmin({ unidades: CONSULTORIO_E_CASA, slotsPorUnidade: SLOTS_CONSULTORIO, porPedido: true, bloqueios: EXTRAS, feriasVoltaEm: volta })
+    const sabe = await conhecimentoDaClinica(admin, 'c1')
+    for (const trecho of ['FÉRIAS', `reiniciado a partir de ${extenso}`, 'urgencia']) {
+      if (sabe.includes(trecho)) passou++
+      else falhas.push(`conhecimento da IA nas férias: faltou "${trecho}"`)
+    }
+    const horarios = await periodosEmTexto(admin, 'c1', 'todos')
+    for (const trecho of [`a partir de ${extenso}`, rotulo(volta, '9h'), rotulo(volta, '10h30'), rotulo(depois, '14h30')]) {
+      if (horarios.includes(trecho)) passou++
+      else falhas.push(`ver_horarios nas férias: faltou "${trecho}"\n     veio: ${horarios}`)
+    }
+    if (horarios.includes(rotulo(antes, '15h'))) falhas.push('ver_horarios nas férias: mostrou horário antes da volta')
+    else passou++
+
+    const semFerias = fazerAdmin({ unidades: CONSULTORIO_E_CASA, slotsPorUnidade: SLOTS_CONSULTORIO, porPedido: true, bloqueios: EXTRAS })
+    if ((await conhecimentoDaClinica(semFerias.admin, 'c1')).includes('FÉRIAS')) falhas.push('conhecimento da IA: férias sem data cadastrada')
+    else passou++
+  }
+}
 
 console.log('\n============================================')
 console.log(`VERIFICAÇÕES QUE PASSARAM: ${passou}`)

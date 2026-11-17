@@ -2972,6 +2972,8 @@ type PedidoDeVisita = {
   aPartir?: string
   /** Periodos oferecidos na ultima pergunta, para ler o numero respondido. */
   oferecidos?: string[]
+  /** Dia da volta das ferias (AAAA-MM-DD), quando o pedido nasce durante elas. */
+  ferias?: string
 }
 
 function visitaEmAndamento(opcoes: unknown): PedidoDeVisita {
@@ -3013,6 +3015,8 @@ async function perguntarRestricaoDaVisita(
   })
   return {
     resposta:
+      // Ferias sem horario nenhum para escolher: e aqui que a pessoa fica sabendo.
+      (visita.ferias && !visita.periodos?.length ? `${avisoDeFerias(visita.ferias)}\n\n${URGENCIA_NAS_FERIAS}\n\n` : '') +
       '🗓️ Tem algum *dia ou horário* em que a visita *não* pode acontecer? ' +
       'Ou um período que é melhor, de manhã ou à tarde?\n\n' +
       'Se tanto faz, toque em *Tanto faz*.',
@@ -3139,6 +3143,7 @@ async function registrarVisita(
   if (visita.endereco) linhas.push(`📍 ${visita.endereco}`)
   if (visita.periodos?.length) linhas.push(`📅 ${visita.periodos.join(' ou ')}`)
   if (visita.aPartir) linhas.push(`⏳ A partir de: ${visita.aPartir}`)
+  if (visita.ferias) linhas.push(`🌴 Atendimento a partir de ${diaPorExtenso(visita.ferias)}`)
   linhas.push(
     visita.restricao
       ? `🗓️ Dias e horários: ${visita.restricao}`
@@ -3259,6 +3264,12 @@ export function periodosComData(opcoes: {
   margemMinutos?: number
   antecedenciaHoras?: number
   maximo?: number
+  /** Horarios abertos numa data so (ver HorarioExtra). Nao dependem de `dias`. */
+  extras?: HorarioExtra[]
+  /** Consultas ja marcadas, de qualquer unidade: tiram o extra que cruzam. */
+  marcadas?: { inicio: string; fim: string }[]
+  /** Ferias: nada e oferecido antes deste dia (AAAA-MM-DD). */
+  naoAntesDe?: string | null
 }): string[] {
   const dias = opcoes.dias ?? 14
   const margem = (opcoes.margemMinutos ?? 30) * 60_000
@@ -3269,6 +3280,7 @@ export function periodosComData(opcoes: {
     const dia = new Date(Date.UTC(hojeLocal.getUTCFullYear(), hojeLocal.getUTCMonth(), hojeLocal.getUTCDate() + d))
     const data = dia.toISOString().slice(0, 10)
     if (opcoes.fechados.has(data)) continue
+    if (opcoes.naoAntesDe && data < opcoes.naoAntesDe) continue
     const semana = dia.getUTCDay()
     for (const regra of opcoes.regras.filter((r) => r.weekday === semana)) {
       const inicio = new Date(`${data}T${String(regra.starts_at).slice(0, 5)}:00-03:00`).getTime()
@@ -3283,8 +3295,102 @@ export function periodosComData(opcoes: {
       saida.push({ quando: inicio, rotulo: `${DIAS_DA_SEMANA[semana]} ${diaDoMes}/${mes}${turno}` })
     }
   }
+  // Horario extra, numa data so (17/11/2026): sai com a hora exata, "Segunda
+  // 14/12 as 9h", porque foi a Dra. que liberou aquele horario e nao a manha
+  // inteira. Vale alem dos 14 dias: a volta das ferias fica a um mes.
+  for (const extra of opcoes.extras ?? []) {
+    const data = String(extra.data).slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || opcoes.fechados.has(data)) continue
+    if (opcoes.naoAntesDe && data < opcoes.naoAntesDe) continue
+    const inicio = new Date(`${data}T${String(extra.inicio).slice(0, 5)}:00-03:00`).getTime()
+    const fim = new Date(`${data}T${String(extra.fim).slice(0, 5)}:00-03:00`).getTime()
+    if (!Number.isFinite(inicio) || !Number.isFinite(fim) || inicio < limite) continue
+    const comVisita = opcoes.ocupados.some(
+      (o) => new Date(o.inicio).getTime() - margem < fim && new Date(o.fim).getTime() + margem > inicio,
+    )
+    // Consulta ja marcada naquele horario: a Dra. confirmou um pedido e a vaga
+    // saiu. Sem isto o robo ofereceria a mesma hora para a familia seguinte.
+    const jaMarcado = (opcoes.marcadas ?? []).some(
+      (o) => new Date(o.inicio).getTime() < fim && new Date(o.fim).getTime() > inicio,
+    )
+    if (comVisita || jaMarcado) continue
+    const semana = new Date(`${data}T12:00:00Z`).getUTCDay()
+    const [, mes, diaDoMes] = data.split('-')
+    const [h, m] = String(extra.inicio).split(':').map((parte) => Number.parseInt(parte, 10) || 0)
+    saida.push({
+      quando: inicio,
+      rotulo: `${DIAS_DA_SEMANA[semana]} ${diaDoMes}/${mes} às ${h}h${m ? String(m).padStart(2, '0') : ''}`,
+    })
+  }
   const unicos = [...new Map(saida.sort((a, b) => a.quando - b.quando).map((p) => [p.rotulo, p])).values()]
   return unicos.slice(0, opcoes.maximo ?? 8).map((p) => p.rotulo)
+}
+
+/** Horario aberto numa data so: schedule_exceptions com is_closed falso. */
+export type HorarioExtra = { data: string; inicio: string; fim: string }
+
+// ---------------------------------------------------------------
+// Ferias (17/11/2026)
+// ---------------------------------------------------------------
+//
+// A Dra. Patricia saiu de ferias e liberou sete horarios para a volta. Pedido
+// do Edu: "se alguem quiser alguma data antes, e para falar que ela ta de
+// ferias. E o atendimento sera reiniciado a partir do dia 14 de dezembro. E ai
+// vem os horarios que eu te passei. Se for alguma coisa urgente, a central
+// manda para ela avaliar."
+//
+// clinic_settings.ferias_volta_em guarda o dia da volta (Agenda >
+// Configuracao). Enquanto ele nao chega: o pedido avisa das ferias, so oferece
+// o que e daquele dia em diante e lembra do caminho da urgencia. Passou a
+// data, tudo volta ao normal sem ninguem apagar nada.
+
+const MESES_POR_EXTENSO = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+]
+
+/** "2026-12-14" vira "14 de dezembro". */
+export function diaPorExtenso(data: string): string {
+  const [, mes, dia] = String(data).slice(0, 10).split('-').map((parte) => Number.parseInt(parte, 10))
+  return `${dia} de ${MESES_POR_EXTENSO[(mes || 1) - 1] ?? ''}`.trim()
+}
+
+/** A volta so conta enquanto e futura, no dia de Sao Paulo (-03:00 fixo). */
+export function feriasEmVigor(voltaEm: unknown, agora: Date): string | null {
+  const data = String(voltaEm ?? '').slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return null
+  const hoje = new Date(agora.getTime() - 3 * 3_600_000).toISOString().slice(0, 10)
+  return data > hoje ? data : null
+}
+
+export function avisoDeFerias(voltaEm: string): string {
+  return `🌴 ${quemAtende().O} está de *férias*. O atendimento será reiniciado a partir de *${diaPorExtenso(voltaEm)}*.`
+}
+
+const URGENCIA_NAS_FERIAS =
+  '🚨 Se for *urgente*, escreva URGENTE: a sua mensagem vai para a equipe avaliar com prioridade.'
+
+/**
+ * O dia da volta das ferias, ou nulo. Coluna nova, em consulta separada: sem a
+ * migration (ou com a leitura recusada) o robo segue sem o aviso, e o log diz
+ * por que - ferias que ninguem avisa e exatamente o defeito que nao grita.
+ */
+export async function feriasDaClinica(admin: Admin, clinicId: string): Promise<string | null> {
+  try {
+    const { data, error } = await admin
+      .from('clinic_settings')
+      .select('ferias_volta_em')
+      .eq('clinic_id', clinicId)
+      .maybeSingle()
+    if (error) {
+      console.warn('Sem clinic_settings.ferias_volta_em; o robo segue sem o aviso de ferias', error)
+      return null
+    }
+    return feriasEmVigor((data as { ferias_volta_em?: string | null } | null)?.ferias_volta_em, new Date())
+  } catch (erro) {
+    console.warn('Nao consegui ler as ferias; o robo segue sem o aviso', erro)
+    return null
+  }
 }
 
 async function agendamentoPorPedido(admin: Admin, clinicId: string): Promise<boolean> {
@@ -3303,7 +3409,13 @@ async function agendamentoPorPedido(admin: Admin, clinicId: string): Promise<boo
   }
 }
 
-async function periodosDaUnidade(admin: Admin, clinicId: string, unitId: string): Promise<string[]> {
+async function periodosDaUnidade(
+  admin: Admin,
+  clinicId: string,
+  unitId: string,
+  /** Ferias: nada antes deste dia (ver feriasDaClinica). */
+  naoAntesDe: string | null = null,
+): Promise<string[]> {
   let regras: RegraDaSemana[] = []
   try {
     const { data, error } = await admin
@@ -3315,21 +3427,46 @@ async function periodosDaUnidade(admin: Admin, clinicId: string, unitId: string)
   } catch {
     return []
   }
-  if (regras.length === 0) return []
 
   // Bloqueios e visitas marcadas sao complemento: se a leitura falhar, os
   // periodos saem sem esse filtro, e a Dra. confere ao confirmar.
+  //
+  // Na mesma leitura vem os horarios extras (is_closed falso, 17/11/2026). Ate
+  // aqui a funcao saia vazia sem regra semanal, e a Dra. Patricia nao tem
+  // nenhuma: os horarios soltos da volta das ferias nunca seriam oferecidos.
   const fechados = new Set<string>()
+  const extras: HorarioExtra[] = []
   try {
     const { data } = await admin
       .from('schedule_exceptions')
-      .select('exception_date,unit_id,is_closed')
+      .select('exception_date,unit_id,is_closed,starts_at,ends_at')
       .eq('clinic_id', clinicId)
-    for (const e of (data ?? []) as { exception_date: string; unit_id: string | null; is_closed: boolean }[]) {
-      if (e.is_closed && (e.unit_id === null || e.unit_id === unitId)) fechados.add(String(e.exception_date).slice(0, 10))
+    type Excecao = { exception_date: string; unit_id: string | null; is_closed: boolean; starts_at?: string | null; ends_at?: string | null }
+    for (const e of (data ?? []) as Excecao[]) {
+      if (e.unit_id !== null && e.unit_id !== unitId) continue
+      if (e.is_closed) fechados.add(String(e.exception_date).slice(0, 10))
+      else if (e.starts_at && e.ends_at) extras.push({ data: String(e.exception_date), inicio: String(e.starts_at), fim: String(e.ends_at) })
     }
   } catch (erro) {
-    console.warn('Nao consegui ler os dias bloqueados', erro)
+    console.warn('Nao consegui ler os dias bloqueados e os horarios extras', erro)
+  }
+  if (regras.length === 0 && extras.length === 0) return []
+
+  // O que ja esta marcado tira o horario extra que cruza (ver periodosComData).
+  const marcadas: { inicio: string; fim: string }[] = []
+  if (extras.length > 0) {
+    try {
+      const { data } = await admin
+        .from('appointments')
+        .select('starts_at,ends_at,status')
+        .eq('clinic_id', clinicId)
+        .gte('starts_at', new Date().toISOString())
+      for (const a of (data ?? []) as { starts_at: string; ends_at: string; status: string }[]) {
+        if (a.status !== 'cancelled' && a.starts_at && a.ends_at) marcadas.push({ inicio: a.starts_at, fim: a.ends_at })
+      }
+    } catch (erro) {
+      console.warn('Nao consegui ler as consultas marcadas; os horarios extras saem sem esse filtro', erro)
+    }
   }
 
   const ocupados: { inicio: string; fim: string }[] = []
@@ -3358,7 +3495,7 @@ async function periodosDaUnidade(admin: Admin, clinicId: string, unitId: string)
     console.warn('Nao consegui ler as visitas em casa marcadas', erro)
   }
 
-  return periodosComData({ regras, fechados, ocupados, agora: new Date(), margemMinutos: margem })
+  return periodosComData({ regras, fechados, ocupados, agora: new Date(), margemMinutos: margem, extras, marcadas, naoAntesDe })
 }
 
 type PedidoDeConsulta = {
@@ -3371,6 +3508,8 @@ type PedidoDeConsulta = {
   nome?: string
   nascimento?: string
   oferecidos?: string[]
+  /** Dia da volta das ferias (AAAA-MM-DD), quando o pedido nasce durante elas. */
+  ferias?: string
 }
 
 function pedidoEmAndamentoDaConsulta(opcoes: unknown): PedidoDeConsulta {
@@ -3378,13 +3517,25 @@ function pedidoEmAndamentoDaConsulta(opcoes: unknown): PedidoDeConsulta {
   return bruto?.consulta ?? {}
 }
 
-function mensagemDosPeriodos(oferecidos: string[], titulo: string): Resultado {
+function mensagemDosPeriodos(oferecidos: string[], titulo: string, rodape = ''): Resultado {
   const linhas = oferecidos.map((p, i) => `*${i + 1}* ${p}`).join('\n')
   return {
     resposta:
       `${titulo}\n\n${linhas}\n\n` +
       'Pode escolher *mais de um*: responda com os números separados por vírgula (ex.: *1, 3*).\n\n' +
+      (rodape ? `${rodape}\n\n` : '') +
       SAIDAS,
+  }
+}
+
+/** A pergunta do "a partir de quando" nas ferias: esta semana nao existe. */
+function quandoNasFerias(voltaEm: string, visita: boolean): Resultado {
+  return {
+    resposta:
+      `⏳ ${quemAtende().O} volta a atender em *${diaPorExtenso(voltaEm)}*. ` +
+      `A partir de quando pode ser${visita ? ' a visita' : ''}, depois dessa data?\n\n` +
+      'Toque em *Tanto faz* ou escreva, por exemplo: "depois do dia 20".',
+    botoes: [{ id: 'tanto faz', titulo: 'Tanto faz' }],
   }
 }
 
@@ -3448,16 +3599,26 @@ async function perguntarPeriodosDoPedido(
   conversationId: string,
   pedido: PedidoDeConsulta,
 ): Promise<Resultado> {
-  const periodos = pedido.unidadeId ? await periodosDaUnidade(admin, clinicId, pedido.unidadeId) : []
+  // Ferias (17/11/2026): o pedido carrega o dia da volta, para os passos
+  // seguintes (restricao, a partir de quando, resumo) falarem a mesma coisa.
+  const ferias = await feriasDaClinica(admin, clinicId)
+  const comFerias: PedidoDeConsulta = ferias ? { ...pedido, ferias } : { ...pedido, ferias: undefined }
+  const periodos = pedido.unidadeId ? await periodosDaUnidade(admin, clinicId, pedido.unidadeId, ferias) : []
   // Sem horario de atendimento cadastrado, nao ha periodo para oferecer: a
   // restricao, em texto livre, diz o que a familia pode.
-  if (periodos.length === 0) return await perguntarRestricaoDoPedido(admin, conversationId, pedido)
+  if (periodos.length === 0) return await perguntarRestricaoDoPedido(admin, conversationId, comFerias)
   const oferecidos = [...periodos, OUTRO_DIA]
   await salvarEstado(admin, conversationId, {
     booking_state: 'pedido_periodos',
-    booking_options: { consulta: { ...pedido, oferecidos } },
+    booking_options: { consulta: { ...comFerias, oferecidos } },
   })
-  return mensagemDosPeriodos(oferecidos, '📅 Em quais *períodos* fica bom para vocês?')
+  return ferias
+    ? mensagemDosPeriodos(
+      oferecidos,
+      `${avisoDeFerias(ferias)}\n\n📅 Estes são os *horários disponíveis* na volta. Quais ficam bons para vocês?`,
+      URGENCIA_NAS_FERIAS,
+    )
+    : mensagemDosPeriodos(oferecidos, '📅 Em quais *períodos* fica bom para vocês?')
 }
 
 async function perguntarRestricaoDoPedido(
@@ -3471,6 +3632,8 @@ async function perguntarRestricaoDoPedido(
   })
   return {
     resposta:
+      // Ferias sem horario nenhum para escolher: e aqui que a pessoa fica sabendo.
+      (pedido.ferias && !pedido.periodos?.length ? `${avisoDeFerias(pedido.ferias)}\n\n${URGENCIA_NAS_FERIAS}\n\n` : '') +
       '🗓️ Tem alguma *restrição de dia ou horário*? Por exemplo: "só depois das 10h", ' +
       '"dia 13 não posso".\n\nSe não tiver, toque em *Não tenho*.',
     botoes: [{ id: 'nao', titulo: 'Não tenho' }],
@@ -3486,6 +3649,7 @@ async function perguntarQuandoDoPedido(
     booking_state: 'pedido_quando',
     booking_options: { consulta: pedido },
   })
+  if (pedido.ferias) return quandoNasFerias(pedido.ferias, false)
   return { resposta: '⏳ A partir de quando pode ser?\n\n' + DICA_DO_QUANDO, botoes: botoesDoQuando() }
 }
 
@@ -3546,6 +3710,7 @@ async function registrarPedidoDeConsulta(
   if (pedido.unidadeNome) linhas.push(`🏥 ${pedido.unidadeNome}`)
   if (pedido.periodos?.length) linhas.push(`📅 ${pedido.periodos.join(' ou ')}`)
   if (pedido.aPartir) linhas.push(`⏳ A partir de: ${pedido.aPartir}`)
+  if (pedido.ferias) linhas.push(`🌴 Atendimento a partir de ${diaPorExtenso(pedido.ferias)}`)
   linhas.push(pedido.restricao ? `⚠️ ${pedido.restricao}` : '⚠️ Sem restrição de dia ou horário')
   // Repetido no resumo de proposito (caso de 19/10/2026, ver perguntarValor): e a
   // mensagem que fica na conversa e que a equipe le antes de confirmar.
@@ -3582,14 +3747,22 @@ async function perguntarPeriodosDaVisita(
   visita: PedidoDeVisita,
   unitId: string | null,
 ): Promise<Resultado> {
-  const periodos = unitId ? await periodosDaUnidade(admin, clinicId, unitId) : []
-  if (periodos.length === 0) return await perguntarRestricaoDaVisita(admin, conversationId, visita)
+  const ferias = await feriasDaClinica(admin, clinicId)
+  const comFerias: PedidoDeVisita = ferias ? { ...visita, ferias } : { ...visita, ferias: undefined }
+  const periodos = unitId ? await periodosDaUnidade(admin, clinicId, unitId, ferias) : []
+  if (periodos.length === 0) return await perguntarRestricaoDaVisita(admin, conversationId, comFerias)
   const oferecidos = [...periodos, OUTRO_DIA]
   await salvarEstado(admin, conversationId, {
     booking_state: 'visita_periodos',
-    booking_options: { visita: { ...visita, oferecidos } },
+    booking_options: { visita: { ...comFerias, oferecidos } },
   })
-  return mensagemDosPeriodos(oferecidos, '📅 Em quais *períodos* a visita pode acontecer?')
+  return ferias
+    ? mensagemDosPeriodos(
+      oferecidos,
+      `${avisoDeFerias(ferias)}\n\n📅 Estes são os *horários disponíveis* na volta. Em quais a visita pode acontecer?`,
+      URGENCIA_NAS_FERIAS,
+    )
+    : mensagemDosPeriodos(oferecidos, '📅 Em quais *períodos* a visita pode acontecer?')
 }
 
 async function perguntarQuandoDaVisita(
@@ -3601,6 +3774,7 @@ async function perguntarQuandoDaVisita(
     booking_state: 'visita_quando',
     booking_options: { visita },
   })
+  if (visita.ferias) return quandoNasFerias(visita.ferias, true)
   return { resposta: '⏳ A partir de quando pode ser a visita?\n\n' + DICA_DO_QUANDO, botoes: botoesDoQuando() }
 }
 
@@ -3684,12 +3858,13 @@ async function sobreOConsultorio(admin: Admin, clinicId: string) {
  * agenda por pedido quem confirma o dia e a Dra. Patricia.
  */
 export async function conhecimentoDaClinica(admin: Admin, clinicId: string): Promise<string> {
-  const [lugares, tele, respostas, sobre, porPedido] = await Promise.all([
+  const [lugares, tele, respostas, sobre, porPedido, ferias] = await Promise.all([
     opcoesDeAtendimento(admin, clinicId),
     telemedicinaDaClinica(admin, clinicId),
     carregarRespostas(admin, clinicId),
     sobreOConsultorio(admin, clinicId),
     agendamentoPorPedido(admin, clinicId),
+    feriasDaClinica(admin, clinicId),
   ])
   const quem = quemAtende(clinicId)
   const fisicas = lugares.filter((u) => u.id !== TELE_ID)
@@ -3706,6 +3881,11 @@ export async function conhecimentoDaClinica(admin: Admin, clinicId: string): Pro
   // O que o sistema faz pela pessoa, para a IA oferecer o caminho certo em vez
   // de "vou verificar com a equipe".
   const funcionamento = [
+    // Ferias (17/11/2026): a primeira linha, para a IA nao prometer "esta
+    // semana". Urgencia continua com a equipe, pelas regras de sempre.
+    ferias
+      ? `- FÉRIAS: ${quem.o} está de férias e o atendimento será reiniciado a partir de ${diaPorExtenso(ferias)}. Não há consulta nem visita antes desse dia. Se a pessoa pedir uma data antes, diga que ${quem.o} está de férias, que o atendimento recomeça em ${diaPorExtenso(ferias)}, e ofereça os horários da volta (consulte ver_horarios e diga os que estão lá). Se for urgente, chame a equipe com o motivo urgencia: ${quem.o} avalia o caso.`
+      : '',
     porPedido
       ? `- Para marcar, a pessoa faz o pedido por aqui mesmo: o local (${fisicas.map((u) => u.name).join(' ou ')}), se é a primeira consulta ou retorno, os períodos que servem e alguma restrição de dia ou horário. ${quem.O} confere a agenda e confirma o dia e o horário por aqui. A vaga só fica garantida depois dessa confirmação.`
       : '- A pessoa marca a consulta por aqui mesmo, na hora, escolhendo o dia e o horário livres.',
@@ -3764,14 +3944,20 @@ export async function periodosEmTexto(admin: Admin, clinicId: string, nomeDoLuga
   if (!alvos.length) return `Atendimento não encontrado. Os atendimentos são: ${lugares.map((u) => u.name).join(', ')}.`
   const porPedido = await agendamentoPorPedido(admin, clinicId)
   const fuso = await fusoDaClinica(admin, clinicId)
+  const ferias = await feriasDaClinica(admin, clinicId)
   const blocos: string[] = []
+  if (ferias) {
+    blocos.push(`Férias: o atendimento será reiniciado a partir de ${diaPorExtenso(ferias)}. Nada é marcado antes desse dia.`)
+  }
   for (const u of alvos) {
     if (porPedido) {
-      const periodos = await periodosDaUnidade(admin, clinicId, u.id)
+      const periodos = await periodosDaUnidade(admin, clinicId, u.id, ferias)
       blocos.push(
         periodos.length
           ? `${u.name}: ${periodos.join('; ')}.`
-          : `${u.name}: sem horário de atendimento cadastrado; o dia é combinado no pedido.`,
+          : ferias
+            ? `${u.name}: sem horário aberto na volta; o dia é combinado no pedido, a partir de ${diaPorExtenso(ferias)}.`
+            : `${u.name}: sem horário de atendimento cadastrado; o dia é combinado no pedido.`,
       )
       continue
     }

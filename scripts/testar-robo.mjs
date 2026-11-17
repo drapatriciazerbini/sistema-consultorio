@@ -74,6 +74,7 @@ const MONTAGENS = [
   "supabase/functions/_shared/gastos-meta.ts --format=esm --outfile=tests/gastos-meta.build.mjs",
   "supabase/functions/_shared/gastos-google.ts --format=esm --outfile=tests/gastos-google.build.mjs",
   "src/lib/campanha.ts --format=esm --outfile=tests/campanha.build.mjs",
+  "src/lib/agenda-extra.ts --format=esm --outfile=tests/agenda-extra.build.mjs",
 ]
 
 // node <arquivo>
@@ -130,6 +131,7 @@ const TESTES = [
   "tests/bom-dia-da-equipe.test.mjs",
   "tests/depois-do-convenio.test.mjs",
   "tests/cadastro-do-paciente.test.mjs",
+  "tests/agenda-extra.test.mjs",
 ]
 
 function rodar(comando) {

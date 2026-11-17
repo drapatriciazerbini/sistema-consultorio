@@ -48,6 +48,7 @@ import {
   listScheduleExceptions,
   listUnits,
   saveSchedulePreferences,
+  createExtraPeriod,
   updateAppointmentDetails,
   WEEKDAY_LABEL,
   type Appointment,
@@ -58,6 +59,8 @@ import {
 } from '@/lib/repository'
 import { useDialogos } from '@/components/dialogos-contexto'
 import { avisoDoBloqueio, consultasDeUmDia } from '@/lib/bloqueio-de-dia'
+import { feriasEmVigor, problemaDoPeriodo, separarExcecoes } from '@/lib/agenda-extra'
+import { getFeriasVoltaEm, saveFeriasVoltaEm } from '@/lib/ferias'
 import { problemaNoWhatsapp, telefoneDoLembrete } from '@/lib/telefone-do-lembrete'
 import { horariosLivresEntre } from '@/lib/prontuario-extra'
 import RemanejarConsulta from '@/sections/agenda/RemanejarConsulta'
@@ -642,7 +645,10 @@ export default function Agenda({
 
   // Formularios
   const [novaUnidade, setNovaUnidade] = useState({ nome: '', endereco: '' })
-  const [novaRegra, setNovaRegra] = useState({ weekday: 1, inicio: '08:00', fim: '12:00' })
+  const [novaRegra, setNovaRegra] = useState({ repete: true, weekday: 1, data: '', inicio: '08:00', fim: '12:00' })
+  // Ferias (17/11/2026): o dia em que o atendimento volta. null = o banco ainda
+  // nao tem a coluna, e o campo diz isso em vez de fingir que salvou.
+  const [feriasVoltaEm, setFeriasVoltaEm] = useState<string | null>('')
   const [novoBloqueio, setNovoBloqueio] = useState({ data: '', motivo: '' })
 
   const carregarBase = useCallback(async () => {
@@ -652,13 +658,15 @@ export default function Agenda({
       const membership = await getCurrentMembership()
       if (!membership) throw new Error('Não foi possível identificar a clínica do seu usuário.')
       setClinicId(membership.clinicId)
-      const [lista, preferencias, excecoes, deVisita, margem] = await Promise.all([
+      const [lista, preferencias, excecoes, deVisita, margem, ferias] = await Promise.all([
         listUnits(membership.clinicId),
         getSchedulePreferences(membership.clinicId),
         listScheduleExceptions(membership.clinicId),
         unidadesDeVisita(membership.clinicId),
         margemDoDomicilio(membership.clinicId),
+        getFeriasVoltaEm(membership.clinicId),
       ])
+      setFeriasVoltaEm(ferias)
       setVisitas(deVisita)
       setMargemVisita(margem)
       setUnits(lista)
@@ -773,6 +781,11 @@ export default function Agenda({
       void supabase.removeChannel(canal)
     }
   }, [clinicId, carregarUnidade])
+
+  const { bloqueios: datasBloqueadas, extras: horariosExtras } = useMemo(
+    () => separarExcecoes(exceptions, unitId),
+    [exceptions, unitId],
+  )
 
   const dias = useMemo(() => {
     const limite = new Date()
@@ -1569,11 +1582,12 @@ export default function Agenda({
                 </p>
                 <p className="mt-1 text-[10px] text-slate-500">
                   Em {unidadeAtual?.name}. Pode haver mais de um período no mesmo dia, por exemplo
-                  manhã e tarde.
+                  manhã e tarde. O que repete vale toda semana; o de uma vez só vale apenas na data
+                  escolhida, e o WhatsApp oferece esse horário no pedido de consulta.
                 </p>
 
                 <div className="mt-3 space-y-1.5">
-                  {rules.length === 0 && (
+                  {rules.length === 0 && horariosExtras.length === 0 && (
                     <p className="text-[11px] text-slate-400">Nenhum período definido ainda.</p>
                   )}
                   {rules.map((regra) => (
@@ -1583,6 +1597,7 @@ export default function Agenda({
                     >
                       <span className="text-[11px] font-bold text-[#193d36]">
                         {WEEKDAY_LABEL[regra.weekday]} · {regra.startsAt} às {regra.endsAt}
+                        <span className="ml-1.5 font-semibold text-slate-400">toda semana</span>
                       </span>
                       <button
                         type="button"
@@ -1595,20 +1610,82 @@ export default function Agenda({
                       </button>
                     </div>
                   ))}
+                  {horariosExtras.map((extra) => (
+                    <div
+                      key={extra.id}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-[#2f7f74]/30 bg-[#eef6f4] px-3 py-2"
+                    >
+                      <span className="text-[11px] font-bold capitalize text-[#193d36]">
+                        {new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(
+                          new Date(extra.date + 'T12:00:00'),
+                        )}{' '}
+                        · {extra.startsAt?.slice(0, 5)} às {extra.endsAt?.slice(0, 5)}
+                        <span className="ml-1.5 font-semibold normal-case text-[#2f7f74]">só esta vez</span>
+                      </span>
+                      <button
+                        type="button"
+                        title="Remover este horário extra"
+                        onClick={() =>
+                          void acao(() => deleteScheduleException(extra.id), 'Horário extra removido.')
+                        }
+                        className="rounded-lg p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
 
-                <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-[#193d36]/[0.07] pt-3">
-                  <select
-                    value={novaRegra.weekday}
-                    onChange={(e) => setNovaRegra({ ...novaRegra, weekday: Number(e.target.value) })}
-                    className="rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
-                  >
-                    {WEEKDAY_LABEL.map((nome, indice) => (
-                      <option key={nome} value={indice}>
-                        {nome}
-                      </option>
+                <div className="mt-3 border-t border-[#193d36]/[0.07] pt-3">
+                  {/* Porte de 17/11/2026 (no Dr. Marcello, 08/11): o horario novo repete
+                      ou e so desta vez? Antes so existia o semanal, e os horarios soltos
+                      da volta das ferias nao tinham onde entrar. */}
+                  <p className="text-[10px] font-bold text-slate-500">Este horário vai se repetir?</p>
+                  <div className="mt-1.5 inline-flex rounded-xl bg-[#eef1ee] p-0.5" role="radiogroup" aria-label="Este horário vai se repetir?">
+                    {[
+                      { valor: true, rotulo: 'Toda semana' },
+                      { valor: false, rotulo: 'Só uma vez' },
+                    ].map((opcao) => (
+                      <button
+                        key={opcao.rotulo}
+                        type="button"
+                        role="radio"
+                        aria-checked={novaRegra.repete === opcao.valor}
+                        onClick={() => setNovaRegra({ ...novaRegra, repete: opcao.valor })}
+                        className={`rounded-lg px-3 py-1 text-[10px] font-bold transition ${
+                          novaRegra.repete === opcao.valor
+                            ? 'bg-white text-[#193d36] shadow-sm'
+                            : 'text-slate-500 hover:text-[#193d36]'
+                        }`}
+                      >
+                        {opcao.rotulo}
+                      </button>
                     ))}
-                  </select>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap items-end gap-2">
+                  {novaRegra.repete ? (
+                    <select
+                      value={novaRegra.weekday}
+                      onChange={(e) => setNovaRegra({ ...novaRegra, weekday: Number(e.target.value) })}
+                      className="rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
+                    >
+                      {WEEKDAY_LABEL.map((nome, indice) => (
+                        <option key={nome} value={indice}>
+                          {nome}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="date"
+                      aria-label="Data do horário extra"
+                      value={novaRegra.data}
+                      min={new Date().toLocaleDateString('en-CA')}
+                      onChange={(e) => setNovaRegra({ ...novaRegra, data: e.target.value })}
+                      className="rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none"
+                    />
+                  )}
                   <input
                     type="time"
                     value={novaRegra.inicio}
@@ -1624,19 +1701,40 @@ export default function Agenda({
                   <button
                     type="button"
                     onClick={() =>
-                      void acao(async () => {
+                      void (async () => {
                         if (!clinicId || !unitId) return
-                        if (novaRegra.fim <= novaRegra.inicio) {
-                          throw new Error('O fim do período precisa ser depois do início.')
+                        const hoje = new Date().toLocaleDateString('en-CA')
+                        const problema = problemaDoPeriodo(novaRegra, hoje)
+                        if (problema) {
+                          setAviso('')
+                          setError(problema)
+                          return
                         }
-                        await createAvailabilityRule(
-                          clinicId,
-                          unitId,
-                          novaRegra.weekday,
-                          novaRegra.inicio,
-                          novaRegra.fim,
+                        if (novaRegra.repete) {
+                          await acao(
+                            () =>
+                              createAvailabilityRule(
+                                clinicId,
+                                unitId,
+                                novaRegra.weekday,
+                                novaRegra.inicio,
+                                novaRegra.fim,
+                              ),
+                            'Período adicionado. Ele se repete toda semana.',
+                          )
+                          return
+                        }
+                        const dia = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(
+                          new Date(novaRegra.data + 'T12:00:00'),
                         )
-                      }, 'Período adicionado.')
+                        // A data fica no campo: quem abre dois horarios no mesmo dia so
+                        // troca a hora.
+                        await acao(
+                          () =>
+                            createExtraPeriod(clinicId, unitId, novaRegra.data, novaRegra.inicio, novaRegra.fim),
+                          `Horário extra aberto em ${dia}, só esta vez.`,
+                        )
+                      })()
                     }
                     className="inline-flex items-center gap-1 rounded-xl bg-[#193d36] px-3 py-1.5 text-[10px] font-bold text-white transition hover:bg-[#13453c]"
                   >
@@ -1658,10 +1756,10 @@ export default function Agenda({
                 </p>
 
                 <div className="mt-3 space-y-1.5">
-                  {exceptions.length === 0 && (
+                  {datasBloqueadas.length === 0 && (
                     <p className="text-[11px] text-slate-400">Nenhuma data bloqueada.</p>
                   )}
-                  {exceptions.map((excecao) => (
+                  {datasBloqueadas.map((excecao) => (
                     <div
                       key={excecao.id}
                       className="flex items-center justify-between gap-2 rounded-xl bg-[#faf9f4] px-3 py-2"
@@ -1778,6 +1876,53 @@ export default function Agenda({
                 <p className="mt-2 text-[10px] text-slate-500">
                   Valem para o agendamento pelo WhatsApp; a recepção continua marcando qualquer horário.
                 </p>
+
+                {/* Ferias (17/11/2026): a data em que o atendimento volta. O robo e o
+                    atendente com IA avisam e nao oferecem nada antes dela; passou a
+                    data, o aviso some sozinho. Salva no proprio botao, porque e
+                    outra coluna e outra permissao. */}
+                <div className="mt-4 border-t border-[#193d36]/[0.07] pt-3">
+                  <p className="text-[11px] font-bold text-[#193d36]">Férias: o atendimento volta em</p>
+                  {feriasVoltaEm === null ? (
+                    <p className="mt-1 rounded-xl bg-amber-50 px-3 py-2 text-[10px] font-semibold text-amber-800">
+                      A atualização do banco ainda não chegou: o aviso de férias não está disponível.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          aria-label="Dia em que o atendimento volta das férias"
+                          value={feriasVoltaEm}
+                          onChange={(e) => setFeriasVoltaEm(e.target.value)}
+                          className="rounded-xl border border-[#193d36]/10 bg-white px-2 py-1.5 text-[11px] outline-none focus:border-[#2f7f74]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void acao(async () => {
+                              if (!clinicId) return
+                              await saveFeriasVoltaEm(clinicId, feriasVoltaEm)
+                            }, feriasVoltaEm ? 'Férias salvas: o WhatsApp já avisa.' : 'Aviso de férias desligado.')
+                          }
+                          className="rounded-xl bg-[#193d36] px-3 py-1.5 text-[10px] font-bold text-white transition hover:bg-[#13453c]"
+                        >
+                          Salvar férias
+                        </button>
+                        {feriasEmVigor(feriasVoltaEm, new Date().toLocaleDateString('en-CA')) && (
+                          <span className="rounded-full bg-[#eef6f4] px-2 py-0.5 text-[10px] font-bold text-[#2f7f74]">
+                            Avisando no WhatsApp
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-2 text-[10px] text-slate-500">
+                        Enquanto a data não chega, o WhatsApp diz que a Dra. está de férias, que o
+                        atendimento recomeça nesse dia, e só oferece horários a partir dele. Urgência
+                        continua indo para a equipe. Deixe em branco para desligar.
+                      </p>
+                    </>
+                  )}
+                </div>
 
                 {/* Lembrete de consulta. Fica junto das preferencias porque e
                     salvo no mesmo botao - dois "salvar" no mesmo cartao

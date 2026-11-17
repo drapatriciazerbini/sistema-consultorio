@@ -696,6 +696,29 @@ export async function createScheduleException(
   if (error) fail(error)
 }
 
+/**
+ * Horario extra numa data so (17/11/2026, ver agenda-extra.ts): excecao com
+ * is_closed falso, que o banco e o robo somam ao que esta aberto.
+ */
+export async function createExtraPeriod(
+  clinicId: string,
+  unitId: string,
+  date: string,
+  startsAt: string,
+  endsAt: string,
+) {
+  const { error } = await supabase.from('schedule_exceptions').insert({
+    clinic_id: clinicId,
+    unit_id: unitId,
+    exception_date: date,
+    is_closed: false,
+    starts_at: startsAt,
+    ends_at: endsAt,
+    reason: 'Horário extra',
+  })
+  if (error) fail(error)
+}
+
 export async function deleteScheduleException(exceptionId: string) {
   const { error } = await supabase.from('schedule_exceptions').delete().eq('id', exceptionId)
   if (error) fail(error)
