@@ -3270,6 +3270,12 @@ export function periodosComData(opcoes: {
   marcadas?: { inicio: string; fim: string }[]
   /** Ferias: nada e oferecido antes deste dia (AAAA-MM-DD). */
   naoAntesDe?: string | null
+  /**
+   * A unidade e a visita em casa: entre dois horarios extras de visita nao
+   * entra margem de deslocamento. A Dra. liberou 14h30 e 16h30 no mesmo dia;
+   * com a margem, marcar a visita das 14h30 ate as 16h30 apagava a das 16h30.
+   */
+  extrasSemMargem?: boolean
 }): string[] {
   const dias = opcoes.dias ?? 14
   const margem = (opcoes.margemMinutos ?? 30) * 60_000
@@ -3305,8 +3311,9 @@ export function periodosComData(opcoes: {
     const inicio = new Date(`${data}T${String(extra.inicio).slice(0, 5)}:00-03:00`).getTime()
     const fim = new Date(`${data}T${String(extra.fim).slice(0, 5)}:00-03:00`).getTime()
     if (!Number.isFinite(inicio) || !Number.isFinite(fim) || inicio < limite) continue
+    const folga = opcoes.extrasSemMargem ? 0 : margem
     const comVisita = opcoes.ocupados.some(
-      (o) => new Date(o.inicio).getTime() - margem < fim && new Date(o.fim).getTime() + margem > inicio,
+      (o) => new Date(o.inicio).getTime() - folga < fim && new Date(o.fim).getTime() + folga > inicio,
     )
     // Consulta ja marcada naquele horario: a Dra. confirmou um pedido e a vaga
     // saiu. Sem isto o robo ofereceria a mesma hora para a familia seguinte.
@@ -3471,9 +3478,11 @@ async function periodosDaUnidade(
 
   const ocupados: { inicio: string; fim: string }[] = []
   let margem = 30
+  let ehVisita = false
   try {
     const unidades = await unidadesAtivas(admin, clinicId)
     const visitas = unidades.filter((u) => u.is_home_visit).map((u) => u.id)
+    ehVisita = visitas.includes(unitId)
     if (visitas.length > 0) {
       const { data } = await admin
         .from('appointments')
@@ -3495,7 +3504,7 @@ async function periodosDaUnidade(
     console.warn('Nao consegui ler as visitas em casa marcadas', erro)
   }
 
-  return periodosComData({ regras, fechados, ocupados, agora: new Date(), margemMinutos: margem, extras, marcadas, naoAntesDe })
+  return periodosComData({ regras, fechados, ocupados, agora: new Date(), margemMinutos: margem, extras, marcadas, naoAntesDe, extrasSemMargem: ehVisita })
 }
 
 type PedidoDeConsulta = {

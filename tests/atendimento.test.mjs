@@ -3669,6 +3669,19 @@ await caso('Só a visita cadastrada vai direto para o endereço', [
       ...base, extras, naoAntesDe: '2026-12-14',
       ocupados: [{ inicio: '2026-12-15T18:50:00Z', fim: '2026-12-15T20:00:00Z' }],
     }), ['Segunda 14/12 às 9h', 'Segunda 14/12 às 10h30', 'Quarta 16/12 às 18h'])
+    // Duas visitas liberadas no mesmo dia (18/12, 14h30 e 16h30): a primeira
+    // marcada ate as 16h30 nao pode apagar a segunda pela margem de deslocamento.
+    const visitas = [
+      { data: '2026-12-18', inicio: '14:30:00', fim: '15:10:00' },
+      { data: '2026-12-18', inicio: '16:30:00', fim: '17:10:00' },
+    ]
+    const primeiraMarcada = [{ inicio: '2026-12-18T17:30:00Z', fim: '2026-12-18T19:30:00Z' }]
+    confere('extras da visita: a marcada ao lado não apaga a seguinte', periodosComData({
+      ...base, extras: visitas, ocupados: primeiraMarcada, marcadas: primeiraMarcada, extrasSemMargem: true,
+    }), ['Sexta 18/12 às 16h30'])
+    confere('extras do consultório: a visita ao lado continua tirando com a margem', periodosComData({
+      ...base, extras: visitas, ocupados: primeiraMarcada, marcadas: primeiraMarcada,
+    }), [])
     confere('extras: dia bloqueado ganha do extra', periodosComData({
       ...base, extras, naoAntesDe: '2026-12-14', fechados: new Set(['2026-12-16']),
     }), ['Segunda 14/12 às 9h', 'Segunda 14/12 às 10h30', 'Terça 15/12 às 15h'])

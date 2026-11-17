@@ -1615,12 +1615,14 @@ export default function Agenda({
                       key={extra.id}
                       className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-[#2f7f74]/30 bg-[#eef6f4] px-3 py-2"
                     >
-                      <span className="text-[11px] font-bold capitalize text-[#193d36]">
-                        {new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(
-                          new Date(extra.date + 'T12:00:00'),
-                        )}{' '}
+                      <span className="text-[11px] font-bold text-[#193d36]">
+                        <span className="capitalize">
+                          {new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(
+                            new Date(extra.date + 'T12:00:00'),
+                          )}
+                        </span>{' '}
                         · {extra.startsAt?.slice(0, 5)} às {extra.endsAt?.slice(0, 5)}
-                        <span className="ml-1.5 font-semibold normal-case text-[#2f7f74]">só esta vez</span>
+                        <span className="ml-1.5 font-semibold text-[#2f7f74]">só esta vez</span>
                       </span>
                       <button
                         type="button"
