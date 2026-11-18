@@ -66,6 +66,7 @@ const MONTAGENS = [
   "src/lib/conversa-do-contato.ts --bundle --format=esm --outfile=tests/conversa-do-contato.build.mjs",
   "src/lib/respostas-da-equipe.ts --format=esm --outfile=tests/respostas-da-equipe.build.mjs",
   "src/lib/sexo-pelo-nome.ts --format=esm --outfile=tests/sexo-pelo-nome.build.mjs",
+  "src/lib/cidades-no-mapa.ts --format=esm --outfile=tests/cidades-no-mapa.build.mjs",
   "supabase/functions/_shared/cadastro.ts --bundle --format=esm --outfile=tests/cadastro.build.mjs",
   "supabase/functions/_shared/consulta-aconteceu.ts --format=esm --outfile=tests/consulta-aconteceu.build.mjs",
   "src/lib/paciente-atendido.ts --bundle --format=esm --outfile=tests/paciente-atendido.build.mjs",
@@ -134,6 +135,7 @@ const TESTES = [
   "tests/depois-do-convenio.test.mjs",
   "tests/cadastro-do-paciente.test.mjs",
   "tests/agenda-extra.test.mjs",
+  "tests/cidades-no-mapa.test.mjs",
 ]
 
 function rodar(comando) {

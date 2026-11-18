@@ -21,6 +21,8 @@ import { nomeDoCid } from '@/lib/cid'
 import NumerosDoWhatsApp from '@/sections/NumerosDoWhatsApp'
 import Campanha from '@/sections/Campanha'
 import NumerosDoInstagram from '@/sections/NumerosDoInstagram'
+import MapaDoPainel from '@/sections/MapaDoPainel'
+import { cidadesDosPacientes } from '@/lib/cidades-no-mapa'
 
 /**
  * Paleta dos graficos (08/11/2026, pedido do Edu: "contrastes feios, tudo muito
@@ -362,7 +364,10 @@ export default function Dashboard({
   // Agrupado pelo nome, e nao pelo codigo: assim "K59.0" e "K59,0" - a virgula
   // do teclado numerico - contam como a mesma coisa, que e o que sao.
   const cids = topN(countBy(patients, (patient) => nomeDoCid(patient.cid)), 5)
-  const cities = topN(countBy(patients, (patient) => patient.cidade), 5)
+  // As grafias da mesma cidade somadas (18/11/2026, porte da origem): "Santos"
+  // e "SANTOS" viravam duas barras iguais. Ver cidades-no-mapa.ts.
+  const cidades = cidadesDosPacientes(patients.map((patient) => patient.cidade))
+  const cities = cidades.ranking.slice(0, 5)
   // Bairro e unidade ja chegavam aqui dentro de cada paciente; so nunca tinham
   // sido lidos. Nao precisou de nada no banco.
   const neighborhoods = topN(countBy(patients, (patient) => patient.bairro), 5)
@@ -528,20 +533,36 @@ export default function Dashboard({
             subtitle="Para decidir horário, unidade e alcance da divulgação"
             icon={MapPinned}
           >
-            <div className="grid grid-cols-1 gap-7 lg:grid-cols-3 lg:divide-x lg:divide-[#193d36]/[0.07]">
-              {/* "do paciente" no rotulo de proposito: sem isso, cidade e
-                  bairro se confundem com o endereco da unidade. */}
-              <Ranking title="Cidade do paciente" items={cities} color={VERDE_MEDIO} maiusculo />
-              <div className="lg:pl-7">
+            {/* Mapa em dois tercos, listas em um (18/11/2026, porte da origem).
+                As listas ficam: numero exato se le melhor em barra do que em
+                coluna de mapa. */}
+            <div className="grid grid-cols-1 items-center gap-7 lg:grid-cols-3">
+              <div className="lg:col-span-2">
+                <MapaDoPainel cidades={cidades.noMapa} fora={cidades.fora} />
+              </div>
+              <div className="space-y-6">
+                {/* "do paciente" no rotulo de proposito: sem isso, cidade e
+                    bairro se confundem com o endereco da unidade. */}
+                <Ranking title="Cidade do paciente" items={cities} color={VERDE_MEDIO} maiusculo />
+                {/* Na origem o bairro saiu do painel para o mapa caber. Aqui
+                    ele fica, embaixo da cidade: quase todo mundo e de Santos
+                    ou Sao Vicente, e e o bairro que diz a distancia da visita
+                    domiciliar. */}
                 <Ranking title="Bairro / região do paciente" items={neighborhoods} color={AREIA} maiusculo />
               </div>
-              <div className="lg:pl-7">
-                <Ranking title="Unidade de atendimento" items={units} color={VERDE} maiusculo />
-              </div>
             </div>
-            <div className="mt-6 flex items-center gap-2 border-t border-[#193d36]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
+            {/* A unidade desceu para o rodape: sao duas ou tres (consultorio e
+                domicilio), e uma coluna inteira para elas era o que nao
+                deixava o mapa caber. */}
+            <div className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-2 border-t border-[#193d36]/[0.06] pt-4 text-[10px] font-semibold text-slate-400">
               <Building2 className="h-3.5 w-3.5 text-[#6f9d91]" />
-              A unidade é a do último atendimento de cada paciente.
+              <span>Unidade do último atendimento:</span>
+              {units.length === 0 && <span>sem dados</span>}
+              {units.map(([nome, total]) => (
+                <span key={nome} className="rounded-full bg-[#f1eee7] px-2.5 py-1 uppercase text-[#33485a]">
+                  {nome} <b className="font-extrabold text-[#193d36]">{total}</b>
+                </span>
+              ))}
             </div>
           </Panel>
 

@@ -6,7 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // public/vendor e copia de biblioteca de terceiro (maplibre-gl, 18/11/2026):
+  // nao e codigo nosso, e sem isto todo lint traz um aviso de dentro dela.
+  globalIgnores(['dist', 'public/vendor']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

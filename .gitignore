@@ -100,3 +100,4 @@ tests/bom-dia-da-equipe.build.mjs
 tests/depois-do-convenio.build.mjs
 tests/cadastro-do-paciente.build.mjs
 tests/agenda-extra.build.mjs
+tests/cidades-no-mapa.build.mjs
