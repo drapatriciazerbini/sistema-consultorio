@@ -37,6 +37,8 @@ import { oQueOPacienteDisse, papelDoNumero, repassarAoCelular, repasseAberto, tr
 import { copiaPelaApi, midiaRecebida } from '../_shared/midia-do-whatsapp.ts'
 import { filtroDasConsultas, pacientesDoTelefone } from '../_shared/telefones-do-paciente.ts'
 import { avisoDoArquivoPerdido, emMegas, grandeDemais, LIMITE_DO_ACERVO, tipoParaOAcervo } from '../_shared/acervo-do-anexo.ts'
+import { ehAudio, lerAudio, modoDoAudio } from '../_shared/audio-como-texto.ts'
+import { transcreverAudioComMotivo } from '../_shared/transcricao.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
 // Fora dele (teste local) cai no await comum.
@@ -153,7 +155,7 @@ async function guardarAnexo(
   messageId: string,
   midia: Midia,
   phoneNumberId: string,
-): Promise<{ path: string; mime: string } | { falha: string }> {
+): Promise<{ path: string; mime: string; bytes: Uint8Array } | { falha: string }> {
   // Toda saida sem arquivo diz o motivo (porte de 18/11/2026, ver
   // acervo-do-anexo.ts): antes era null calado, e a Central mostrava so o nome
   // do PDF, como se o arquivo estivesse la.
@@ -214,7 +216,9 @@ async function guardarAnexo(
         console.error('Nao consegui guardar a midia no acervo', mime, bytes.length, error)
         return { falha: `o acervo recusou: ${String(error.message ?? error).slice(0, 120)}` }
       }
-      return { path, mime }
+      // Os bytes voltam junto para a transcricao do audio (porte de 18/11/2026,
+      // ver audio-como-texto.ts), sem baixar de novo do acervo.
+      return { path, mime, bytes }
     } catch (causa) {
       console.error('Falha ao trazer a midia', tentativa, causa)
       ultimaFalha = 'erro de rede ao trazer o arquivo'
@@ -791,14 +795,63 @@ Deno.serve(async (req) => {
             }
           }
 
-          const body = messageBody(message)
+          // O arquivo e buscado ANTES de gravar a mensagem: a URL da Meta dura
+          // poucos minutos, e se a gravacao demorasse ela ja teria expirado.
+          // Vem antes de ler o que a pessoa quis dizer (porte de 18/11/2026):
+          // o audio precisa virar texto antes de o robo decidir o que responder.
+          const midia = midiaDaMensagem(message)
+          const guardado = midia && externalId
+            ? await guardarAnexo(admin, clinicId, externalId, midia, phoneNumberId)
+            : null
+          const anexo = guardado && 'path' in guardado ? guardado : null
+          // Arquivo que nao entrou no acervo grita (porte de 18/11/2026, ver
+          // acervo-do-anexo.ts): linha vermelha embaixo da mensagem, na
+          // Central. Figurinha fica de fora: ninguem precisa dela.
+          const falhaDoAnexo = guardado && 'falha' in guardado && message.type !== 'sticker' ? guardado.falha : null
+          if (falhaDoAnexo) console.error('Anexo nao guardado no acervo', message.type, midia?.filename ?? '', falhaDoAnexo)
+
+          // Audio vira texto (porte de 18/11/2026, ver audio-como-texto.ts): a
+          // Central mostra o texto embaixo do audio. O robo e a IA so leem o
+          // que a pessoa falou com o segredo AUDIO_VIRA_TEXTO=robo (nasce
+          // desligado: o Edu ainda nao validou a resposta automatica a audio);
+          // sem ele o audio segue anexo para a equipe, como antes. Sem texto, a
+          // mensagem ganha a linha vermelha dizendo por que. Audio que fala em
+          // cancelar ou em nao receber mensagens segue sempre para a equipe: ele
+          // nunca desmarca consulta sozinho (ver audioPedeGente). Nunca derruba
+          // o recebimento: qualquer erro aqui e a mensagem entra do jeito de
+          // antes.
+          let audio: ReturnType<typeof lerAudio> = { paraORobo: null, corpo: null, aviso: null }
+          const modoAudio = modoDoAudio(Deno.env.get('AUDIO_VIRA_TEXTO'))
+          if (anexo && ehAudio(message.type) && modoAudio !== 'desligado') {
+            try {
+              audio = lerAudio(
+                await transcreverAudioComMotivo(anexo.bytes, anexo.mime, { esperaMs: 15_000 }),
+                (texto) => interpretarResposta(texto, respondendoEnvioNosso, ultimaFoiLembrete),
+                modoAudio === 'robo',
+              )
+            } catch (erro) {
+              console.error('Audio: a transcricao quebrou; segue como anexo para a equipe', externalId, erro)
+              audio = { paraORobo: null, corpo: null, aviso: '⚠️ A transcrição falhou. Ouça o áudio.' }
+            }
+            if (!audio.corpo) console.warn('Audio sem texto; segue como anexo para a equipe', externalId, audio.aviso ?? 'sem fala reconhecida')
+          }
+          // So o audio que o robo pode ler deixa de ser anexo para ele.
+          const tratarComoAnexo = ehAnexo(message) && !audio.paraORobo
+
+          // Audio transcrito aparece no historico como "🎤 texto".
+          const body = audio.corpo ?? messageBody(message)
           // O que a pessoa quis dizer. Vindo de toque, e o id do botao; digitado,
-          // e o proprio texto. O `body` segue sendo o que aparece no historico.
+          // e o proprio texto; falado, a transcricao sem o 🎤. O `body` segue
+          // sendo o que aparece no historico.
           //
           // Toque em lista do robo passa por oQueFoiEscolhido: se a lista era de
           // uma mensagem antiga, o numero da opcao responderia a pergunta errada.
           // Botao de modelo aprovado (lembrete) fica fora - o payload dele,
           // "CONFIRMAR", significa a mesma coisa em qualquer mensagem.
+          //
+          // Audio que o robo nao pode ler (sem texto, ou falando em cancelar)
+          // entra como o anexo de antes, "[audio]": a transcricao fica so no
+          // balao, e nenhuma regra por palavra age em cima dela.
           const escolhido =
             message.type === 'interactive'
               ? oQueFoiEscolhido({
@@ -807,7 +860,7 @@ Deno.serve(async (req) => {
                   respondeA: message.context?.id ?? null,
                   ultimoEnvio: ultimoEnvioId,
                 })
-              : idDoToque(message) || body
+              : idDoToque(message) || audio.paraORobo || (audio.corpo ? messageBody(message) : body)
           // Uma chamada so, e a regra mora em _shared/lembrete.ts, coberta por
           // testes. Aqui ficou apenas o desempacotar.
           const resposta = interpretarResposta(escolhido, respondendoEnvioNosso, ultimaFoiLembrete)
@@ -861,19 +914,6 @@ Deno.serve(async (req) => {
             .update(atualizacaoConversa)
             .eq('id', conversation.id)
 
-          // O arquivo e buscado ANTES de gravar a mensagem: a URL da Meta dura
-          // poucos minutos, e se a gravacao demorasse ela ja teria expirado.
-          const midia = midiaDaMensagem(message)
-          const guardado = midia && externalId
-            ? await guardarAnexo(admin, clinicId, externalId, midia, phoneNumberId)
-            : null
-          const anexo = guardado && 'path' in guardado ? guardado : null
-          // Arquivo que nao entrou no acervo grita (porte de 18/11/2026, ver
-          // acervo-do-anexo.ts): linha vermelha embaixo da mensagem, na
-          // Central. Figurinha fica de fora: ninguem precisa dela.
-          const falhaDoAnexo = guardado && 'falha' in guardado && message.type !== 'sticker' ? guardado.falha : null
-          if (falhaDoAnexo) console.error('Anexo nao guardado no acervo', message.type, midia?.filename ?? '', falhaDoAnexo)
-
           const { error: messageError } = await admin.from('whatsapp_messages').insert({
             clinic_id: clinicId,
             conversation_id: conversation.id,
@@ -887,6 +927,9 @@ Deno.serve(async (req) => {
             delivered_at: receivedAt,
             ...(anexo ? { media_path: anexo.path, media_mime: anexo.mime } : {}),
             ...(falhaDoAnexo ? { failure_reason: avisoDoArquivoPerdido(falhaDoAnexo) } : {}),
+            // Audio que ficou sem texto, ou em que o robo nao agiu: a mesma
+            // linha vermelha, para a falha nao ficar calada (porte de 18/11/2026).
+            ...(!falhaDoAnexo && audio.aviso ? { failure_reason: audio.aviso } : {}),
           })
           if (messageError?.code === '23505') {
             // A mensagem ja esta gravada: isto e o reenvio da Meta depois de
@@ -1088,7 +1131,7 @@ Deno.serve(async (req) => {
               respostasNaEspera: etapaVenceu
                 ? 0
                 : Number(conversaAnterior?.auto_replies_while_waiting ?? 0),
-              anexo: ehAnexo(message),
+              anexo: tratarComoAnexo,
               // Etapa vencida zera o menu junto: depois de um dia parada, a
               // conversa recomeca do zero e a pessoa ve a apresentacao de novo.
               jaViuOMenu: !etapaVenceu && Boolean(linhaAnterior?.menu_sent_at),
@@ -1156,7 +1199,7 @@ Deno.serve(async (req) => {
                 clinicId,
                 conversationId: conversation.id,
                 texto: escolhido,
-                anexo: ehAnexo(message),
+                anexo: tratarComoAnexo,
                 etapa: (conversaAnterior?.booking_state ?? null) as string | null,
                 pacientes: pacientes.map((p: { name?: string | null }) => String(p.name ?? '').trim().split(/\s+/)[0]).filter(Boolean),
                 consultas,

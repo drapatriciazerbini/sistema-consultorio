@@ -10,6 +10,7 @@ import {
   lerRespostaDaEquipe,
   midiaDoRascunho,
   midiaRecebida,
+  modoRoboVale,
   oQueOPacienteDisse,
   papelDoNumero,
   rascunhoDeMidia,
@@ -166,8 +167,8 @@ for (const [nome, valor] of [['valor com ___', 'A consulta custa R$ ___.'], ['se
   const pergunta = c.enviados.at(-1)
   const botoes = pergunta.conteudo.interactive?.action?.buttons ?? []
   confere(
-    'texto: pergunta com Enviar e Cancelar',
-    pergunta.para === DRA && botoes.length === 2 && botoes[0].reply.id === `PEDTXT:${A1}:enviar` && c.textoDe(pergunta).startsWith('Vou mandar para Maria, como mensagem da Dra. Patrícia:'),
+    'texto: pergunta com Enviar, Cancelar e Falar com o robô',
+    pergunta.para === DRA && botoes.length === 3 && botoes[0].reply.id === `PEDTXT:${A1}:enviar` && botoes[1].reply.id === `PEDTXT:${A1}:cancelar` && botoes[2].reply.id === `PEDTXT:${A1}:robo` && c.textoDe(pergunta).startsWith('Vou mandar para Maria, como mensagem da Dra. Patrícia:'),
     c.textoDe(pergunta),
   )
   // So quem escreveu confirma.
@@ -472,6 +473,84 @@ confere('repasse de foto: legenda sem CPF', textoDoRepasseDeMidia('Maria', { tip
   confere('copia: sem token diz o motivo', !semToken.ok && semToken.erro.includes('sem token'))
   const recusada = await copiaPelaApi('123', 't', async () => new Response(JSON.stringify({ error: { message: 'Invalid media id' } }), { status: 400 }))({ tipo: 'audio', id: 'x' })
   confere('copia: id recusado volta escrito', !recusada.ok && recusada.erro.includes('Invalid media id'))
+}
+
+// "Falar com o robo" (porte de 18/11/2026 do sistema do Dr. Marcello, de
+// 13/11/2026): o Edu testando o robo pelo proprio celular com aviso na fila.
+{
+  const desde = haMinutos(20)
+  const ate = new Date(AGORA.getTime() + 100 * 60000).toISOString()
+  confere('modo robo: vale dentro do prazo, sem aviso novo', modoRoboVale({ desde, ate }, AGORA, [{ criado_em: haMinutos(30) }]))
+  confere('modo robo: vencido nao vale', !modoRoboVale({ desde, ate: haMinutos(1) }, AGORA, []))
+  confere('modo robo: aviso novo depois de ligar acaba com ele', !modoRoboVale({ desde, ate }, AGORA, [{ criado_em: haMinutos(5) }]))
+  confere('modo robo: resposta de paciente repassada depois de ligar acaba com ele', !modoRoboVale({ desde, ate }, AGORA, [{ criado_em: haMinutos(30), repasse_em: haMinutos(5) }]))
+  confere('modo robo: sem registro ou com data ilegivel nao vale', !modoRoboVale(null, AGORA, []) && !modoRoboVale({ desde: 'x', ate }, AGORA, []) && !modoRoboVale({ desde, ate: 'x' }, AGORA, []))
+  confere('modo robo: le o toque', JSON.stringify(lerRespostaDaEquipe(toqueInterativo(`PEDTXT:${A1}:robo`))) === JSON.stringify({ tipo: 'confirmacao', alertaId: A1, acao: 'robo' }))
+}
+{
+  // Um aviso so: o "oi" vira "Vou mandar para Maria...", com o botao do robo.
+  const c = cenario()
+  const botaoDoRobo = () => c.enviados.at(-1).conteudo.interactive?.action?.buttons?.find((b) => b.reply.title === 'Falar com o robô')?.reply.id
+  confere('modo robo: sem o modo, o texto e tratado como resposta', (await tratarRespostaDaEquipe(c.amb, EQUIPE, texto('oi'))) === true)
+  const robo = botaoDoRobo()
+  confere('modo robo: a pergunta traz Enviar, Cancelar e Falar com o robô', Boolean(robo) && c.enviados.at(-1).conteudo.interactive.action.buttons.length === 3, JSON.stringify(c.enviados.at(-1).conteudo))
+  const tratou = await tratarRespostaDaEquipe(c.amb, EQUIPE, toqueInterativo(robo ?? ''))
+  confere(
+    'modo robo: o toque responde, apaga o rascunho e nada vai ao paciente',
+    tratou === true && c.para(EQUIPE).at(-1).includes('nada foi enviado a nenhum paciente') && c.para(PACIENTE).length === 0 && c.banco.db.alertas_de_urgencia.every((a) => a.rascunho === null),
+    c.para(EQUIPE).at(-1),
+  )
+  const guardado = c.banco.db.clinic_settings[0].equipe_no_robo?.[EQUIPE]
+  confere('modo robo: fica gravado por 2 horas', Boolean(guardado) && Date.parse(guardado.ate) - Date.parse(guardado.desde) === 2 * 3600 * 1000, JSON.stringify(c.banco.db.clinic_settings[0].equipe_no_robo))
+  const antes = c.enviados.length
+  confere('modo robo: a mensagem seguinte segue para o robo (nao e tratada aqui)', (await tratarRespostaDaEquipe(c.amb, EQUIPE, texto('oi'))) === false && c.enviados.length === antes)
+  confere('modo robo: "ok" tambem segue para o robo', (await tratarRespostaDaEquipe(c.amb, EQUIPE, texto('ok'))) === false)
+  confere('modo robo: audio tambem segue para o robo', (await tratarRespostaDaEquipe(c.amb, EQUIPE, { type: 'audio', audio: { id: 'aud9', mime_type: 'audio/ogg' } })) === false)
+  // O outro celular nao entrou no modo.
+  confere('modo robo: vale so para quem tocou', (await tratarRespostaDaEquipe(c.amb, DRA, texto('pode vir terça'))) === true && c.textoDe(c.enviados.at(-1)).includes('Vou mandar para Maria'), c.textoDe(c.enviados.at(-1)))
+  // Em cima do aviso continua indo para o paciente.
+  confere('modo robo: responder em cima do aviso ainda e resposta ao paciente', (await tratarRespostaDaEquipe(c.amb, EQUIPE, texto('pode vir amanha', 'wamid.AVISO1'))) === true && c.textoDe(c.enviados.at(-1)).includes('Vou mandar para Maria'), c.textoDe(c.enviados.at(-1)))
+  // Aviso da propria conversa de quem testa (o pedido feito no teste) nao derruba o modo.
+  c.banco.db.whatsapp_conversations.push({ id: 'conv-teste', wa_id: EQUIPE, patient_id: null, profile_name: 'Equipe testando', status: 'open' })
+  c.banco.db.alertas_de_urgencia.push(alerta({ id: '33333333-3333-4333-8333-333333333333', quem: 'Equipe testando', conversa_whatsapp: 'conv-teste', mensagens: ['wamid.AVISO3'], criado_em: new Date(AGORA.getTime() + 30000).toISOString() }))
+  c.amb.agora = new Date(AGORA.getTime() + 60000)
+  confere('modo robo: o aviso do proprio teste nao acaba com o modo', (await tratarRespostaDaEquipe(c.amb, EQUIPE, texto('quero marcar'))) === false)
+  // Chegou aviso novo de paciente: o modo acaba e a pergunta volta.
+  c.banco.db.alertas_de_urgencia.push(alerta({ id: A2, quem: 'José Teste', conversa_whatsapp: 'conv-2', mensagens: ['wamid.AVISO2'], criado_em: new Date(AGORA.getTime() + 90000).toISOString() }))
+  c.amb.agora = new Date(AGORA.getTime() + 2 * 60000)
+  const depois = c.enviados.length
+  confere('modo robo: aviso novo de paciente acaba com o modo', (await tratarRespostaDaEquipe(c.amb, EQUIPE, texto('oi'))) === true && c.enviados.length === depois + 1 && c.textoDe(c.enviados.at(-1)).startsWith('Há 3 avisos recentes'), c.textoDe(c.enviados.at(-1)))
+  confere('modo robo: com mais de um aviso a pergunta tambem traz o botao', Boolean(botaoDoRobo()), JSON.stringify(c.enviados.at(-1).conteudo))
+}
+{
+  // Audio em resposta ao aviso: a confirmacao tambem traz o botao do robo.
+  const c = cenario()
+  await tratarRespostaDaEquipe(c.amb, EQUIPE, { type: 'audio', audio: { id: 'aud1', mime_type: 'audio/ogg; codecs=opus' } })
+  const botoes = c.enviados.at(-1).conteudo.interactive?.action?.buttons ?? []
+  confere('modo robo: a confirmacao do audio traz o botao', botoes.some((b) => b.reply.title === 'Falar com o robô'), JSON.stringify(c.enviados.at(-1).conteudo))
+}
+{
+  // Banco sem a coluna nova: o toque avisa que nao ligou, e nada vai ao paciente.
+  const c = cenario()
+  await tratarRespostaDaEquipe(c.amb, EQUIPE, texto('oi'))
+  const robo = c.enviados.at(-1).conteudo.interactive.action.buttons.find((b) => b.reply.title === 'Falar com o robô').reply.id
+  const original = c.amb.admin.from.bind(c.amb.admin)
+  c.amb.admin.from = (tabela) => {
+    if (tabela === 'clinic_settings') throw new Error('column clinic_settings.equipe_no_robo does not exist')
+    return original(tabela)
+  }
+  await tratarRespostaDaEquipe(c.amb, EQUIPE, toqueInterativo(robo))
+  confere('modo robo: sem a coluna, avisa que nao ligou', c.para(EQUIPE).at(-1).includes('não consegui ligar') && c.para(PACIENTE).length === 0, c.para(EQUIPE).at(-1))
+  confere('modo robo: sem a coluna, o texto volta a ser resposta', (await tratarRespostaDaEquipe(c.amb, EQUIPE, texto('oi'))) === true)
+}
+{
+  // Update que nao acha a linha da clinica "da certo" sem gravar: tambem avisa.
+  const c = cenario()
+  c.banco.db.clinic_settings = []
+  await tratarRespostaDaEquipe(c.amb, EQUIPE, texto('oi'))
+  const robo = c.enviados.at(-1).conteudo.interactive.action.buttons.find((b) => b.reply.title === 'Falar com o robô').reply.id
+  await tratarRespostaDaEquipe(c.amb, EQUIPE, toqueInterativo(robo))
+  confere('modo robo: sem linha gravada, avisa que nao ligou', c.para(EQUIPE).at(-1).includes('não consegui ligar'), c.para(EQUIPE).at(-1))
 }
 
 console.log(`resposta ao aviso: ${ok} verificacoes ok`)

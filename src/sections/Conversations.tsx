@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import {
   AlertTriangle,
+  CalendarCheck,
   ArrowDown,
   ArrowUp,
   ArrowLeft,
@@ -88,6 +89,8 @@ import {
   reagirAMensagem,
 } from '@/lib/repository'
 import FaixaDaConsulta from '@/sections/FaixaDaConsulta'
+import { diasAte } from '@/lib/retorno'
+import type { SituacaoDoRetorno } from '../../supabase/functions/_shared/prazo-do-retorno.ts'
 
 const STATUS_LABEL: Record<Conversation['status'], string> = {
   open: 'Em aberto',
@@ -692,6 +695,48 @@ function EtiquetaDaReacao({ emoji }: { emoji: string }) {
       className="absolute -bottom-3 left-2 rounded-full bg-white px-1.5 py-[3px] text-[13px] leading-none shadow-[0_1px_2px_rgba(12,26,23,.2)] ring-1 ring-black/5"
     >
       {emoji}
+    </span>
+  )
+}
+
+/**
+ * O retorno incluido, no cabecalho da conversa (porte de 18/11/2026 do sistema
+ * do Dr. Marcello, onde nasceu em 20/10/2026 a pedido do Edu: a recepcao fazia
+ * a conta de cabeca a cada "ainda posso marcar o retorno?").
+ *
+ * Conta da ultima CONSULTA e diz quando o retorno ja foi usado. Na origem, a
+ * primeira versao contava 30 dias da ultima visita: a equipe disse a uma
+ * familia que o retorno ia ate 02/11, contado de 02/10, que ja tinha sido o
+ * retorno da consulta de 16/09.
+ *
+ * So para a equipe: nada disto vai ao paciente, e o robo nao usa. O prontuario
+ * daqui ainda nao marca consulta ou retorno, entao a conta sai das datas das
+ * visitas e o selo diz "a conferir" (ver prazo-do-retorno.ts).
+ */
+function PrazoDoRetorno({ retorno }: { retorno: SituacaoDoRetorno }) {
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
+  const curta = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`
+  const aberto = retorno.tipo === 'aberto'
+  const faltam = aberto ? diasAte(retorno.ate, hoje) : 0
+  const texto =
+    retorno.tipo === 'aberto'
+      ? `Retorno até ${curta(retorno.ate)} · ${faltam === 0 ? 'vence hoje' : faltam === 1 ? 'falta 1 dia' : `faltam ${faltam} dias`}`
+      : retorno.tipo === 'usado'
+        ? `Retorno usado em ${curta(retorno.usadoEm)} · próxima é consulta`
+        : retorno.tipo === 'vencido'
+          ? `Prazo do retorno venceu em ${curta(retorno.ate)}`
+          : 'Sem retorno incluído · próxima é consulta'
+  return (
+    <span
+      title={
+        `Consulta de ${curta(retorno.consulta)}. Toda consulta dá direito a um retorno, em até 30 dias.` +
+        (retorno.confirmado ? '' : ' Conta feita pelas datas das visitas (prontuário e agenda): confira antes de informar o paciente.')
+      }
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${aberto ? 'bg-[#e8f5ec] text-[#1c6b3a]' : 'bg-slate-100 text-slate-500'}`}
+    >
+      <CalendarCheck className="h-3 w-3" />
+      {texto}
+      {!retorno.confirmado && ' · a conferir'}
     </span>
   )
 }
@@ -2730,6 +2775,7 @@ export default function Conversations({
                             {resumo.cancelamentos === 1 ? 'cancelamento' : 'cancelamentos'}
                           </span>
                         )}
+                        {resumo.retorno && <PrazoDoRetorno retorno={resumo.retorno} />}
                       </div>
                     )}
                   </div>

@@ -22,6 +22,7 @@ import {
   type HorarioDaAgenda,
 } from '../../supabase/functions/_shared/consulta-aconteceu.ts'
 import { pacientesAtendidos } from '@/lib/paciente-atendido'
+import { situacaoDoRetorno, visitasDoBanco, type FichaDoBanco, type SituacaoDoRetorno } from '../../supabase/functions/_shared/prazo-do-retorno.ts'
 import {
   consultaDepoisDaChegada,
   contatosDoDirect,
@@ -1809,6 +1810,13 @@ export interface ResumoDoPaciente {
   /** Consultas futuras ainda de pe. */
   agendadas: number
   cancelamentos: number
+  /**
+   * Onde o retorno incluido esta: aberto ate tal dia, ja usado ou vencido.
+   * Nulo sem visita feita, ou quando a leitura falhou (o selo some, os quatro
+   * numeros ficam). Conta da ultima CONSULTA, e nao da ultima visita (porte de
+   * 18/11/2026, ver prazo-do-retorno.ts).
+   */
+  retorno: SituacaoDoRetorno | null
 }
 
 /**
@@ -1854,7 +1862,53 @@ export async function resumoDoPaciente(clinicId: string, patientId: string) {
     realizadas: realizadas.count ?? 0,
     agendadas: agendadas.count ?? 0,
     cancelamentos: cancelamentos.count ?? 0,
+    retorno: await retornoDoPaciente(clinicId, patientId, agora),
   } satisfies ResumoDoPaciente
+}
+
+/**
+ * O retorno incluido do paciente, para o selo da conversa (porte de 18/11/2026
+ * do sistema do Dr. Marcello).
+ *
+ * Leitura a parte, e nunca lanca: o selo e novo, e uma falha dele nao pode
+ * levar junto os quatro numeros do cabecalho. Falhou, o selo some e o log diz
+ * por que - sem selo a equipe confere no prontuario, como fazia antes.
+ *
+ * Le so consultation_date: o prontuario daqui ainda nao tem as colunas
+ * visita e retorno_ate da origem, e pedir coluna que nao existe faria o
+ * Postgres recusar a consulta inteira (ver o CLAUDE.md). Por isso o selo sai
+ * sempre como conta a conferir (ver prazo-do-retorno.ts).
+ */
+async function retornoDoPaciente(clinicId: string, patientId: string, agora: string): Promise<SituacaoDoRetorno | null> {
+  try {
+    const [fichas, agendaQuePassou] = await Promise.all([
+      supabase
+        .from('consultations')
+        .select('consultation_date')
+        .eq('clinic_id', clinicId)
+        .eq('patient_id', patientId)
+        .is('archived_at', null),
+      supabase
+        .from('appointments')
+        .select('starts_at')
+        .eq('clinic_id', clinicId)
+        .eq('patient_id', patientId)
+        .not('status', 'in', '(cancelled,no_show)')
+        .lt('starts_at', agora)
+        .order('starts_at', { ascending: false })
+        .limit(60),
+    ])
+    if (fichas.error) throw fichas.error
+    if (agendaQuePassou.error) throw agendaQuePassou.error
+    const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
+    return situacaoDoRetorno(
+      visitasDoBanco((fichas.data ?? []) as unknown as FichaDoBanco[], (agendaQuePassou.data ?? []) as { starts_at: string }[]),
+      hoje,
+    )
+  } catch (causa) {
+    console.warn('Conversa sem o selo do retorno: nao consegui ler as visitas do paciente', causa)
+    return null
+  }
 }
 
 /* ------------------------------------------------------------------ *

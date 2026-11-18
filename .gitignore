@@ -106,3 +106,6 @@ tests/reacao.build.mjs
 tests/telefones-do-paciente.build.mjs
 tests/procurar-paciente.build.mjs
 tests/quem-escreve.build.mjs
+tests/audio-como-texto.build.mjs
+tests/transcricao.build.mjs
+tests/prazo-do-retorno.build.mjs

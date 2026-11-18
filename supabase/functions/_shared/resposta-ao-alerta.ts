@@ -41,6 +41,9 @@ export { conteudoDaMidia, copiaPelaApi, midiaRecebida, tipoLimpo } from './midia
  * continua testando o robo pelo proprio celular. Isso tambem acaba com a
  * Dra. escrevendo para o numero do consultorio e recebendo o menu como se
  * fosse paciente, mas so nessas condicoes.
+ *
+ * Com aviso recente, quem quer mesmo falar com o robo toca em "Falar com o
+ * robo" na pergunta de confirmacao (porte de 18/11/2026, ver modoRoboVale).
  */
 
 // Tabela nova: lida em consulta separada, com try/catch. O storage guarda o
@@ -67,15 +70,18 @@ export type MensagemRecebida = {
   context?: { id?: string }
 } & Partial<Record<TipoDeMidia, { id?: string; mime_type?: string; filename?: string; caption?: string }>>
 
+/** 'robo': nao era resposta a paciente nenhum (ver modoRoboVale). */
+export type AcaoDaConfirmacao = 'enviar' | 'cancelar' | 'robo'
+
 export type RespostaDaEquipe =
   | { tipo: 'veredito'; alertaId: string; veredito: Veredito }
-  | { tipo: 'confirmacao'; alertaId: string; acao: 'enviar' | 'cancelar' }
+  | { tipo: 'confirmacao'; alertaId: string; acao: AcaoDaConfirmacao }
   | { tipo: 'texto'; texto: string; citado: string | null }
   | { tipo: 'visto'; citado: string | null }
   /** midia nula: a Meta mandou sem id, e nao ha o que repassar. */
   | { tipo: 'midia'; citado: string | null; midia: MidiaRecebida | null }
 
-export const payloadDaConfirmacao = (alertaId: string, acao: 'enviar' | 'cancelar', motivo: MotivoDoAlerta = 'pedido') =>
+export const payloadDaConfirmacao = (alertaId: string, acao: AcaoDaConfirmacao, motivo: MotivoDoAlerta = 'pedido') =>
   `${motivo === 'urgencia' ? 'URG' : 'PED'}TXT:${alertaId}:${acao}`
 
 // "ok", "vi", um 👍: e a Dra. dizendo que viu, nao mensagem para o paciente.
@@ -92,8 +98,8 @@ export function lerRespostaDaEquipe(m: MensagemRecebida): RespostaDaEquipe | nul
         : ''
   const veredito = /^(?:PED|URG):([0-9a-f-]{36}):(responde|valores|urgente|aguardar)$/.exec(toque)
   if (veredito) return { tipo: 'veredito', alertaId: veredito[1], veredito: veredito[2] as Veredito }
-  const confirmacao = /^(?:PED|URG)TXT:([0-9a-f-]{36}):(enviar|cancelar)$/.exec(toque)
-  if (confirmacao) return { tipo: 'confirmacao', alertaId: confirmacao[1], acao: confirmacao[2] as 'enviar' | 'cancelar' }
+  const confirmacao = /^(?:PED|URG)TXT:([0-9a-f-]{36}):(enviar|cancelar|robo)$/.exec(toque)
+  if (confirmacao) return { tipo: 'confirmacao', alertaId: confirmacao[1], acao: confirmacao[2] as AcaoDaConfirmacao }
   // Outro botao (do lembrete, do menu): nao e daqui.
   if (toque) return null
   if (m.type === 'text') {
@@ -316,6 +322,121 @@ async function abrirRepasse(amb: AmbienteDaResposta, id: string, numero: string)
     // Sem isto a resposta do paciente fica so na Central: e o defeito que o
     // repasse existe para resolver, entao nao fica em aviso discreto.
     console.error('Resposta ao aviso: repasse nao aberto; a resposta do paciente fica so na Central', erro)
+  }
+}
+
+/**
+ * "Falar com o robo" (porte de 18/11/2026 do sistema do Dr. Marcello, onde
+ * nasceu em 13/11/2026).
+ *
+ * O Edu testa o robo pelo proprio celular, que e um dos numeros do aviso. Com
+ * aviso recente na fila, o "oi" dele virava "Vou mandar para Fulano...
+ * Confirma?". Na origem ele escreveu: "eu nao quero responder ninguem, eu
+ * quero mandar mensagem so pro robo". A pergunta ganhou a opcao; quem toca
+ * fala com o robo por 2 horas, como se fosse um paciente.
+ *
+ * Duas travas, porque o mesmo botao aparece no celular da Dra.:
+ *  - responder EM CIMA de um aviso continua indo para o paciente;
+ *  - chegou aviso novo (ou resposta de paciente repassada) depois de ligar, o
+ *    modo acaba: a proxima mensagem volta a perguntar. Mensagem da Dra. para
+ *    um paciente nao pode cair no menu do robo.
+ *
+ * Aviso da propria conversa de quem esta testando nao conta como novo (regra
+ * daqui, que a origem nao tem): a agenda da Dra. e por pedido, e todo pedido
+ * de teste gera um aviso. Sem isto, o primeiro pedido feito no teste derrubava
+ * o modo no meio da conversa com o robo.
+ */
+export const MODO_ROBO_MS = 2 * 3600 * 1000
+export type ModoRobo = { desde: string; ate: string }
+
+/** O modo deste numero ainda vale? Nao vale vencido, nem com aviso (ou repasse) mais novo que ele. */
+export function modoRoboVale(
+  modo: ModoRobo | null | undefined,
+  agora: Date,
+  avisos: readonly { criado_em: string; repasse_em?: string | null }[],
+): boolean {
+  if (!modo) return false
+  const desde = Date.parse(modo.desde)
+  const ate = Date.parse(modo.ate)
+  if (!Number.isFinite(desde) || !Number.isFinite(ate)) return false
+  if (agora.getTime() >= ate) return false
+  return !avisos.some((a) => Date.parse(a.criado_em) > desde || (a.repasse_em ? Date.parse(a.repasse_em) > desde : false))
+}
+
+/** Coluna nova (clinic_settings.equipe_no_robo), lida a parte: sem ela, ninguem esta no modo. */
+async function lerModoRobo(amb: AmbienteDaResposta, numero: string): Promise<ModoRobo | null> {
+  try {
+    const { data, error } = await amb.admin.from('clinic_settings').select('equipe_no_robo').eq('clinic_id', amb.clinicId).maybeSingle()
+    if (error) throw error
+    const todos = ((data as { equipe_no_robo?: Record<string, ModoRobo> | null } | null)?.equipe_no_robo ?? {}) as Record<string, ModoRobo>
+    const chave = Object.keys(todos).find((n) => mesmoTelefone(n, numero))
+    return chave ? todos[chave] : null
+  } catch (erro) {
+    console.warn('Resposta ao aviso: sem clinic_settings.equipe_no_robo (migration 20261118050000 aplicada?); o modo robo nao vale', erro)
+    return null
+  }
+}
+
+/** Liga o modo para este numero. Falso quando nao gravou (o celular fica sabendo). */
+async function ligarModoRobo(amb: AmbienteDaResposta, numero: string): Promise<boolean> {
+  try {
+    const { data, error } = await amb.admin.from('clinic_settings').select('equipe_no_robo').eq('clinic_id', amb.clinicId).maybeSingle()
+    if (error) throw error
+    const todos = { ...(((data as { equipe_no_robo?: Record<string, ModoRobo> | null } | null)?.equipe_no_robo ?? {}) as Record<string, ModoRobo>) }
+    for (const n of Object.keys(todos)) if (mesmoTelefone(n, numero)) delete todos[n]
+    todos[numero] = { desde: amb.agora.toISOString(), ate: new Date(amb.agora.getTime() + MODO_ROBO_MS).toISOString() }
+    // O update que nao acha linha "da certo" sem gravar nada: por isso o select no fim.
+    const { data: gravadas, error: erroAoGravar } = await amb.admin
+      .from('clinic_settings')
+      .update({ equipe_no_robo: todos })
+      .eq('clinic_id', amb.clinicId)
+      .select('clinic_id')
+    if (erroAoGravar) throw erroAoGravar
+    if (!gravadas?.length) throw new Error('nenhuma linha de clinic_settings gravada')
+    return true
+  } catch (erro) {
+    console.error('Resposta ao aviso: nao liguei o modo robo (migration 20261118050000 aplicada?)', erro)
+    return false
+  }
+}
+
+/**
+ * Os avisos sem os da conversa de quem esta testando (ver o comentario do modo
+ * robo). So consulta quando ha aviso mais novo que o modo. Falhou a leitura,
+ * devolve todos: na duvida o modo acaba e a pergunta volta, que e o lado
+ * seguro (nada vai ao robo por engano).
+ */
+async function avisosDosOutros(amb: AmbienteDaResposta, numero: string, avisos: Alerta[], modo: ModoRobo): Promise<Alerta[]> {
+  const desde = Date.parse(modo.desde)
+  const novos = avisos.filter((a) => momentoDoAlerta(a) > desde && a.conversa_whatsapp)
+  if (!novos.length) return avisos
+  try {
+    const { data, error } = await amb.admin
+      .from('whatsapp_conversations')
+      .select('id,wa_id')
+      .in('id', novos.map((a) => a.conversa_whatsapp))
+    if (error) throw error
+    const proprias = new Set(((data ?? []) as { id: string; wa_id: string | null }[]).filter((c) => c.wa_id && mesmoTelefone(c.wa_id, numero)).map((c) => c.id))
+    return avisos.filter((a) => !a.conversa_whatsapp || !proprias.has(a.conversa_whatsapp))
+  } catch (erro) {
+    console.warn('Resposta ao aviso: nao li de quem sao os avisos novos; o modo robo acaba por seguranca', erro)
+    return avisos
+  }
+}
+
+const FALAR_COM_O_ROBO = 'Falar com o robô'
+
+/** Apaga o que este numero deixou esperando o "Enviar", em todos os avisos. */
+async function apagarRascunhos(amb: AmbienteDaResposta, numero: string) {
+  try {
+    const { error } = await amb.admin
+      .from('alertas_de_urgencia')
+      .update({ rascunho: null, rascunho_de: null, rascunho_em: null })
+      .eq('clinic_id', amb.clinicId)
+      .eq('rascunho_de', numero)
+    if (error) throw error
+  } catch (erro) {
+    console.warn('Resposta ao aviso: rascunho nao apagado ao ligar o modo robo', erro)
   }
 }
 
@@ -659,6 +780,19 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
       return true
     }
 
+    // Nao era resposta a paciente nenhum: quer falar com o robo.
+    if (r.acao === 'robo') {
+      await apagarRascunhos(amb, numero)
+      await amb.admin.from('alertas_de_urgencia').update({ rascunho: null, rascunho_de: null, rascunho_em: null }).eq('id', alerta.id).eq('rascunho_de', numero)
+      const ligou = await ligarModoRobo(amb, numero)
+      await responder(
+        ligou
+          ? '🤖 *Certo: nada foi enviado a nenhum paciente.*\n\nPelas próximas 2 horas, o que você escrever aqui vai para o robô, como se fosse um paciente. Mande a mensagem de novo.\n\nPara responder a um paciente nesse tempo, responda em cima do aviso dele. Se chegar um aviso novo, eu volto a perguntar.'
+          : '⚠️ Nada foi enviado a nenhum paciente, mas não consegui ligar a conversa com o robô agora. Tente de novo em instantes.',
+      )
+      return true
+    }
+
     // Confirmacao do texto.
     if (r.acao === 'cancelar') {
       await amb.admin.from('alertas_de_urgencia').update({ rascunho: null, rascunho_de: null, rascunho_em: null }).eq('id', alerta.id)
@@ -702,12 +836,24 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
     return true
   }
 
+  // Quem escolheu falar com o robo (ver modoRoboVale) segue para ele, a nao
+  // ser que responda em cima de um aviso.
+  if (!r.citado) {
+    const modo = await lerModoRobo(amb, numero)
+    if (modo && modoRoboVale(modo, amb.agora, await avisosDosOutros(amb, numero, recentes, modo))) return false
+  }
+
   // Texto, "ok" ou arquivo: de qual aviso?
   const escolha = escolherAlerta(recentes, r.citado, amb.agora, await ultimaResposta(amb, numero))
   if (!escolha) return false
+  // O botao que sai junto de toda pergunta: nao era para paciente nenhum.
+  const botaoDoRobo = (a: Alerta) => ({ id: payloadDaConfirmacao(a.id, 'robo', motivoDo(a)), titulo: FALAR_COM_O_ROBO })
   if ('ambiguos' in escolha) {
     const nomes = escolha.ambiguos.map(nomeDoPaciente).join(', ')
-    await responder(`Há ${escolha.ambiguos.length} avisos recentes (${nomes}). Para eu saber de qual paciente é, segure a mensagem do aviso certo e toque em Responder.`)
+    await responder(
+      `Há ${escolha.ambiguos.length} avisos recentes (${nomes}). Para eu saber de qual paciente é, segure a mensagem do aviso certo e toque em Responder.\n\n🤖 Se não era resposta para ninguém, toque em *${FALAR_COM_O_ROBO}*.`,
+      [botaoDoRobo(escolha.ambiguos[0])],
+    )
     return true
   }
   const alerta = escolha.alerta
@@ -745,6 +891,7 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
     await responder(`Vou mandar ${esteArquivo(r.midia.tipo)} para ${primeiroNome(alerta)}, como ${como}${legenda}.\n\nConfirma?`, [
       { id: payloadDaConfirmacao(alerta.id, 'enviar', motivoDo(alerta)), titulo: 'Enviar' },
       { id: payloadDaConfirmacao(alerta.id, 'cancelar', motivoDo(alerta)), titulo: 'Cancelar' },
+      botaoDoRobo(alerta),
     ])
     return true
   }
@@ -763,6 +910,8 @@ export async function tratarRespostaDaEquipe(amb: AmbienteDaResposta, numero: st
   await responder(`Vou mandar para ${primeiroNome(alerta)}, como ${como}:\n\n"${texto}"\n\nConfirma?`, [
     { id: payloadDaConfirmacao(alerta.id, 'enviar', motivoDo(alerta)), titulo: 'Enviar' },
     { id: payloadDaConfirmacao(alerta.id, 'cancelar', motivoDo(alerta)), titulo: 'Cancelar' },
+    // Nao era para o paciente (porte de 18/11/2026): alguem testando o robo.
+    botaoDoRobo(alerta),
   ])
   return true
 }

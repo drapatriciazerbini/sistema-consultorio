@@ -83,6 +83,11 @@ const MONTAGENS = [
   "supabase/functions/_shared/telefones-do-paciente.ts --format=esm --outfile=tests/telefones-do-paciente.build.mjs",
   "src/lib/procurar-paciente.ts --format=esm --outfile=tests/procurar-paciente.build.mjs",
   "src/lib/quem-escreve.ts --format=esm --outfile=tests/quem-escreve.build.mjs",
+  // Lote 4 (porte de 18/11/2026): audio vira texto e o selo do retorno. O "falar com o robo"
+  // e testado em resposta-ao-alerta.test.mjs.
+  "supabase/functions/_shared/audio-como-texto.ts --format=esm --outfile=tests/audio-como-texto.build.mjs",
+  "supabase/functions/_shared/transcricao.ts --format=esm --outfile=tests/transcricao.build.mjs",
+  "supabase/functions/_shared/prazo-do-retorno.ts --bundle --format=esm --outfile=tests/prazo-do-retorno.build.mjs",
 ]
 
 // node <arquivo>
@@ -146,6 +151,8 @@ const TESTES = [
   "tests/reacao.test.mjs",
   "tests/telefones-do-paciente.test.mjs",
   "tests/quem-escreve.test.mjs",
+  "tests/audio-como-texto.test.mjs",
+  "tests/prazo-do-retorno.test.mjs",
 ]
 
 function rodar(comando) {
