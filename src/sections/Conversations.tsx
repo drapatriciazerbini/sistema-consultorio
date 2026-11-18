@@ -28,6 +28,8 @@ import {
   Reply,
   Power,
   Ban,
+  SmilePlus,
+  Link2,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useDialogos } from '@/components/dialogos-contexto'
@@ -42,6 +44,9 @@ import { respostasDaEquipe, type OpcaoDaEquipe } from '@/lib/respostas-da-equipe
 import { CHAVE_DO_VISUAL, EVENTO_MODO_WHATSAPP } from '@/lib/modo-whatsapp'
 import { VisualizadorDeArquivo, type ArquivoAberto } from '@/components/VisualizadorDeArquivo'
 import { GravadorDeAudio } from '@/components/GravadorDeAudio'
+import LigarTelefone from '@/components/LigarTelefone'
+import { linhaDeQuemEscreve } from '@/lib/quem-escreve'
+import { proximaReacao, REACOES } from '../../supabase/functions/_shared/reacao.ts'
 import { marcaSemClinicaConhecida } from '@/lib/marca'
 import { respostaDeValor, valoresJaEnviados } from '@/lib/valores-enviados'
 import { conversaDoContato, type ContatoDaAgenda } from '@/lib/conversa-do-contato'
@@ -80,6 +85,7 @@ import {
   desligarRoboNaConversa,
   bloquearContato,
   desligarConversaDoPaciente,
+  reagirAMensagem,
 } from '@/lib/repository'
 import FaixaDaConsulta from '@/sections/FaixaDaConsulta'
 
@@ -598,6 +604,98 @@ function BotaoResponder({ onClick }: { onClick: () => void }) {
   )
 }
 
+/**
+ * Fecha a caixinha das reacoes ao clicar fora dela ou apertar Esc. Pelo clique
+ * no documento, e nao pela perda de foco: no teste de 13/11/2026, no sistema
+ * do Dr. Marcello, a caixa ficou aberta porque o foco ja estava em outro
+ * lugar, e no Safari botao nem recebe foco ao ser clicado.
+ */
+function useFecharAoClicarFora(aberto: boolean, setAberto: (aberto: boolean) => void) {
+  const caixa = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (!aberto) return
+    const clique = (e: PointerEvent) => {
+      if (!caixa.current?.contains(e.target as Node)) setAberto(false)
+    }
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAberto(false)
+    }
+    document.addEventListener('pointerdown', clique)
+    document.addEventListener('keydown', tecla)
+    return () => {
+      document.removeEventListener('pointerdown', clique)
+      document.removeEventListener('keydown', tecla)
+    }
+  }, [aberto, setAberto])
+  return caixa
+}
+
+/**
+ * Reagir a mensagem do paciente (porte de 18/11/2026), ao lado do
+ * "responder". As opcoes abrem em linha, ao lado do balao, e nao em caixa
+ * flutuante: a conversa rola dentro de uma area que cortaria a caixa na
+ * primeira mensagem. Tocar no emoji que ja esta marcado tira a reacao.
+ */
+function BotaoReagir({
+  atual,
+  ocupado,
+  onEscolher,
+}: {
+  atual: string | null
+  ocupado: boolean
+  onEscolher: (emoji: string) => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  const caixa = useFecharAoClicarFora(aberto, setAberto)
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1" ref={caixa}>
+      <button
+        type="button"
+        disabled={ocupado}
+        onClick={() => setAberto((estava) => !estava)}
+        title="Reagir a esta mensagem (o paciente vê o emoji no WhatsApp)"
+        aria-label="Reagir a esta mensagem"
+        aria-expanded={aberto}
+        className={`shrink-0 rounded-full bg-white/90 p-1.5 text-[#54656f] shadow-[0_1px_2px_rgba(12,26,23,.15)] transition focus:opacity-100 group-hover:opacity-100 ${aberto ? 'opacity-100' : 'opacity-0'}`}
+      >
+        <SmilePlus className="h-3.5 w-3.5" />
+      </button>
+      {aberto && (
+        <span role="menu" className="inline-flex items-center gap-0.5 rounded-full bg-white px-1.5 py-0.5 shadow-[0_1px_3px_rgba(12,26,23,.22)]">
+          {REACOES.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              role="menuitem"
+              disabled={ocupado}
+              onClick={() => {
+                setAberto(false)
+                onEscolher(emoji)
+              }}
+              title={atual === emoji ? 'Tirar a reação' : `Reagir com ${emoji}`}
+              className={`rounded-full px-1 text-[17px] leading-[26px] transition hover:scale-125 disabled:opacity-40 ${atual === emoji ? 'bg-[#d9fdd3]' : ''}`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** O emoji da reacao, pendurado embaixo do balao como no WhatsApp. */
+function EtiquetaDaReacao({ emoji }: { emoji: string }) {
+  return (
+    <span
+      title="Reação do consultório a esta mensagem"
+      className="absolute -bottom-3 left-2 rounded-full bg-white px-1.5 py-[3px] text-[13px] leading-none shadow-[0_1px_2px_rgba(12,26,23,.2)] ring-1 ring-black/5"
+    >
+      {emoji}
+    </span>
+  )
+}
+
 export default function Conversations({
   focoPatientId,
   focoConversa,
@@ -718,6 +816,12 @@ export default function Conversations({
   const [aoVivo, setAoVivo] = useState(false)
   const [resposta, setResposta] = useState('')
   const [enviando, setEnviando] = useState(false)
+  // Reacao em andamento (id da mensagem): enquanto a Meta nao responde, os
+  // outros emojis ficam travados (porte de 18/11/2026).
+  const [reagindo, setReagindo] = useState<string | null>(null)
+  // Conversa sem cadastro cujo numero esta sendo ligado a um paciente que ja
+  // existe (porte de 18/11/2026, ver LigarTelefone).
+  const [ligandoTelefone, setLigandoTelefone] = useState<Conversation | null>(null)
   // Instante em que a janela de 24h da Meta fecha para a conversa aberta.
   const [janelaAte, setJanelaAte] = useState<string | null>(null)
   const [reabrindo, setReabrindo] = useState(false)
@@ -1191,6 +1295,29 @@ export default function Conversations({
     }
   }
 
+  /**
+   * Reacao (porte de 18/11/2026): o emoji vai para o WhatsApp do paciente,
+   * embaixo da mensagem dele. Nao e resposta: a conversa segue como estava. A
+   * falha aparece no aviso da conversa - reacao que nao foi nao pode parecer
+   * que foi.
+   */
+  async function reagir(message: ConversationMessage, clicada: string) {
+    if (!selectedId || reagindo) return
+    const emoji = proximaReacao(message.reacao, clicada)
+    setReagindo(message.id)
+    setError('')
+    try {
+      const aviso = await reagirAMensagem(selectedId, message.id, emoji)
+      setMessages((atuais) => atuais.map((m) => (m.id === message.id ? { ...m, reacao: emoji || null } : m)))
+      if (aviso) setError(aviso)
+    } catch (cause) {
+      console.warn('Reacao nao enviada', cause)
+      setError(cause instanceof Error ? cause.message : 'Não foi possível reagir à mensagem.')
+    } finally {
+      setReagindo(null)
+    }
+  }
+
   async function enviarMenu() {
     if (!selectedId || enviando) return
     setEnviando(true)
@@ -1438,7 +1565,11 @@ export default function Conversations({
       titulo: `Este número não é de ${doCadastro}?`,
       detalhe:
         `A conversa deixa de aparecer como de ${doCadastro} e o histórico dele deixa de contar estas mensagens. ` +
-        `Corrija também o telefone no cadastro de ${doCadastro}: com o número antigo lá, a próxima mensagem liga de novo.`,
+        // Segundo telefone (porte de 18/11/2026): o numero nao esta no
+        // cadastro, entao nao ha o que corrigir la; o vinculo e que sai.
+        (conversa.quemEscreve
+          ? `Este número também deixa de ser reconhecido como "${conversa.quemEscreve}" de ${doCadastro}.`
+          : `Corrija também o telefone no cadastro de ${doCadastro}: com o número antigo lá, a próxima mensagem liga de novo.`),
       confirmar: 'Desligar do cadastro',
       cancelar: 'Manter',
     })
@@ -1452,6 +1583,7 @@ export default function Conversations({
                 ...item,
                 patientId: null,
                 nomeDoCadastro: null,
+                quemEscreve: null,
                 patientName: item.nomePersonalizado || 'Contato sem cadastro',
               }
             : item,
@@ -1564,6 +1696,17 @@ export default function Conversations({
   // ainda carregando: o nome fica so como texto, sem prometer uma ficha.
   const cadastroDaConversa =
     (selected?.patientId && onSalvarCadastro && pacientes?.find((item) => item.id === selected.patientId)) || null
+  // Embaixo do nome do paciente, quem e a pessoa que escreve (porte de
+  // 18/11/2026, ver lib/quem-escreve): a filha, o cuidador, o acompanhante
+  // do cadastro. Vazio quando nao se sabe - melhor nada do que um palpite.
+  const quemEscreveNaConversa = selected?.patientId
+    ? linhaDeQuemEscreve({
+        acompanhante: pacientes?.find((item) => item.id === selected.patientId)?.responsavel,
+        quemE: selected.quemEscreve,
+        nomeNoWhatsApp: selected.profileName,
+        nomeDoPaciente: selected.nomeDoCadastro || selected.patientName,
+      })
+    : ''
 
   // Trocou de conversa (aviso do celular, por exemplo): a ficha fecha e nao
   // reabre sozinha ao voltar.
@@ -2450,6 +2593,20 @@ export default function Conversations({
                       Cadastrar como paciente
                     </button>
                   )}
+                  {/* A filha ou o cuidador que escreve de um numero diferente
+                      do que esta no cadastro (porte de 18/11/2026): em vez de
+                      cadastrar o paciente de novo, a equipe diz de quem e o
+                      numero. Ver LigarTelefone. */}
+                  {semCadastro && pacientes && pacientes.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setLigandoTelefone(conversation)}
+                      className="mt-1.5 inline-flex w-full items-center justify-center gap-1.5 rounded-[12px] px-3 py-1.5 text-[10px] font-extrabold text-[#17564d] underline-offset-2 transition hover:underline"
+                    >
+                      <Link2 className="h-3.5 w-3.5" />
+                      Já é de um paciente cadastrado
+                    </button>
+                  )}
                 </div>
               )
             })}
@@ -2541,6 +2698,9 @@ export default function Conversations({
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                     </div>
+                    {quemEscreveNaConversa && (
+                      <p className="text-[11px] font-semibold text-[#416f65]">{quemEscreveNaConversa}</p>
+                    )}
                     <p className="text-[10px] font-bold text-slate-400">
                       {selected.phone} · {STATUS_LABEL[selected.status]}
                       {selected.nomePersonalizado && selected.nomeDoCadastro && ` · cadastro: ${selected.nomeDoCadastro}`}
@@ -2876,7 +3036,7 @@ export default function Conversations({
                         return (
                           <div
                             key={message.id}
-                            className={`group flex items-center gap-1 ${outbound ? 'justify-end' : 'justify-start'}`}
+                            className={`group flex items-center gap-1 ${outbound ? 'justify-end' : 'justify-start'} ${message.reacao ? 'mb-4' : ''}`}
                           >
                             {/* Citar so com a janela aberta: fora dela sai
                                 modelo aprovado, que nao leva citacao. */}
@@ -2917,9 +3077,19 @@ export default function Conversations({
                                   {message.failureReason}
                                 </p>
                               )}
+                              {message.reacao && <EtiquetaDaReacao emoji={message.reacao} />}
                             </div>
                             {!outbound && janelaAberta && (
                               <BotaoResponder onClick={() => setRespondendo(message)} />
+                            )}
+                            {/* Reagir tambem so com a janela aberta: fora
+                                dela a Meta recusa, como a qualquer envio livre. */}
+                            {!outbound && janelaAberta && (
+                              <BotaoReagir
+                                atual={message.reacao ?? null}
+                                ocupado={reagindo !== null}
+                                onEscolher={(emoji) => void reagir(message, emoji)}
+                              />
                             )}
                           </div>
                         )
@@ -3394,6 +3564,7 @@ export default function Conversations({
             <div className="min-w-0 flex-1 leading-tight">
               <p className="truncate text-[16px] font-semibold">{selected.patientName}</p>
               <p className="truncate text-[12.5px] text-[#667781]">
+                {quemEscreveNaConversa ? `${quemEscreveNaConversa} · ` : ''}
                 {selected.phone} · {STATUS_LABEL[selected.status]}
               </p>
             </div>
@@ -3547,7 +3718,7 @@ export default function Conversations({
                     separador,
                     <div
                       key={message.id}
-                      className={`group flex items-center gap-1 ${outbound ? 'justify-end' : 'justify-start'} ${comRabinho ? 'mt-1.5' : ''}`}
+                      className={`group flex items-center gap-1 ${outbound ? 'justify-end' : 'justify-start'} ${comRabinho ? 'mt-1.5' : ''} ${message.reacao ? 'mb-4' : ''}`}
                     >
                       {outbound && janelaAberta && <BotaoResponder onClick={() => setRespondendo(message)} />}
                       <div
@@ -3587,8 +3758,16 @@ export default function Conversations({
                         {message.failureReason && (
                           <p className="mt-1 pb-3 text-[11.5px] font-semibold text-[#b42318]">{message.failureReason}</p>
                         )}
+                        {message.reacao && <EtiquetaDaReacao emoji={message.reacao} />}
                       </div>
                       {!outbound && janelaAberta && <BotaoResponder onClick={() => setRespondendo(message)} />}
+                      {!outbound && janelaAberta && (
+                        <BotaoReagir
+                          atual={message.reacao ?? null}
+                          ocupado={reagindo !== null}
+                          onEscolher={(emoji) => void reagir(message, emoji)}
+                        />
+                      )}
                     </div>,
                   ]
                 })}
@@ -3707,6 +3886,32 @@ export default function Conversations({
         document.body,
       )}
       <VisualizadorDeArquivo arquivo={arquivoAberto} onFechar={fecharArquivo} />
+      <LigarTelefone
+        conversa={ligandoTelefone}
+        pacientes={pacientes ?? []}
+        onFechar={() => setLigandoTelefone(null)}
+        onLigado={(paciente, quemE) => {
+          const id = ligandoTelefone?.id
+          setLigandoTelefone(null)
+          // Na hora, sem esperar a lista: a conversa deixa de ser "sem cadastro".
+          if (id) {
+            setConversations((atuais) =>
+              atuais.map((item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      patientId: paciente.id,
+                      nomeDoCadastro: paciente.nome,
+                      quemEscreve: quemE,
+                      patientName: item.nomePersonalizado || paciente.nome,
+                    }
+                  : item,
+              ),
+            )
+          }
+          void load(true)
+        }}
+      />
       {onSalvarCadastro && (
         <CadastroNoChat
           // So enquanto a conversa daquele paciente continua aberta: trocar de

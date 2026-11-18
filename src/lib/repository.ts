@@ -12,6 +12,7 @@ import type {
 import type { PatientDraft } from '@/lib/store'
 import type { Database } from '@/types/database'
 import { buscarTodas } from '@/lib/paginar'
+import { chaveDoTelefone } from '@/lib/quem-escreve'
 import {
   consultasQueNaoAconteceram,
   diaEmSaoPaulo,
@@ -1953,6 +1954,12 @@ export interface Conversation {
   bloqueado?: boolean
   /** A Meta tambem bloqueou no WhatsApp. Falso com bloqueado = so na Central. */
   bloqueadoNoWhatsApp?: boolean
+  /**
+   * Quem escreve deste numero, quando ele foi ligado ao paciente como segundo
+   * telefone (porte de 18/11/2026): "Filha", "Cuidador(a)"... Nulo no telefone
+   * do cadastro. Ver ligarTelefoneAoPaciente.
+   */
+  quemEscreve?: string | null
 }
 
 export type OrigemDoAnuncio = 'instagram' | 'facebook' | 'meta' | 'google'
@@ -1975,6 +1982,8 @@ export interface ConversationMessage {
   porIA?: boolean
   /** Mensagem que esta responde, citada como no WhatsApp (07/11/2026). */
   respondeA?: string | null
+  /** Emoji com que a equipe reagiu a esta mensagem do paciente (porte de 18/11/2026). */
+  reacao?: string | null
 }
 
 /**
@@ -2075,9 +2084,26 @@ export async function listConversations(clinicId: string): Promise<Conversation[
     } catch (erro) {
       console.warn('Sem whatsapp_conversations.bloqueado_em; nenhuma conversa aparece bloqueada', erro)
     }
+    // Segundo telefone (porte de 18/11/2026): tabela nova, lida a parte - sem
+    // ela, a conversa so perde o "Filha:" embaixo do nome do paciente.
+    const quemPorTelefone = new Map<string, string>()
+    try {
+      const { data: outros, error } = await semTipo
+        .from('patient_phones')
+        .select('patient_id,digits,rotulo')
+        .eq('clinic_id', clinicId)
+      if (error) throw error
+      for (const t of (outros ?? []) as { patient_id: string; digits: string; rotulo: string | null }[]) {
+        if (t.rotulo?.trim()) quemPorTelefone.set(chaveDoTelefone(t.patient_id, t.digits), t.rotulo.trim())
+      }
+    } catch (erro) {
+      console.warn('Sem patient_phones; a conversa nao mostra de quem e o segundo telefone', erro)
+    }
     return linhas.map((row) => ({
       id: row.id,
       patientId: row.patient_id,
+      quemEscreve:
+        (row.patient_id && quemPorTelefone.get(chaveDoTelefone(row.patient_id, row.display_phone || row.wa_id || ''))) || null,
       patientName:
         nomeDaEquipe.get(row.id) || (row.patient_id && nomePorId.get(row.patient_id)) || 'Contato sem cadastro',
       nomePersonalizado: nomeDaEquipe.get(row.id) ?? null,
@@ -2281,6 +2307,7 @@ export async function listConversationMessages(conversationId: string): Promise<
   const anexos = await anexosDasMensagens(conversationId)
   const daIA = await mensagensDaIA(conversationId)
   const citada = await mensagensCitadas(conversationId)
+  const reacoes = await reacoesDasMensagens(conversationId)
 
   return linhas.map((row) => ({
     id: row.id,
@@ -2295,7 +2322,29 @@ export async function listConversationMessages(conversationId: string): Promise<
     anexoPath: anexos.get(row.id)?.path ?? null,
     porIA: daIA.has(row.id),
     respondeA: citada.get(row.id) ?? null,
+    reacao: reacoes.get(row.id) ?? null,
   }))
+}
+
+/**
+ * O emoji com que a equipe reagiu a cada mensagem (porte de 18/11/2026).
+ * Coluna nova, lida a parte: sem a migration 20261118031000, so o emoji
+ * embaixo do balao some, e a conversa abre igual.
+ */
+async function reacoesDasMensagens(conversationId: string): Promise<Map<string, string>> {
+  const reacoes = new Map<string, string>()
+  try {
+    const { data, error } = await semTipo
+      .from('whatsapp_messages')
+      .select('id,reacao')
+      .eq('conversation_id', conversationId)
+      .not('reacao', 'is', null)
+    if (error) throw error
+    for (const m of (data ?? []) as { id: string; reacao: string }[]) if (m.reacao) reacoes.set(m.id, m.reacao)
+  } catch (erro) {
+    console.warn('Sem whatsapp_messages.reacao; as reacoes ficam de fora', erro)
+  }
+  return reacoes
 }
 
 /**
@@ -2615,6 +2664,21 @@ export async function sendConversationReply(
 }
 
 /**
+ * Reage a uma mensagem do paciente com um emoji (porte de 18/11/2026). Vazio
+ * tira a reacao. Devolve um aviso quando o paciente recebeu mas a tela nao
+ * guardou: reacao que foi sem aparecer aqui nao pode passar calada.
+ */
+export async function reagirAMensagem(conversationId: string, mensagemId: string, emoji: string): Promise<string | null> {
+  const { data, error } = await supabase.functions.invoke('whatsapp-reply', {
+    body: { conversationId, reacao: { mensagemId, emoji } },
+  })
+  if (error) throw new Error(await motivoDaFuncao(error, data, 'Não foi possível reagir à mensagem.'))
+  const resposta = data as { error?: string; aviso?: string } | null
+  if (resposta?.error) throw new Error(resposta.error)
+  return resposta?.aviso ?? null
+}
+
+/**
  * Da um nome a conversa, na tela (07/11/2026, do sistema do Dr. Marcello).
  * Vazio volta ao nome do cadastro ou do WhatsApp. O cadastro do paciente nao
  * muda.
@@ -2680,6 +2744,27 @@ export async function bloquearContato(
     bloqueado: Boolean(resposta.bloqueado),
     noWhatsApp: Boolean(resposta.noWhatsApp),
     motivo: resposta.motivo ?? null,
+  }
+}
+
+/**
+ * "Ja e de um paciente cadastrado" (porte de 18/11/2026): liga o numero da
+ * conversa a um cadastro que ja existe, como segundo telefone. O telefone do
+ * cadastro nao muda. Ver ligar_telefone_ao_paciente.
+ */
+export async function ligarTelefoneAoPaciente(conversationId: string, patientId: string, quemE: string) {
+  const { error } = await semTipo.rpc('ligar_telefone_ao_paciente', {
+    p_conversation_id: conversationId,
+    p_patient_id: patientId,
+    p_rotulo: quemE,
+  })
+  if (error) {
+    // Funcao que ainda nao chegou ao banco: diz isso, em vez do codigo cru.
+    if (/ligar_telefone_ao_paciente|PGRST202|schema cache/i.test(`${error.code ?? ''} ${error.message ?? ''}`)) {
+      console.warn('ligar_telefone_ao_paciente ainda nao existe no banco', error)
+      throw new Error('Esta função chega com a próxima publicação do sistema. Tente de novo em alguns minutos.')
+    }
+    fail(error)
   }
 }
 

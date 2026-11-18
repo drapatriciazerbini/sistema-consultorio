@@ -1,6 +1,7 @@
 import type { adminClient } from './whatsapp.ts'
 import { dataDeNascimentoIso } from './datas.ts'
 import { mesmoTelefone, variantesDoTelefone } from './telefone-br.ts'
+import { idsPorOutroTelefone, juntarPacientes } from './telefones-do-paciente.ts'
 
 /**
  * O cadastro do paciente a partir do que a familia informou no WhatsApp.
@@ -112,7 +113,30 @@ export async function cadastrarDaFicha(
     if (erroDoTelefone) {
       console.warn('Cadastro da ficha: nao consegui procurar o telefone; pode sair cadastro repetido', erroDoTelefone)
     }
-    const conhecidos = (doTelefone ?? []) as Conhecido[]
+    // Tambem pelo segundo telefone (porte de 18/11/2026, ver
+    // telefones-do-paciente.ts): a filha que pede a consulta do pai do celular
+    // dela, ja ligado ao cadastro dele pela equipe, nao pode gerar um segundo
+    // cadastro. Tabela nova, em consulta separada: sem ela, ou com erro, vale
+    // so o telefone do cadastro, como sempre foi.
+    let doOutroTelefone: Conhecido[] = []
+    const jaAchados = new Set(((doTelefone ?? []) as Conhecido[]).map((p) => p.id))
+    const idsDosOutros = (await idsPorOutroTelefone(admin, clinicId, variantesDoTelefone(telefone))).filter((id) => !jaAchados.has(id))
+    if (idsDosOutros.length) {
+      try {
+        const { data, error } = await admin
+          .from('patients')
+          .select('id,name,phone,whatsapp_opt_out_at')
+          .eq('clinic_id', clinicId)
+          .in('id', idsDosOutros)
+          .is('archived_at', null)
+          .limit(20)
+        if (error) throw error
+        doOutroTelefone = (data ?? []) as Conhecido[]
+      } catch (erro) {
+        console.warn('Cadastro da ficha: segundo telefone achado, mas nao li o cadastro dele; pode sair cadastro repetido', erro)
+      }
+    }
+    const conhecidos = juntarPacientes((doTelefone ?? []) as Conhecido[], doOutroTelefone)
     // Sem nome na ficha, o de sempre: o primeiro do telefone. contact_name nao
     // entra aqui de proposito - costuma ser o nome de quem escreveu (a filha,
     // o cuidador), e nao o do paciente.

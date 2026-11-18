@@ -101,3 +101,8 @@ tests/depois-do-convenio.build.mjs
 tests/cadastro-do-paciente.build.mjs
 tests/agenda-extra.build.mjs
 tests/cidades-no-mapa.build.mjs
+tests/acervo-do-anexo.build.mjs
+tests/reacao.build.mjs
+tests/telefones-do-paciente.build.mjs
+tests/procurar-paciente.build.mjs
+tests/quem-escreve.build.mjs

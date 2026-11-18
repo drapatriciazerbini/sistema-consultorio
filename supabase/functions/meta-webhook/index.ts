@@ -35,6 +35,8 @@ import { postarNaMeta } from '../_shared/meta-tentativa.ts'
 import { deveAvisarDuvida, deveAvisarPedido, enviarAviso, gravarNota, lerNumeros as lerNumerosDoAviso, motivoDoAvisoDoPedido, quemDoPedido, resumoDaDuvida, resumoDaIA, resumoDoPedido } from '../_shared/alerta-de-urgencia.ts'
 import { oQueOPacienteDisse, papelDoNumero, repassarAoCelular, repasseAberto, tratarRespostaDaEquipe, whatsAppPelaApi } from '../_shared/resposta-ao-alerta.ts'
 import { copiaPelaApi, midiaRecebida } from '../_shared/midia-do-whatsapp.ts'
+import { filtroDasConsultas, pacientesDoTelefone } from '../_shared/telefones-do-paciente.ts'
+import { avisoDoArquivoPerdido, emMegas, grandeDemais, LIMITE_DO_ACERVO, tipoParaOAcervo } from '../_shared/acervo-do-anexo.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
 // Fora dele (teste local) cai no await comum.
@@ -151,44 +153,74 @@ async function guardarAnexo(
   messageId: string,
   midia: Midia,
   phoneNumberId: string,
-): Promise<{ path: string; mime: string } | null> {
+): Promise<{ path: string; mime: string } | { falha: string }> {
+  // Toda saida sem arquivo diz o motivo (porte de 18/11/2026, ver
+  // acervo-do-anexo.ts): antes era null calado, e a Central mostrava so o nome
+  // do PDF, como se o arquivo estivesse la.
   const token = chaveDoWhatsApp(phoneNumberId)
-  if (!token || !midia.id) return null
+  if (!token) return { falha: 'sem a chave do número que recebeu' }
+  if (!midia.id) return { falha: 'a Meta não mandou o arquivo' }
   const graphVersion = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
 
-  try {
-    const aviso = await fetch(`https://graph.facebook.com/${graphVersion}/${midia.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!aviso.ok) {
-      console.error('Meta recusou o endereco da midia', aviso.status, await aviso.text())
-      return null
-    }
-    const { url, mime_type } = await aviso.json() as { url?: string; mime_type?: string }
-    if (!url) return null
+  // Uma segunda tentativa com a Meta: queda de rede ou 5xx passageiro levava
+  // o arquivo embora de vez, porque a URL dela morre em minutos.
+  let ultimaFalha = 'erro ao falar com a Meta'
+  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+    try {
+      const aviso = await fetch(`https://graph.facebook.com/${graphVersion}/${midia.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!aviso.ok) {
+        console.error('Meta recusou o endereco da midia', tentativa, aviso.status, await aviso.text())
+        ultimaFalha = `a Meta recusou o arquivo (${aviso.status})`
+        if (aviso.status < 500) break
+        continue
+      }
+      const { url, mime_type, file_size } = await aviso.json() as { url?: string; mime_type?: string; file_size?: number }
+      if (!url) return { falha: 'a Meta não deu o endereço do arquivo' }
 
-    // O download tambem vai autenticado: sem o token a Meta devolve 401.
-    const arquivo = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    if (!arquivo.ok) {
-      console.error('Nao consegui baixar a midia', arquivo.status)
-      return null
-    }
-    const bytes = new Uint8Array(await arquivo.arrayBuffer())
-    const mime = midia.mime_type ?? mime_type ?? 'application/octet-stream'
-    const path = `${clinicId}/${messageId}`
+      // O tipo limpo e da lista do acervo: PDF com rotulo generico entra pela
+      // extensao, e "audio/ogg; codecs=opus" entra como "audio/ogg".
+      const mime = tipoParaOAcervo(midia.mime_type ?? mime_type, midia.filename)
+      if (!mime) {
+        console.error('Tipo de arquivo fora do acervo', midia.mime_type ?? mime_type, midia.filename)
+        return { falha: `tipo ${midia.mime_type ?? mime_type ?? 'desconhecido'} não aceito` }
+      }
+      // Acima do limite nem baixa: o acervo recusaria depois de gastar a
+      // memoria da funcao com um arquivo que nao vai ficar.
+      if (grandeDemais(file_size)) {
+        console.error('Arquivo maior que o acervo', file_size, midia.filename)
+        return { falha: `arquivo de ${emMegas(file_size as number)}, acima do limite de ${emMegas(LIMITE_DO_ACERVO)}` }
+      }
 
-    const { error } = await admin.storage
-      .from('whatsapp-anexos')
-      .upload(path, bytes, { contentType: mime, upsert: true })
-    if (error) {
-      console.error('Nao consegui guardar a midia no acervo', error)
-      return null
+      // O download tambem vai autenticado: sem o token a Meta devolve 401.
+      const arquivo = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      if (!arquivo.ok) {
+        console.error('Nao consegui baixar a midia', tentativa, arquivo.status)
+        ultimaFalha = `não consegui baixar da Meta (${arquivo.status})`
+        continue
+      }
+      const bytes = new Uint8Array(await arquivo.arrayBuffer())
+      if (grandeDemais(bytes.length)) {
+        console.error('Arquivo maior que o acervo', bytes.length, midia.filename)
+        return { falha: `arquivo de ${emMegas(bytes.length)}, acima do limite de ${emMegas(LIMITE_DO_ACERVO)}` }
+      }
+      const path = `${clinicId}/${messageId}`
+
+      const { error } = await admin.storage
+        .from('whatsapp-anexos')
+        .upload(path, bytes, { contentType: mime, upsert: true })
+      if (error) {
+        console.error('Nao consegui guardar a midia no acervo', mime, bytes.length, error)
+        return { falha: `o acervo recusou: ${String(error.message ?? error).slice(0, 120)}` }
+      }
+      return { path, mime }
+    } catch (causa) {
+      console.error('Falha ao trazer a midia', tentativa, causa)
+      ultimaFalha = 'erro de rede ao trazer o arquivo'
     }
-    return { path, mime }
-  } catch (causa) {
-    console.error('Falha ao trazer a midia', causa)
-    return null
   }
+  return { falha: ultimaFalha }
 }
 
 function messageBody(message: WebhookMessage) {
@@ -493,13 +525,19 @@ Deno.serve(async (req) => {
           // Todos os pacientes deste telefone, e nao o primeiro que aparecer.
           // Numa gastropediatria a mae cadastra os dois filhos com o proprio
           // celular; escolher sozinho marcava consulta no nome do irmao errado.
-          const { data: patientRows } = await admin
-            .from('patients')
-            .select('id,name,birth_date,guardian_name,cpf,email')
-            .eq('clinic_id', clinicId)
-            .is('archived_at', null)
-            .in('phone_digits', grafias)
-            .order('name')
+          //
+          // Tambem os que tem este numero como segundo telefone (porte de
+          // 18/11/2026, ver _shared/telefones-do-paciente.ts): a filha ou o
+          // cuidador que escreve de um celular diferente do que esta no
+          // cadastro do paciente. Os do telefone do cadastro vem primeiro, e
+          // sem a tabela nova a busca e a de sempre.
+          const { pacientes: patientRows, idsDosOutros: idsDoOutroTelefone } =
+            await pacientesDoTelefone<Record<string, unknown> & { id: string }>(
+              admin,
+              clinicId,
+              grafias,
+              'id,name,birth_date,guardian_name,cpf,email',
+            )
 
           const pacientes = (patientRows ?? []).map((p) => {
             const linha = p as Record<string, unknown>
@@ -519,16 +557,19 @@ Deno.serve(async (req) => {
 
           // Consultas futuras deste telefone. Alimentam a opcao 4 do menu e o
           // aviso de "voce ja tem uma marcada" antes de criar uma segunda.
-          const { data: futurasRows } = await admin
+          const futuras = admin
             .from('appointments')
             .select('id,starts_at,unit_id,contact_name,patient_id,confirmed_by_clinic')
             .eq('clinic_id', clinicId)
             .eq('status', 'scheduled')
             .gte('starts_at', new Date().toISOString())
-            // contact_phone e gravado so com digitos (createAppointment), entao
-            // as grafias do numero servem direto.
-            .in('contact_phone', grafias)
-            .order('starts_at')
+          // Quem entrou pelo segundo telefone ve tambem as consultas do
+          // paciente, marcadas com o telefone de outra pessoa (porte de
+          // 18/11/2026). Nulo = ninguem entrou por ele: a busca de sempre.
+          const comOPaciente = filtroDasConsultas(grafias, idsDoOutroTelefone)
+          // contact_phone e gravado so com digitos (createAppointment), entao
+          // as grafias do numero servem direto.
+          const { data: futurasRows } = await (comOPaciente ? futuras.or(comOPaciente) : futuras.in('contact_phone', grafias)).order('starts_at')
 
           const idsUnidades = [...new Set((futurasRows ?? []).map((a) => a.unit_id))]
           const unidadesPorId = new Map<string, { name: string; address: string }>()
@@ -823,9 +864,15 @@ Deno.serve(async (req) => {
           // O arquivo e buscado ANTES de gravar a mensagem: a URL da Meta dura
           // poucos minutos, e se a gravacao demorasse ela ja teria expirado.
           const midia = midiaDaMensagem(message)
-          const anexo = midia && externalId
+          const guardado = midia && externalId
             ? await guardarAnexo(admin, clinicId, externalId, midia, phoneNumberId)
             : null
+          const anexo = guardado && 'path' in guardado ? guardado : null
+          // Arquivo que nao entrou no acervo grita (porte de 18/11/2026, ver
+          // acervo-do-anexo.ts): linha vermelha embaixo da mensagem, na
+          // Central. Figurinha fica de fora: ninguem precisa dela.
+          const falhaDoAnexo = guardado && 'falha' in guardado && message.type !== 'sticker' ? guardado.falha : null
+          if (falhaDoAnexo) console.error('Anexo nao guardado no acervo', message.type, midia?.filename ?? '', falhaDoAnexo)
 
           const { error: messageError } = await admin.from('whatsapp_messages').insert({
             clinic_id: clinicId,
@@ -839,6 +886,7 @@ Deno.serve(async (req) => {
             status: 'delivered',
             delivered_at: receivedAt,
             ...(anexo ? { media_path: anexo.path, media_mime: anexo.mime } : {}),
+            ...(falhaDoAnexo ? { failure_reason: avisoDoArquivoPerdido(falhaDoAnexo) } : {}),
           })
           if (messageError?.code === '23505') {
             // A mensagem ja esta gravada: isto e o reenvio da Meta depois de

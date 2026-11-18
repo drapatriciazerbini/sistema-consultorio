@@ -2,9 +2,15 @@
  * Que arquivo a equipe pode mandar pela tela de Respostas, e como a Meta o
  * recebe (24/09/2026; audio desde 05/11/2026, ver src/lib/gravacao-de-audio.ts).
  *
- * Limites da Meta: imagem ate 5 MB, audio ate 16 MB, documento ate 100 MB - mas
- * o acervo da clinica aceita 20 MB. Audio nao tem legenda na Meta: o texto vai
- * em mensagem separada (a tela manda antes do audio).
+ * Limites da Meta: imagem ate 5 MB, audio ate 16 MB, documento ate 100 MB. O
+ * documento da equipe fica em 20 MB de proposito, mesmo com o acervo aceitando
+ * 50 MB desde 18/11/2026 (migration 20261118030000, ver acervo-do-anexo.ts): o
+ * aumento foi para o que o paciente manda (laudo grande em PDF), que o webhook
+ * baixa uma vez so. Aqui o arquivo passa tres vezes pela memoria da funcao
+ * (formulario, acervo, subida para a Meta), e 50 MB tres vezes encosta no teto
+ * dela. No sistema do Dr. Marcello o envio tambem ficou em 20 MB.
+ * Audio nao tem legenda na Meta: o texto vai em mensagem separada (a tela
+ * manda antes do audio).
  */
 
 export type TipoDoArquivo = 'image' | 'document' | 'audio'

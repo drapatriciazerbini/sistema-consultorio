@@ -77,6 +77,12 @@ const MONTAGENS = [
   "supabase/functions/_shared/gastos-google.ts --format=esm --outfile=tests/gastos-google.build.mjs",
   "src/lib/campanha.ts --format=esm --outfile=tests/campanha.build.mjs",
   "src/lib/agenda-extra.ts --format=esm --outfile=tests/agenda-extra.build.mjs",
+  // Lote da conversa (porte de 18/11/2026): anexo ate 50 MB, reacao e segundo telefone.
+  "supabase/functions/_shared/acervo-do-anexo.ts --format=esm --outfile=tests/acervo-do-anexo.build.mjs",
+  "supabase/functions/_shared/reacao.ts --format=esm --outfile=tests/reacao.build.mjs",
+  "supabase/functions/_shared/telefones-do-paciente.ts --format=esm --outfile=tests/telefones-do-paciente.build.mjs",
+  "src/lib/procurar-paciente.ts --format=esm --outfile=tests/procurar-paciente.build.mjs",
+  "src/lib/quem-escreve.ts --format=esm --outfile=tests/quem-escreve.build.mjs",
 ]
 
 // node <arquivo>
@@ -136,6 +142,10 @@ const TESTES = [
   "tests/cadastro-do-paciente.test.mjs",
   "tests/agenda-extra.test.mjs",
   "tests/cidades-no-mapa.test.mjs",
+  "tests/acervo-do-anexo.test.mjs",
+  "tests/reacao.test.mjs",
+  "tests/telefones-do-paciente.test.mjs",
+  "tests/quem-escreve.test.mjs",
 ]
 
 function rodar(comando) {

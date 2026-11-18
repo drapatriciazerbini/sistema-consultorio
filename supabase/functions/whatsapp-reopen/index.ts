@@ -3,6 +3,7 @@ import { textoDoModelo } from '../_shared/modelos.ts'
 import { primeiroNomeUtil } from '../_shared/nome.ts'
 import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
+import { pacientesDoTelefone } from '../_shared/telefones-do-paciente.ts'
 import {
   conteudoDoDocumento,
   LIMITE_DO_ARQUIVO,
@@ -156,14 +157,15 @@ Deno.serve(async (req) => {
     if (documento) {
       let temCadastro = Boolean(visivel.patient_id)
       if (!temCadastro) {
-        const { data: fichas } = await admin
-          .from('patients')
-          .select('id')
-          .eq('clinic_id', visivel.clinic_id)
-          .is('archived_at', null)
-          .in('phone_digits', variantesDoTelefone(visivel.wa_id ?? ''))
-          .limit(1)
-        temCadastro = Boolean(fichas?.length)
+        // O segundo telefone tambem conta (porte de 18/11/2026): foi a equipe
+        // que disse que o numero e da familia ou do cuidador daquele paciente.
+        const { pacientes: fichas } = await pacientesDoTelefone<{ id: string }>(
+          admin,
+          visivel.clinic_id,
+          variantesDoTelefone(visivel.wa_id ?? ''),
+          'id',
+        )
+        temCadastro = fichas.length > 0
       }
       if (!temCadastro) {
         return json({

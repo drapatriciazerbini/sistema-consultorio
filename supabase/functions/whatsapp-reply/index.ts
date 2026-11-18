@@ -5,6 +5,8 @@ import { variantesDoTelefone } from '../_shared/telefone-br.ts'
 import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
 import { postarNaMeta } from '../_shared/meta-tentativa.ts'
 import { classificarArquivo, nomeDoTipo } from '../_shared/arquivo-da-resposta.ts'
+import { conteudoDaReacao, reacaoValida, recusaDaReacao } from '../_shared/reacao.ts'
+import { pacientesDoTelefone } from '../_shared/telefones-do-paciente.ts'
 
 /**
  * Resposta livre da equipe para um paciente, a partir da tela de Conversas.
@@ -55,6 +57,12 @@ type ReplyRequest = {
    * em cima da resposta.
    */
   respondeA?: string | null
+  /**
+   * Em vez de texto, reage a uma mensagem do paciente com um emoji (porte de
+   * 18/11/2026). `mensagemId` e o id nosso; emoji vazio tira a reacao. Ver
+   * _shared/reacao.ts.
+   */
+  reacao?: { mensagemId?: string; emoji?: string } | null
 }
 
 Deno.serve(async (req) => {
@@ -82,13 +90,15 @@ Deno.serve(async (req) => {
     }
     const querMenu = body.menu === true
     const querQuestionario = body.questionario === true
+    const querReacao = body.reacao != null
     let texto = (body.text ?? '').trim()
     if (!body.conversationId) return json({ error: 'Conversa não informada.' }, 400)
 
     // Arquivo da equipe para a familia (24/09/2026): receita, pedido de exame,
     // recibo. Antes so dava pelo celular, e o envio ficava fora do historico.
-    // Limites da Meta: imagem ate 5 MB; documento ate 100 MB, mas o acervo da
-    // clinica aceita 20 MB. A legenda de midia vai ate 1024 caracteres.
+    // Limites da Meta: imagem ate 5 MB; documento ate 100 MB, mas a equipe
+    // manda ate 20 MB (ver _shared/arquivo-da-resposta.ts: os 50 MB do acervo
+    // sao para o que o paciente manda). A legenda vai ate 1024 caracteres.
     const envio = arquivo ? classificarArquivo(arquivo.type) : null
     if (arquivo && !envio) {
       return json({
@@ -114,7 +124,7 @@ Deno.serve(async (req) => {
     // questionario chegam aqui sem texto de proposito: quem monta a mensagem e
     // o robo, mais abaixo. Sem esta ressalva o botao Questionario batia nesta
     // linha e voltava "Escreva a mensagem antes de enviar" sem nunca enviar.
-    if (!texto && !querMenu && !querQuestionario && !arquivo) {
+    if (!texto && !querMenu && !querQuestionario && !querReacao && !arquivo) {
       return json({ error: 'Escreva a mensagem antes de enviar.' }, 400)
     }
     if (texto.length > LIMITE_CARACTERES) {
@@ -211,14 +221,17 @@ Deno.serve(async (req) => {
       // vai reconhecer a pessoa quando a resposta chegar, e um cadastro que ele
       // nao encontra faria o robo perguntar e jogar fora o que a familia
       // digitasse.
-      const { data: fichas } = await admin
-        .from('patients')
-        .select('id,name,nascimento:birth_date,responsavel:guardian_name,cpf,email')
-        .eq('clinic_id', visivel.clinic_id)
-        .is('archived_at', null)
-        .in('phone_digits', variantesDoTelefone(telefone ?? ''))
-        .order('name')
-      const encontradas = (fichas ?? []) as unknown as PacienteDaFicha[]
+      //
+      // E a mesma inclusive no segundo telefone (porte de 18/11/2026, ver
+      // telefones-do-paciente.ts): o webhook reconhece a filha ou o cuidador
+      // que escreve de outro numero, entao o questionario tambem precisa
+      // reconhecer.
+      const { pacientes: encontradas } = await pacientesDoTelefone<PacienteDaFicha>(
+        admin,
+        visivel.clinic_id,
+        variantesDoTelefone(telefone ?? ''),
+        'id,name,nascimento:birth_date,responsavel:guardian_name,cpf,email',
+      )
       const paciente = encontradas.length === 1 ? encontradas[0] : null
 
       // A consulta onde pendurar as respostas: a proxima futura; nao havendo,
@@ -275,6 +288,65 @@ Deno.serve(async (req) => {
 
     const graphVersion = Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0'
     const agora = new Date().toISOString()
+
+    // Reacao (porte de 18/11/2026): o emoji embaixo da mensagem do paciente.
+    // Para aqui, antes de tudo que e de mensagem: reacao nao entra no
+    // historico como linha, nao cala o robo e nao tira a conversa de "precisa
+    // de atencao". Passa pela janela de 24h la em cima, como qualquer envio
+    // livre.
+    if (querReacao) {
+      const emoji = reacaoValida(body.reacao?.emoji)
+      if (emoji === null) {
+        return json({ error: 'Esta reação não está na lista do consultório.', code: 'REACAO_INVALIDA' }, 400)
+      }
+      const { data: alvo, error: erroDoAlvo } = await admin
+        .from('whatsapp_messages')
+        .select('id,direction,external_message_id')
+        .eq('id', String(body.reacao?.mensagemId ?? ''))
+        .eq('conversation_id', visivel.id)
+        .maybeSingle()
+      if (erroDoAlvo) {
+        console.error('Reacao: nao consegui ler a mensagem', erroDoAlvo)
+        return json({ error: 'Não foi possível achar a mensagem para reagir.', code: 'SEM_MENSAGEM' }, 500)
+      }
+      const recusa = recusaDaReacao(alvo)
+      if (recusa || !alvo) return json({ error: recusa, code: 'SEM_REACAO' }, 409)
+
+      const envioDaReacao = await postarNaMeta(
+        `https://graph.facebook.com/${graphVersion}/${settings.whatsapp_phone_number_id}/messages`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: visivel.wa_id,
+            ...conteudoDaReacao(String(alvo.external_message_id), emoji),
+          }),
+        },
+      )
+      if (!envioDaReacao.ok) {
+        const recusaDaMeta = await envioDaReacao.json().catch(() => null)
+        const motivo = recusaDaMeta?.error?.message || 'Meta recusou a reação.'
+        console.error('Reacao recusada pela Meta', motivo)
+        return json({ error: `A Meta recusou a reação: ${motivo}`, code: 'META_REJECTED', details: motivo }, 502)
+      }
+      // Coluna nova (padrao da casa): se ela ainda nao chegou, o paciente ja
+      // viu o emoji e so a tela fica sem. Avisa em vez de calar.
+      const { error: erroAoGuardar } = await admin
+        .from('whatsapp_messages')
+        .update({ reacao: emoji || null })
+        .eq('id', alvo.id)
+      if (erroAoGuardar) {
+        console.error('Reacao enviada, mas nao guardada', erroAoGuardar)
+        return json({
+          ok: true,
+          reacao: emoji,
+          aviso: 'A reação foi para o WhatsApp do paciente, mas não ficou guardada: ela não vai aparecer aqui na tela.',
+        })
+      }
+      return json({ ok: true, reacao: emoji })
+    }
 
     // Com arquivo: guarda no acervo da clinica (o historico mostra o que foi
     // enviado), sobe para a Meta e manda pelo id que ela devolve.

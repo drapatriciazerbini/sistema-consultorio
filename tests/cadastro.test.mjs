@@ -84,6 +84,12 @@ function bancoFalso({ semColunaNova = false, codigoDaColuna = '42703', pacientes
           }),
         }
       }
+      // Segundo telefone (porte de 18/11/2026): nenhum ligado nestes casos. O
+      // caso com numero ligado esta em tests/telefones-do-paciente.test.mjs.
+      if (tabela === 'patient_phones') {
+        const vazio = { eq: () => vazio, in: () => vazio, limit: async () => ({ data: [], error: null }) }
+        return { select: () => vazio }
+      }
       throw new Error('tabela nao prevista: ' + tabela)
     },
   }
