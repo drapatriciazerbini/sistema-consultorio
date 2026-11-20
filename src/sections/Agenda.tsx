@@ -69,6 +69,7 @@ import { horariosLivresEntre } from '@/lib/prontuario-extra'
 import { jaCadastrados, procurarPacientes } from '@/lib/procurar-paciente'
 import { avisoDeRemarcacao } from '@/lib/remanejar'
 import RemanejarConsulta from '@/sections/agenda/RemanejarConsulta'
+import AbrirNoMeuWhatsApp, { BotaoDoQr, type ContatoParaOQr } from '@/components/AbrirNoMeuWhatsApp'
 import {
   DURACOES_DO_DOMICILIO,
   consultasNaJanela,
@@ -661,6 +662,9 @@ export default function Agenda({
   const [cancelando, setCancelando] = useState<
     { id: string; paciente: string; quando: string } | null
   >(null)
+  // "Abrir no meu WhatsApp" (porte de 20/11/2026): o QR para chamar o paciente
+  // do celular, sem salvar o contato. Ver AbrirNoMeuWhatsApp.
+  const [qrDe, setQrDe] = useState<ContatoParaOQr | null>(null)
   const [slotEscolhido, setSlotEscolhido] = useState<string | null>(null)
   const [motivoReserva, setMotivoReserva] = useState('')
   // Paciente escolhido no modal e, quando nao ha cadastro, nome e WhatsApp
@@ -1584,6 +1588,13 @@ export default function Agenda({
                           )}
                           {conversaDaConsulta(item) && (
                             <BotaoDoWhatsApp nome={item.patientName} onClick={conversaDaConsulta(item)!} />
+                          )}
+                          {telefoneDoLembrete(item, patients) && (
+                            <BotaoDoQr
+                              escuro
+                              nome={item.patientName}
+                              onClick={() => setQrDe({ nome: item.patientName, telefone: telefoneDoLembrete(item, patients) })}
+                            />
                           )}
                           <button
                             type="button"
@@ -2895,6 +2906,7 @@ export default function Agenda({
           )}
         </SheetContent>
       </Sheet>
+      <AbrirNoMeuWhatsApp contato={qrDe} onFechar={() => setQrDe(null)} />
     </div>
   )
 }

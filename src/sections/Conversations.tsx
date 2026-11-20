@@ -47,6 +47,7 @@ import { CHAVE_DO_VISUAL, EVENTO_MODO_WHATSAPP } from '@/lib/modo-whatsapp'
 import { VisualizadorDeArquivo, type ArquivoAberto } from '@/components/VisualizadorDeArquivo'
 import { GravadorDeAudio } from '@/components/GravadorDeAudio'
 import LigarTelefone from '@/components/LigarTelefone'
+import AbrirNoMeuWhatsApp, { BotaoDoQr, type ContatoParaOQr } from '@/components/AbrirNoMeuWhatsApp'
 import { linhaDeQuemEscreve } from '@/lib/quem-escreve'
 import { proximaReacao, REACOES } from '../../supabase/functions/_shared/reacao.ts'
 import { EMOJIS_DA_RESPOSTA, inserirNoCursor } from '@/lib/emoji'
@@ -952,6 +953,8 @@ export default function Conversations({
   // dava para arrumar no banco. Aqui serve tambem para o numero de um
   // familiar ou cuidador que fala por mais de um paciente.
   const [renomeando, setRenomeando] = useState(false)
+  // "Abrir no meu WhatsApp" (porte de 20/11/2026), ver AbrirNoMeuWhatsApp.
+  const [qrDe, setQrDe] = useState<ContatoParaOQr | null>(null)
   // Id do paciente com a ficha cadastral aberta no popup (ver CadastroNoChat).
   const [fichaAberta, setFichaAberta] = useState<string | null>(null)
   const [nomeNovo, setNomeNovo] = useState('')
@@ -2881,6 +2884,15 @@ export default function Conversations({
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
+                      <BotaoDoQr
+                        nome={selected.patientName}
+                        onClick={() =>
+                          setQrDe({
+                            nome: selected.nomePersonalizado || (selected.patientId ? selected.patientName : selected.profileName || selected.patientName),
+                            telefone: selected.phone,
+                          })
+                        }
+                      />
                     </div>
                     {quemEscreveNaConversa && (
                       <p className="text-[11px] font-semibold text-[#416f65]">{quemEscreveNaConversa}</p>
@@ -4087,6 +4099,7 @@ export default function Conversations({
         document.body,
       )}
       <VisualizadorDeArquivo arquivo={arquivoAberto} onFechar={fecharArquivo} />
+      <AbrirNoMeuWhatsApp contato={qrDe} onFechar={() => setQrDe(null)} />
       <LigarTelefone
         conversa={ligandoTelefone}
         pacientes={pacientes ?? []}

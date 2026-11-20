@@ -92,6 +92,8 @@ const MONTAGENS = [
   // lembrete e testado em cima de lembrete-envio.build.mjs.
   "supabase/functions/_shared/nome-para-familia.ts --format=esm --outfile=tests/nome-para-familia.build.mjs",
   "supabase/functions/_shared/rotulo-do-anexo.ts --format=esm --outfile=tests/rotulo-do-anexo.build.mjs",
+  // Lote 7 (porte de 20/11/2026).
+  "src/lib/abrir-no-whatsapp.ts --format=esm --outfile=tests/abrir-no-whatsapp.build.mjs",
 ]
 
 // node <arquivo>
@@ -166,6 +168,8 @@ const TESTES = [
   "tests/meio-do-caminho.test.mjs",
   "tests/nome-para-familia.test.mjs",
   "tests/rotulo-do-anexo.test.mjs",
+  // Lote 7 (porte de 20/11/2026).
+  "tests/abrir-no-whatsapp.test.mjs",
 ]
 
 function rodar(comando) {

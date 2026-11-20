@@ -116,3 +116,4 @@ tests/chave-do-numero.build.mjs
 tests/assinatura-do-webhook.build.mjs
 tests/nome-para-familia.build.mjs
 tests/rotulo-do-anexo.build.mjs
+tests/abrir-no-whatsapp.build.mjs
