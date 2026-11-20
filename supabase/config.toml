@@ -74,3 +74,9 @@ verify_jwt = false
 # "Sobre a Dra." e menu de novo (07/11/2026, do sistema do Dr. Marcello).
 # Chamada pelo pg_cron a cada 10 minutos com x-cron-secret.
 verify_jwt = false
+
+[functions.whatsapp-conectar]
+# Concluir a ligacao de um numero do WhatsApp por coexistencia (porte de
+# 19/11/2026, do sistema do Dr. Fabio). Chamada com a sessao do responsavel
+# pela clinica; a funcao confere a sessao e o papel. Mantem o JWT.
+verify_jwt = true

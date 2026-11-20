@@ -3115,6 +3115,15 @@ export default function Conversations({
                               )}
                               <span className="mt-0.5 flex items-center justify-end gap-1 text-[11px] leading-none text-[#667781]">
                                 {message.porIA && <span title="Escrita pelo atendente com IA" className="font-bold text-[#1f5f55]">🤖 IA ·</span>}
+                                {/* Escrita no app do celular do consultorio, e
+                                    nao aqui (coexistencia, porte de 19/11/2026):
+                                    a equipe precisa saber que aquela resposta
+                                    nao saiu da Central. */}
+                                {message.origem && (
+                                  <span className="font-semibold">
+                                    {message.origem === 'celular' ? 'pelo celular ·' : 'do celular ·'}
+                                  </span>
+                                )}
                                 {formatWhen(message.createdAt)}
                                 {outbound && <Confirmacao status={message.status} />}
                               </span>

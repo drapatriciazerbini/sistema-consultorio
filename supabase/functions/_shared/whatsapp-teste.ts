@@ -36,6 +36,45 @@ export function chaveDoWhatsApp(
 }
 
 /**
+ * De qual segredo saiu a chave do numero, sem mostrar a chave (porte de
+ * 19/11/2026, coexistencia).
+ *
+ * No dia em que o numero da Dra. Patricia passar para a conta ligada pela ECM,
+ * ele ganha um phone_number_id novo, e a chave dele (a do usuario do sistema
+ * "Robo Integracao" da ECM) entra no segredo WHATSAPP_ACCESS_TOKEN_<id novo>.
+ * A chave geral continua sendo a de hoje: e o plano B, usada pelo numero
+ * antigo se for preciso desfazer. Um nome de segredo digitado errado cairia
+ * calado na chave geral, e a Meta recusaria cada envio sem dizer por que: a
+ * funcao whatsapp-conectar usa isto para dizer na resposta qual das duas vale.
+ */
+export function origemDaChave(
+  phoneNumberId: string | null | undefined,
+  ler: LerAmbiente = lerDoDeno,
+): 'do_numero' | 'geral' | null {
+  const propria = phoneNumberId ? ler(`WHATSAPP_ACCESS_TOKEN_${String(phoneNumberId).trim()}`)?.trim() : undefined
+  if (propria) return 'do_numero'
+  return ler('WHATSAPP_ACCESS_TOKEN')?.trim() ? 'geral' : null
+}
+
+/**
+ * O id do aplicativo da Meta dono da chave do numero (porte de 19/11/2026).
+ *
+ * So a troca da foto do perfil precisa dele: a sessao de upload pertence ao
+ * app, e a Meta recusa a chave de um app na sessao de outro. Com o numero na
+ * conta ligada pela ECM, a chave e do app da ECM, e o META_APP_ID de hoje (que
+ * o gasto das campanhas tambem usa) nao pode ser trocado. Mesmo desenho da
+ * chave: META_APP_ID_<phone_number_id> vale para aquele numero; sem ele, o
+ * META_APP_ID de sempre, e nada muda.
+ */
+export function appDoWhatsApp(
+  phoneNumberId: string | null | undefined,
+  ler: LerAmbiente = lerDoDeno,
+): string | undefined {
+  const proprio = phoneNumberId ? ler(`META_APP_ID_${String(phoneNumberId).trim()}`)?.trim() : undefined
+  return proprio || ler('META_APP_ID')?.trim() || undefined
+}
+
+/**
  * O telefone esta fora da lista de teste?
  *
  * lista nula = clinica de verdade, sem trava: devolve sempre false.

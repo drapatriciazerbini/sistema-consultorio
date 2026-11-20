@@ -109,3 +109,8 @@ tests/quem-escreve.build.mjs
 tests/audio-como-texto.build.mjs
 tests/transcricao.build.mjs
 tests/prazo-do-retorno.build.mjs
+tests/coexistencia.build.mjs
+tests/coexistencia-lembrete.build.mjs
+tests/conectar-numero.build.mjs
+tests/chave-do-numero.build.mjs
+tests/assinatura-do-webhook.build.mjs

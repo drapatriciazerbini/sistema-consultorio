@@ -2038,6 +2038,13 @@ export interface ConversationMessage {
   respondeA?: string | null
   /** Emoji com que a equipe reagiu a esta mensagem do paciente (porte de 18/11/2026). */
   reacao?: string | null
+  /**
+   * Veio do app WhatsApp Business do celular do consultorio (coexistencia,
+   * porte de 19/11/2026): 'celular' = a equipe escreveu pelo app; 'historico'
+   * = conversa de antes da ligacao, trazida pela Meta. Nulo = robo, Central ou
+   * paciente ao vivo, que e tudo o que existe ate o dia da troca.
+   */
+  origem?: 'historico' | 'celular' | null
 }
 
 /**
@@ -2362,6 +2369,7 @@ export async function listConversationMessages(conversationId: string): Promise<
   const daIA = await mensagensDaIA(conversationId)
   const citada = await mensagensCitadas(conversationId)
   const reacoes = await reacoesDasMensagens(conversationId)
+  const origens = await origemDasMensagens(conversationId)
 
   return linhas.map((row) => ({
     id: row.id,
@@ -2377,7 +2385,29 @@ export async function listConversationMessages(conversationId: string): Promise<
     porIA: daIA.has(row.id),
     respondeA: citada.get(row.id) ?? null,
     reacao: reacoes.get(row.id) ?? null,
+    origem: origens.get(row.id) ?? null,
   }))
+}
+
+/**
+ * De onde veio cada mensagem que nao nasceu aqui (coexistencia, porte de
+ * 19/11/2026). Coluna nova, lida a parte: sem a migration 20261119010000, so a
+ * etiqueta "pelo celular" some, e a conversa abre igual.
+ */
+async function origemDasMensagens(conversationId: string): Promise<Map<string, 'historico' | 'celular'>> {
+  const origens = new Map<string, 'historico' | 'celular'>()
+  try {
+    const { data, error } = await semTipo
+      .from('whatsapp_messages')
+      .select('id,origem')
+      .eq('conversation_id', conversationId)
+      .not('origem', 'is', null)
+    if (error) throw error
+    for (const m of (data ?? []) as { id: string; origem: 'historico' | 'celular' }[]) origens.set(m.id, m.origem)
+  } catch (erro) {
+    console.warn('Sem whatsapp_messages.origem; a etiqueta do celular fica de fora', erro)
+  }
+  return origens
 }
 
 /**

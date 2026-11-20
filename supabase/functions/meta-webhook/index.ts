@@ -39,6 +39,8 @@ import { filtroDasConsultas, pacientesDoTelefone } from '../_shared/telefones-do
 import { avisoDoArquivoPerdido, emMegas, grandeDemais, LIMITE_DO_ACERVO, tipoParaOAcervo } from '../_shared/acervo-do-anexo.ts'
 import { ehAudio, lerAudio, modoDoAudio } from '../_shared/audio-como-texto.ts'
 import { transcreverAudioComMotivo } from '../_shared/transcricao.ts'
+import { campoDoCelular, type MensagemDoCelular, soNoCelular, tratarAvisoDoCelular } from '../_shared/coexistencia.ts'
+import { assinaturaConfere, segredosDoWebhook } from '../_shared/assinatura-do-webhook.ts'
 
 // O runtime das Edge Functions deixa terminar trabalho depois da resposta.
 // Fora dele (teste local) cai no await comum.
@@ -296,19 +298,19 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return text('Method not allowed', 405)
 
   const rawBody = await req.text()
-  const appSecret = Deno.env.get('META_APP_SECRET')?.trim()
   const providedSignature = req.headers.get('x-hub-signature-256') ?? ''
-  if (!appSecret || !providedSignature.startsWith('sha256=')) return text('Unauthorized', 401)
-
   // O Instagram com login proprio assina com a chave secreta do app do
   // Instagram, que e outra (01/10/2026). As duas valem; sem o segredo
   // INSTAGRAM_APP_SECRET, so a do app da Meta.
-  const segredos = [appSecret, Deno.env.get('INSTAGRAM_APP_SECRET')?.trim()].filter(Boolean) as string[]
-  let assinaturaValida = false
-  for (const segredo of segredos) {
-    if (safeEqual(`sha256=${await sha256HmacHex(segredo, rawBody)}`, providedSignature)) assinaturaValida = true
+  //
+  // E desde o porte de 19/11/2026 (coexistencia) vale tambem a do app da ECM,
+  // META_APP_SECRET_ECM, que vai entregar os avisos do numero religado. Sem
+  // esse segredo a lista e a de antes. Ver _shared/assinatura-do-webhook.ts.
+  const segredos = segredosDoWebhook((nome) => Deno.env.get(nome))
+  if (!segredos.length || !providedSignature.startsWith('sha256=')) return text('Unauthorized', 401)
+  if (!(await assinaturaConfere(segredos, rawBody, providedSignature, sha256HmacHex, safeEqual))) {
+    return text('Invalid signature', 401)
   }
-  if (!assinaturaValida) return text('Invalid signature', 401)
 
   // Fora do try: o catch precisa dele para liberar o evento que falhou.
   let registro: RegistroDeEventos | null = null
@@ -347,6 +349,51 @@ Deno.serve(async (req) => {
         // Tudo que veio antes terminou; um erro daqui ate o proximo registrar
         // nao pertence a nenhum evento.
         await registro.concluir()
+
+        // Coexistencia (porte de 19/11/2026, ver _shared/coexistencia.ts): o
+        // numero do consultorio no app WhatsApp Business do celular e na API
+        // ao mesmo tempo. O historico do celular, o que a equipe escreve por
+        // ele e os contatos da agenda entram na Central SEM passar pelo robo:
+        // o `continue` abaixo sai antes de qualquer resposta, lembrete, aviso
+        // de urgencia ou aviso no celular da Dra. A mensagem que a equipe
+        // digitou no celular entra com automatic = false, e e isso que cala o
+        // robo naquela conversa (equipeFalouRecentemente, mais abaixo).
+        //
+        // Ate o dia da troca a Meta nao manda estes campos: nada aqui roda.
+        // Erro sobe para o catch do fim: a Meta manda de novo, e o id de cada
+        // mensagem evita duplicar.
+        if (campoDoCelular(change.field)) {
+          const doCelular = change.value ?? {}
+          const numeroDoCelular = String(doCelular.metadata?.phone_number_id ?? '')
+          try {
+            const feito = await tratarAvisoDoCelular(admin, String(change.field), doCelular, {
+              corpo: (m: MensagemDoCelular) => messageBody(m as unknown as WebhookMessage),
+              midia: (m: MensagemDoCelular) => midiaDaMensagem(m as unknown as WebhookMessage),
+              // O acervo daqui devolve o motivo da falha (18/11/2026): o
+              // arquivo que nao veio grita no log, e a mensagem entra sem ele.
+              guardarAnexo: async (clinica, id, midia) => {
+                const guardado = await guardarAnexo(admin, clinica, id, midia, numeroDoCelular)
+                if ('path' in guardado) return { path: guardado.path, mime: guardado.mime }
+                console.error('Coexistencia: arquivo do celular fora do acervo', id, guardado.falha)
+                return null
+              },
+            })
+            if (!feito.clinica) console.warn('Coexistencia: aviso de um numero sem clinica', change.field, numeroDoCelular)
+            else console.info('Coexistencia:', JSON.stringify(feito))
+          } catch (erro) {
+            console.error('Coexistencia: falhou ao gravar o aviso do celular; a Meta vai mandar de novo', change.field, numeroDoCelular, erro)
+            throw erro
+          }
+          continue
+        }
+        // O consultorio desligou o numero da API pelo app do celular
+        // (Configuracoes > Conta > Plataforma comercial): o robo e a Central
+        // param de receber, e os lembretes param de sair. Grita no log; nao
+        // ha conversa onde anotar.
+        if (change.field === 'account_update' && change.value?.event === 'PARTNER_REMOVED') {
+          console.error('Coexistencia: o numero foi desconectado da API pelo app WhatsApp Business', entry.id, JSON.stringify(change.value?.disconnection_info ?? {}))
+          continue
+        }
         if (change.field !== 'messages') continue
         const value = change.value ?? {}
         const phoneNumberId = String(value.metadata?.phone_number_id ?? '')
@@ -412,6 +459,15 @@ Deno.serve(async (req) => {
           // historico suja a leitura de quem abre a conversa depois para
           // entender o caso.
           if (message.type === 'reaction') continue
+          // Coexistencia (porte de 19/11/2026): a mensagem que so o celular
+          // mostra (erro 131060 da Meta). A de verdade chega em seguida, ou
+          // esta no app do celular; sem isto ela entraria na conversa como
+          // "o WhatsApp nao mostra esta mensagem" por cima da mensagem real.
+          // So existe com o numero em coexistencia. Ver soNoCelular.
+          if (soNoCelular(message)) {
+            console.info('Coexistencia: mensagem so no celular (131060)', externalId)
+            continue
+          }
 
           // Ver eventos-do-webhook.ts: se algo falhar daqui em diante, a chave
           // e apagada no catch e o reenvio da Meta processa de novo.

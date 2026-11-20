@@ -153,6 +153,11 @@ const TESTES = [
   "tests/quem-escreve.test.mjs",
   "tests/audio-como-texto.test.mjs",
   "tests/prazo-do-retorno.test.mjs",
+  // Coexistencia do numero (porte de 19/11/2026). Estes tres montam os proprios modulos
+  // na hora (tests/montar-para-teste.mjs), por isso nao tem linha em MONTAGENS.
+  "tests/coexistencia.test.mjs",
+  "tests/conectar-numero.test.mjs",
+  "tests/assinatura-do-webhook.test.mjs",
 ]
 
 function rodar(comando) {
