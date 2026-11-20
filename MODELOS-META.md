@@ -88,7 +88,7 @@ Idioma: Português (BR)
 **Corpo**
 
 ```
-Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini.
+Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini, com a resposta sobre o seu atendimento:
 
 {{2}}
 
@@ -96,6 +96,11 @@ Se precisar, é só responder por aqui.
 ```
 
 Sem rodapé e sem botões.
+
+Texto ajustado em 20/11/2026, quando os modelos foram recriados na conta nova
+da coexistência: antes de enviar, a Meta avisou que a versão antiga ("Aqui é o
+consultório da Dra. Patrícia Zerbini." e o {{2}} solto) seria recusada como
+Utilidade. Ligar a frase ao atendimento resolveu, como no modelo 5.
 
 **Exemplos que a Meta pede**
 

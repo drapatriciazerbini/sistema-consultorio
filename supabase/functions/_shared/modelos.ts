@@ -71,7 +71,11 @@ const MODELOS: Record<string, { corpo: string; rodape?: string; botoes?: string[
   // paciente leu, que é justamente o conteúdo que importa.
   resposta_da_clinica: {
     corpo:
-      'Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini.\n\n{{2}}\n\n' +
+      // Texto ajustado em 20/11/2026, na recriacao dos modelos na conta nova da
+      // coexistencia: a Meta avisou, antes de enviar, que o texto antigo seria
+      // recusado como Utilidade (sugeriu Marketing). Ligar a frase ao
+      // atendimento do paciente, como no retomar_atendimento, manteve Utilidade.
+      'Olá, {{1}}. Aqui é o consultório da Dra. Patrícia Zerbini, com a resposta sobre o seu atendimento:\n\n{{2}}\n\n' +
       'Se precisar, é só responder por aqui.',
   },
   // Documento com a janela fechada (07/11/2026, do sistema do Dr. Marcello):

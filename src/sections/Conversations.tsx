@@ -29,6 +29,7 @@ import {
   Reply,
   Power,
   Ban,
+  Smile,
   SmilePlus,
   Link2,
 } from 'lucide-react'
@@ -48,6 +49,7 @@ import { GravadorDeAudio } from '@/components/GravadorDeAudio'
 import LigarTelefone from '@/components/LigarTelefone'
 import { linhaDeQuemEscreve } from '@/lib/quem-escreve'
 import { proximaReacao, REACOES } from '../../supabase/functions/_shared/reacao.ts'
+import { EMOJIS_DA_RESPOSTA, inserirNoCursor } from '@/lib/emoji'
 import { marcaSemClinicaConhecida } from '@/lib/marca'
 import { respostaDeValor, valoresJaEnviados } from '@/lib/valores-enviados'
 import { conversaDoContato, type ContatoDaAgenda } from '@/lib/conversa-do-contato'
@@ -358,6 +360,50 @@ const FUNDO_WHATSAPP = {
  * prontuário circulando solto.
  */
 /**
+ * Miniatura do PDF no balao (porte de 20/11/2026 do sistema do Dr. Marcello,
+ * onde entrou em 12/11, pedido do Edu: "a previa do doc enviado nao pode
+ * aparecer no chat em miniatura?"). Exame, receita e comprovante chegavam como
+ * "Abrir documento" e a recepcao abria um por um para saber o que era.
+ *
+ * Quem desenha e o leitor de PDF do proprio Chrome, numa janelinha: um leitor
+ * dentro da Central deixaria o site uns 2 MB mais pesado para todo mundo, e o
+ * site e um arquivo so. A janelinha so carrega quando o balao aparece na tela,
+ * com um link pedido NAQUELA hora (o da conversa vale 5 minutos), e nao recebe
+ * clique: o clique e do botao, que abre o arquivo grande por cima da tela.
+ * No celular o Chrome nao desenha PDF em janelinha; o botao continua la.
+ */
+function PreviaDoPdf({ url, caminho }: { url: string; caminho: string | null }) {
+  const caixa = useRef<HTMLDivElement>(null)
+  const [endereco, setEndereco] = useState<string | null>(null)
+  useEffect(() => {
+    const el = caixa.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const observador = new IntersectionObserver(
+      (vistos) => {
+        if (!vistos.some((v) => v.isIntersecting)) return
+        observador.disconnect()
+        ;(caminho ? linkDoAnexo(caminho) : Promise.resolve(url)).then(setEndereco).catch(() => setEndereco(url))
+      },
+      { rootMargin: '200px' },
+    )
+    observador.observe(el)
+    return () => observador.disconnect()
+  }, [url, caminho])
+  return (
+    <div ref={caixa} className="relative h-[200px] w-[230px] overflow-hidden rounded-[6px] bg-white">
+      {endereco && (
+        <iframe
+          src={`${endereco}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+          title="Prévia do documento"
+          tabIndex={-1}
+          className="pointer-events-none h-[calc(100%+40px)] w-[calc(100%+20px)] border-0"
+        />
+      )}
+    </div>
+  )
+}
+
+/**
  * Anexo dentro do balao da conversa.
  *
  * Clicar abre o arquivo POR CIMA da tela (VisualizadorDeArquivo), e nao numa
@@ -421,6 +467,27 @@ function Anexo({
 
   if (tipo.startsWith('video/')) {
     return <video src={url} controls className="mb-1 max-h-[320px] w-full rounded-[6px]" />
+  }
+
+  // PDF com miniatura no balao (porte de 20/11/2026, ver PreviaDoPdf).
+  if (tipo === 'application/pdf') {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => void abrir()}
+          title="Abrir o documento"
+          className="mb-1 block overflow-hidden rounded-[6px] bg-black/5 text-left transition hover:bg-black/10"
+        >
+          <PreviaDoPdf url={url} caminho={caminho} />
+          <span className="flex items-center gap-2 px-2 py-1.5 text-[12px] font-bold text-[#11211d]">
+            <Paperclip className="h-3.5 w-3.5 shrink-0" />
+            Abrir documento
+          </span>
+        </button>
+        {erro && <span className="block text-[11px] font-bold text-[#b42318]">{erro}</span>}
+      </>
+    )
   }
 
   return (
@@ -608,10 +675,10 @@ function BotaoResponder({ onClick }: { onClick: () => void }) {
 }
 
 /**
- * Fecha a caixinha das reacoes ao clicar fora dela ou apertar Esc. Pelo clique
- * no documento, e nao pela perda de foco: no teste de 13/11/2026, no sistema
- * do Dr. Marcello, a caixa ficou aberta porque o foco ja estava em outro
- * lugar, e no Safari botao nem recebe foco ao ser clicado.
+ * Fecha a caixinha (reacoes, emojis) ao clicar fora dela ou apertar Esc. Pelo
+ * clique no documento, e nao pela perda de foco: no teste de 13/11/2026, no
+ * sistema do Dr. Marcello, a caixa de emoji ficou aberta porque o foco ja
+ * estava na caixa de texto, e no Safari botao nem recebe foco ao ser clicado.
  */
 function useFecharAoClicarFora(aberto: boolean, setAberto: (aberto: boolean) => void) {
   const caixa = useRef<HTMLSpanElement>(null)
@@ -695,6 +762,56 @@ function EtiquetaDaReacao({ emoji }: { emoji: string }) {
       className="absolute -bottom-3 left-2 rounded-full bg-white px-1.5 py-[3px] text-[13px] leading-none shadow-[0_1px_2px_rgba(12,26,23,.2)] ring-1 ring-black/5"
     >
       {emoji}
+    </span>
+  )
+}
+
+/**
+ * Emoji na caixa de resposta (porte de 20/11/2026 do sistema do Dr. Marcello,
+ * onde entrou em 13/11). A caixa sempre aceitou emoji pelo teclado (Windows +
+ * ponto), mas a recepcao nao conhecia o atalho. Fica aberta depois do clique,
+ * para por mais de um; fecha ao clicar fora.
+ */
+function BotaoDeEmoji({ desativado, onEscolher }: { desativado: boolean; onEscolher: (emoji: string) => void }) {
+  const [aberto, setAberto] = useState(false)
+  const caixa = useFecharAoClicarFora(aberto, setAberto)
+  return (
+    <span className="relative inline-flex" ref={caixa}>
+      <button
+        type="button"
+        disabled={desativado}
+        onClick={() => setAberto((estava) => !estava)}
+        aria-expanded={aberto}
+        title="Colocar um emoji na mensagem (no teclado: tecla Windows + ponto)"
+        className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-[10px] font-extrabold transition disabled:opacity-40 ${
+          aberto
+            ? 'border-[#2f7f74]/40 bg-[#eef3f2] text-[#17564d]'
+            : 'border-[#193d36]/10 bg-white text-slate-600 hover:border-[#193d36]/25 hover:text-[#193d36]'
+        }`}
+      >
+        <Smile className="h-3.5 w-3.5" />
+        Emoji
+      </button>
+      {aberto && (
+        <span
+          role="menu"
+          className="absolute bottom-full right-0 z-30 mb-2 grid w-[304px] grid-cols-8 gap-0.5 rounded-2xl border border-[#193d36]/10 bg-white p-2 shadow-[0_12px_32px_rgba(12,26,23,.18)]"
+        >
+          {EMOJIS_DA_RESPOSTA.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              role="menuitem"
+              // Sem isto o clique tira o foco da caixa de texto e o emoji vai para o fim.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onEscolher(emoji)}
+              className="rounded-lg text-[20px] leading-[34px] transition hover:bg-slate-100"
+            >
+              {emoji}
+            </button>
+          ))}
+        </span>
+      )}
     </span>
   )
 }
@@ -864,6 +981,10 @@ export default function Conversations({
   // Reacao em andamento (id da mensagem): enquanto a Meta nao responde, os
   // outros emojis ficam travados (porte de 18/11/2026).
   const [reagindo, setReagindo] = useState<string | null>(null)
+  // A caixa de resposta e onde o cursor deve ficar depois do emoji (porte de
+  // 20/11/2026, ver BotaoDeEmoji).
+  const caixaDaResposta = useRef<HTMLTextAreaElement>(null)
+  const cursorDepoisDoEmoji = useRef<number | null>(null)
   // Conversa sem cadastro cujo numero esta sendo ligado a um paciente que ja
   // existe (porte de 18/11/2026, ver LigarTelefone).
   const [ligandoTelefone, setLigandoTelefone] = useState<Conversation | null>(null)
@@ -1362,6 +1483,24 @@ export default function Conversations({
       setReagindo(null)
     }
   }
+
+  /** Poe o emoji onde o cursor esta, sem tirar o foco de onde ele esta. */
+  function porEmoji(emoji: string) {
+    const caixa = caixaDaResposta.current
+    const { texto, cursor } = inserirNoCursor(resposta, caixa?.selectionStart, caixa?.selectionEnd, emoji)
+    cursorDepoisDoEmoji.current = cursor
+    setResposta(texto)
+  }
+  // O React poe o cursor no fim ao trocar o texto; isto devolve para depois do
+  // emoji. No efeito, e nao em requestAnimationFrame: com a aba em segundo
+  // plano o quadro nao roda e o segundo emoji ia parar no fim (visto no teste
+  // do sistema do Dr. Marcello, 13/11/2026).
+  useLayoutEffect(() => {
+    const cursor = cursorDepoisDoEmoji.current
+    if (cursor === null) return
+    cursorDepoisDoEmoji.current = null
+    caixaDaResposta.current?.setSelectionRange(cursor, cursor)
+  }, [resposta])
 
   async function enviarMenu() {
     if (!selectedId || enviando) return
@@ -3273,6 +3412,7 @@ export default function Conversations({
                         <BarraDaCitacao mensagem={respondendo} onTirar={() => setRespondendo(null)} />
                       )}
                       <textarea
+                        ref={caixaDaResposta}
                         value={resposta}
                         onChange={(e) => setResposta(e.target.value)}
                         onPaste={colarImagem}
@@ -3321,10 +3461,15 @@ export default function Conversations({
                           e.target.value = ''
                         }}
                       />
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[9px] font-semibold text-slate-400">
-                          Enter envia · Shift+Enter quebra linha
-                        </p>
+                      {/* 20/11/2026, porte do sistema do Dr. Marcello (14/11): a
+                          dica ficava na mesma linha dos botoes. Com o Emoji
+                          entrando, a linha estourou e o Enviar caiu sozinho
+                          para a linha de baixo, no canto errado. A dica ganhou
+                          linha propria. */}
+                      <p className="mt-1.5 text-[9px] font-semibold text-slate-400">
+                        Enter envia · Shift+Enter quebra linha · Ctrl+V cola uma imagem
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                         {/* Devolve a pessoa ao robo: manda o menu de opcoes e a
                             conversa volta ao inicio. Util depois de um convite
                             de retomada, quando a janela reabriu e a equipe nao
@@ -3355,6 +3500,7 @@ export default function Conversations({
                           <ClipboardList className="h-3.5 w-3.5" />
                           Questionário
                         </button>
+                        <BotaoDeEmoji desativado={enviando} onEscolher={porEmoji} />
                         <GravadorDeAudio key={selectedId ?? ''} desativado={enviando} variante="botao" onPronto={setArquivo} onErro={setError} />
                         <button
                           type="button"

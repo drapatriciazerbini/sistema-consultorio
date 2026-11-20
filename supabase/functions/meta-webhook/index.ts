@@ -54,6 +54,7 @@ import {
   oQueFoiEscolhido,
   respondendoEnvioNosso as dentroDaJanelaDeResposta,
 } from '../_shared/lembrete.ts'
+import { nomeParaAFamilia } from '../_shared/nome-para-familia.ts'
 
 function text(body: string, status = 200) {
   return new Response(body, { status, headers: { 'Content-Type': 'text/plain' } })
@@ -649,8 +650,9 @@ Deno.serve(async (req) => {
             endereco: unidadesPorId.get(a.unit_id)?.address ?? '',
             paciente:
               (a.patient_id ? nomePorPacienteId.get(a.patient_id) : null) ??
-              (a.contact_name as string) ??
-              '',
+              // So o nome: o campo e livre e a equipe escreve recados nele
+              // (porte de 20/11/2026, ver nomeParaAFamilia).
+              nomeParaAFamilia(a.contact_name as string | null),
             confirmada: Boolean(a.confirmed_by_clinic),
           }))
 

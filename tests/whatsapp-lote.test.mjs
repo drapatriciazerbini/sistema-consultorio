@@ -90,6 +90,16 @@ function confere(nome, cond, detalhe) {
   confere('dia e meio sem mensagem recebida e aviso', mudo.problemas.some((p) => p.nivel === 'aviso' && /Nenhuma mensagem/.test(p.texto)))
 }
 
+// Porte de 20/11/2026 (sistema do Dr. Marcello, 17/11): os robos novos entram
+// na conta do "parou de rodar".
+{
+  const agoraDoTeste = new Date('2026-11-17T15:00:00Z')
+  const parado = avaliarSaude({ robos: [{ nome: 'depois-do-convenio', ultimo_inicio: '2026-11-17T12:00:00Z', status: 'succeeded' }] }, agoraDoTeste)
+  confere('retomada parada ha 3h aparece como erro', parado.problemas.some((p) => p.nivel === 'erro' && p.texto.includes('Retomada de quem perguntou')), JSON.stringify(parado.problemas))
+  const emDia = avaliarSaude({ robos: [{ nome: 'gastos-meta', ultimo_inicio: '2026-11-17T12:15:00Z', status: 'succeeded' }] }, agoraDoTeste)
+  confere('robo novo em dia nao e problema', emDia.problemas.length === 0, JSON.stringify(emDia.problemas))
+}
+
 // ---------------------------------------------------------------- bloquear dia
 {
   const consultas = [

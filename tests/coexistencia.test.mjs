@@ -170,6 +170,29 @@ await caso('historico: quem escreveu, quando, e o arquivo que ficou no celular',
   assert.equal(h3.body, 'Obrigada! Levo minha mãe na quinta.')
 })
 
+// 20/11/2026, primeiro historico da Dra. Patricia: tres mensagens vieram com
+// type "errors" e a Central mostrou "[errors]" no balao.
+await caso('historico com type "errors": o balao explica, sem o nome cru do tipo', async () => {
+  const leitura = C.lerHistorico(
+    historico([
+      {
+        id: CLAUDIA,
+        messages: [
+          { from: CLAUDIA, id: 'wamid.E1', timestamp: String(T0), type: 'errors', errors: [{ code: 131051, title: 'Message type unknown' }] },
+          texto(CLAUDIA, 'wamid.E2', T0 + 30, 'Era a foto da receita.'),
+        ],
+      },
+    ]),
+    ferramentas(),
+  )
+  const [e1, e2] = leitura.conversas[0].mensagens
+  assert.equal(e1.body, C.TEXTO_SEM_CONTEUDO_NO_HISTORICO)
+  assert.ok(!e1.body.includes('[errors]'))
+  assert.equal(e1.midia, null)
+  assert.equal(e1.direction, 'inbound')
+  assert.equal(e2.body, 'Era a foto da receita.', 'a mensagem comum segue igual')
+})
+
 await caso('historico recusado no app (2593109): nada a gravar, e diz', async () => {
   const leitura = C.lerHistorico(
     valor({ history: [{ errors: [{ code: 2593109, title: 'History sync is turned off by the business from the WhatsApp Business App' }] }] }),

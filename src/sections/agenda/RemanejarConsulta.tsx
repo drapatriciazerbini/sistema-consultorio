@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CalendarClock, Loader2, MessageCircleOff, X } from 'lucide-react'
+import { CalendarClock, Loader2, MessageCircle, MessageCircleOff, X } from 'lucide-react'
 import { remanejarConsulta, type Appointment } from '@/lib/repository'
 import { hojeEmSaoPaulo } from '@/lib/dados-para-memed'
 import {
@@ -46,6 +46,8 @@ export default function RemanejarConsulta({
   horariosDoDia,
   onFechar,
   onRemanejado,
+  avisar,
+  temTelefone,
 }: {
   consulta: Appointment
   /** Consultas e reservas da unidade, para conferir o encaixe. */
@@ -54,6 +56,14 @@ export default function RemanejarConsulta({
   horariosDoDia: (dia: string) => Promise<string[]>
   onFechar: () => void
   onRemanejado: (mensagem: string) => void
+  /**
+   * Manda o aviso de remarcacao para o paciente (porte de 20/11/2026). Quem
+   * conhece a clinica, a unidade e o telefone do lembrete e a Agenda; aqui so
+   * se decide se avisa e se mostra o que aconteceu.
+   */
+  avisar: (de: string, para: string) => Promise<{ avisou: boolean; motivo?: string }>
+  /** Sem telefone nao ha para onde mandar: a caixa fica desligada e diz por que. */
+  temTelefone: boolean
 }) {
   const hoje = hojeEmSaoPaulo()
   const [dia, setDia] = useState(hoje)
@@ -64,6 +74,8 @@ export default function RemanejarConsulta({
   const [autorizado, setAutorizado] = useState(false)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
+  // Ligado de saida: o esquecimento custa um idoso esperando no horario antigo.
+  const [avisarPaciente, setAvisarPaciente] = useState(temTelefone)
 
   useEffect(() => {
     if (!dia) return
@@ -103,10 +115,20 @@ export default function RemanejarConsulta({
     setSalvando(true)
     setErro('')
     try {
+      const antes = consulta.startsAt
       await remanejarConsulta(consulta.id, camposDoRemanejamento(consulta, alvo, duracao))
+      const feito = `Consulta de ${consulta.patientName} remanejada para ${quando(alvo)}. `
+      if (!avisarPaciente) {
+        onRemanejado(feito + 'O paciente não recebeu mensagem: avise pelo WhatsApp ou por telefone.')
+        return
+      }
+      // A consulta ja mudou: se o aviso falhar, a tela diz, e alguem telefona.
+      const aviso = await avisar(antes, alvo)
       onRemanejado(
-        `Consulta de ${consulta.patientName} remanejada para ${quando(alvo)}. ` +
-          'O paciente não recebeu mensagem: avise pelo WhatsApp ou por telefone.',
+        feito +
+          (aviso.avisou
+            ? 'O paciente foi avisado pelo WhatsApp.'
+            : `O AVISO NÃO SAIU (${aviso.motivo ?? 'falha no envio'}): avise por telefone.`),
       )
     } catch (causa) {
       setErro(causa instanceof Error ? causa.message : 'A consulta não foi remanejada.')
@@ -209,14 +231,24 @@ export default function RemanejarConsulta({
         </label>
       )}
 
-      <p className="mt-3 flex items-start gap-2 rounded-xl bg-[#e3ece9] px-3.5 py-3 text-[11px] font-bold leading-relaxed text-[#2f5a50]">
-        <MessageCircleOff className="mt-px h-4 w-4 shrink-0" />
+      <label className={`mt-3 flex items-start gap-2 rounded-xl px-3.5 py-3 text-[11px] font-bold leading-relaxed ${temTelefone ? 'bg-[#e3ece9] text-[#2f5a50]' : 'bg-slate-100 text-slate-500'}`}>
+        <input
+          type="checkbox"
+          checked={avisarPaciente}
+          disabled={!temTelefone}
+          onChange={(evento) => setAvisarPaciente(evento.target.checked)}
+          className="mt-px h-4 w-4 shrink-0 rounded border-[#193d36]/30"
+        />
         <span>
-          Ninguém recebe mensagem e nada é cancelado: a consulta é a mesma, com a ficha, o convênio e o
-          prontuário. Combine o novo horário com o paciente ou a família.
+          {avisarPaciente ? <MessageCircle className="mr-1 inline h-3.5 w-3.5" /> : <MessageCircleOff className="mr-1 inline h-3.5 w-3.5" />}
+          {temTelefone
+            ? 'Avisar o paciente pelo WhatsApp do horário antigo e do novo.'
+            : 'Esta consulta está sem telefone: não há para onde mandar o aviso.'}{' '}
+          Nada é cancelado: a consulta é a mesma, com a ficha e o prontuário.
+          {!avisarPaciente && temTelefone && ' Sem o aviso, combine o novo horário com o paciente ou a família.'}
           {dia === hoje && ' Para hoje não sai lembrete.'}
         </span>
-      </p>
+      </label>
 
       {alvo && impedimento && (
         <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-bold text-[#93370d]">

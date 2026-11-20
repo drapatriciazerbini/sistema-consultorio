@@ -117,6 +117,73 @@ export function repetirOLembrete(h: HistoricoDoLembrete, agora = Date.now()): { 
   return { repetir: true, motivo: 'sem resposta' }
 }
 
+/**
+ * Lembrete para quem acabou de marcar: espera o meio do caminho (porte de
+ * 20/11/2026 do sistema do Dr. Marcello, onde entrou em 13/11).
+ *
+ * La, uma mae marcou as 18h14 uma consulta para o dia seguinte, 14h30, e as
+ * 18h20 o robo perguntou "podemos confirmar sua presenca?". O Edu: "se ele
+ * acabou de marcar e esta pedindo confirmacao, nao faz sentido... ele vai
+ * avisar quando faltar metade do tempo para a consulta acontecer". Aqui o caso
+ * e o mesmo: a Dra. confirma o pedido e, minutos depois, sairia o lembrete.
+ *
+ * A regra: o primeiro lembrete so sai depois da metade do tempo entre a hora
+ * em que a consulta foi marcada e a hora dela. Quem marcou ha uma semana ja
+ * passou da metade na vespera, e nada muda para ele.
+ *
+ * So espera quando ainda vai existir uma passada boa depois da metade: dentro
+ * do horario das passadas (9h as 20h) e com a antecedencia minima da consulta.
+ * Quem marca as 17h para as 9h de amanha tem a metade a 1h da manha, e a
+ * passada seguinte (9h20) ja seria tarde: esse recebe agora. Esperar nunca
+ * pode custar o lembrete.
+ *
+ * `agora` e o instante de uma passada; as proximas sao de hora em hora.
+ */
+export function esperarOMeioDoCaminho(
+  c: { marcadaEm: string | null | undefined; comecaEm: string },
+  agora: number,
+  timezone: string,
+  passadas: { horaInicial: number; horaFinal: number; antecedenciaMinimaHoras: number },
+): boolean {
+  const marcada = Date.parse(String(c.marcadaEm ?? ''))
+  const comeca = Date.parse(c.comecaEm)
+  // Data ilegivel: na duvida, o lembrete sai como sempre saiu.
+  if (!Number.isFinite(marcada) || !Number.isFinite(comeca) || comeca <= marcada) return false
+  const meio = marcada + (comeca - marcada) / 2
+  if (agora >= meio) return false
+  const HORA = 3600 * 1000
+  const ultima = comeca - passadas.antecedenciaMinimaHoras * HORA
+  for (let t = agora + HORA; t <= ultima; t += HORA) {
+    if (t < meio) continue
+    const hora = Number(new Date(t).toLocaleString('en-US', { timeZone: timezone, hour: '2-digit', hour12: false })) % 24
+    if (hora >= passadas.horaInicial && hora < passadas.horaFinal) return true
+  }
+  return false
+}
+
+/**
+ * Acabou de marcar: o lembrete nao sai na primeira meia hora (porte de
+ * 20/11/2026 do sistema do Dr. Marcello, onde entrou em 17/11).
+ *
+ * La, a familia remarcou as 14h18 para as 17h20 do mesmo dia e, as 14h20, no
+ * meio das perguntas do cadastro, chegou "podemos confirmar sua presenca?".
+ * Ela respondeu "Confirma" a pergunta errada. O meio do caminho (acima) nao
+ * segurava esse caso de proposito: com a consulta tao perto, esperar a metade
+ * custaria o lembrete. Meia hora nao custa: a proxima passada e daqui a uma
+ * hora, e quem marcou ha dois minutos sabe que marcou.
+ *
+ * O preco, assumido: quem marca a menos de duas horas e meia da consulta pode
+ * ficar sem lembrete nenhum (a passada seguinte ja cai dentro da antecedencia
+ * minima). E alguem que acabou de escolher o horario.
+ */
+export const ESPERA_DEPOIS_DE_MARCAR_MS = 30 * 60 * 1000
+export function acabouDeMarcar(marcadaEm: string | null | undefined, agora: number): boolean {
+  const marcada = Date.parse(String(marcadaEm ?? ''))
+  // Data ilegivel ou no futuro: na duvida, o lembrete sai como sempre saiu.
+  if (!Number.isFinite(marcada) || agora < marcada) return false
+  return agora - marcada < ESPERA_DEPOIS_DE_MARCAR_MS
+}
+
 export type EnvioDoLembrete = {
   clinicId: string
   conversationId: string

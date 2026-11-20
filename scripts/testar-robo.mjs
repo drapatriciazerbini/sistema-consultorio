@@ -88,6 +88,10 @@ const MONTAGENS = [
   "supabase/functions/_shared/audio-como-texto.ts --format=esm --outfile=tests/audio-como-texto.build.mjs",
   "supabase/functions/_shared/transcricao.ts --format=esm --outfile=tests/transcricao.build.mjs",
   "supabase/functions/_shared/prazo-do-retorno.ts --bundle --format=esm --outfile=tests/prazo-do-retorno.build.mjs",
+  // Lote 5 (porte de 20/11/2026): o nome sem o recado da equipe. O meio do caminho do
+  // lembrete e testado em cima de lembrete-envio.build.mjs.
+  "supabase/functions/_shared/nome-para-familia.ts --format=esm --outfile=tests/nome-para-familia.build.mjs",
+  "supabase/functions/_shared/rotulo-do-anexo.ts --format=esm --outfile=tests/rotulo-do-anexo.build.mjs",
 ]
 
 // node <arquivo>
@@ -158,6 +162,10 @@ const TESTES = [
   "tests/coexistencia.test.mjs",
   "tests/conectar-numero.test.mjs",
   "tests/assinatura-do-webhook.test.mjs",
+  // Lote 5 (porte de 20/11/2026).
+  "tests/meio-do-caminho.test.mjs",
+  "tests/nome-para-familia.test.mjs",
+  "tests/rotulo-do-anexo.test.mjs",
 ]
 
 function rodar(comando) {

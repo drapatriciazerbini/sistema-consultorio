@@ -166,3 +166,36 @@ export function camposDoRemanejamento(
     reschedule_count: (consulta.rescheduleCount ?? 0) + 1,
   }
 }
+
+/**
+ * O aviso de remarcacao que o paciente le (porte de 20/11/2026 do sistema do
+ * Dr. Marcello, onde entrou em 17/11).
+ *
+ * Ate aqui mudar a data pela Agenda nao avisava ninguem, e o outro caminho
+ * (cancelar e marcar de novo) mandava so o cancelamento: la, em 17/11, uma
+ * familia recebeu "precisamos cancelar sua consulta" de uma consulta que tinha
+ * sido apenas remarcada. O Edu: "era legal que o cliente recebesse que
+ * cancelou daquela data e remarcou outra".
+ *
+ * Uma linha so, sem quebra e sem emoji: fora da janela de 24 horas o texto
+ * viaja dentro do modelo aprovado de resposta da equipe, e a Meta recusa
+ * parametro com quebra de linha. O mesmo texto serve para os dois caminhos.
+ * A visita em casa diz "em casa", e nao o nome da unidade.
+ */
+export function avisoDeRemarcacao(p: { paciente: string; de: string; para: string; unidade: string; timezone?: string }): string {
+  const quando = (iso: string) => {
+    const data = new Date(iso)
+    const fuso = p.timezone ?? 'America/Sao_Paulo'
+    const dia = new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: fuso }).format(data)
+    const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: fuso }).format(data)
+    return `${dia} às ${hora}`
+  }
+  const primeiroNome = p.paciente.trim().split(/\s+/)[0] ?? ''
+  const deQuem = primeiroNome && !/^(sem|contato)$/i.test(primeiroNome) ? ` de ${primeiroNome}` : ''
+  const unidade = p.unidade.trim()
+  const onde = !unidade ? '' : /domic|casa/i.test(unidade) ? ', no atendimento em casa' : `, no ${unidade}`
+  return (
+    `A consulta${deQuem} com a Dra. Patrícia Zerbini mudou de horário: era ${quando(p.de)} e passou para ${quando(p.para)}${onde}. ` +
+    'Se o novo horário não servir, responda por aqui que a gente vê outro.'
+  )
+}

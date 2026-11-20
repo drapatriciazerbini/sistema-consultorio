@@ -10,7 +10,9 @@ export const EMOJIS_DA_RESPOSTA = [
   '😊', '🙂', '😉', '😄', '😂', '🥰', '😍', '🤗',
   '🙏', '👍', '👏', '👋', '🤝', '💪', '✌️', '👌',
   '❤️', '💙', '💚', '✨', '🌟', '🎉', '🌷', '☀️',
-  '👶', '🧒', '👧', '👦', '👩‍⚕️', '👨‍⚕️', '🩺', '💊',
+  // A linha das pessoas, trocada para a geriatria (20/11/2026): no sistema do
+  // Dr. Marcello eram criancas. Aqui sao os pacientes e a visita em casa.
+  '👵', '👴', '🧓', '🏠', '👩‍⚕️', '👨‍⚕️', '🩺', '💊',
   '📅', '⏰', '📍', '📞', '📎', '📋', '✅', '⚠️',
 ] as const
 

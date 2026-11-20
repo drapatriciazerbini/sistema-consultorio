@@ -457,6 +457,17 @@ confere('midia: tipo sem parametro para a Meta', tipoLimpo('audio/ogg; codecs=op
 }
 confere('repasse de foto: legenda sem CPF', textoDoRepasseDeMidia('Maria', { tipo: 'image', legenda: 'meu CPF 390.533.447-05' }).includes('[cpf]'))
 {
+  // Porte de 20/11/2026 (sistema do Dr. Marcello, 13/11): o PDF do paciente
+  // chega ao celular da Dra. com nome de gente, e nao com o codigo do arquivo.
+  const aberto = alerta({ repasse_por: DRA, repasse_aberto_em: haMinutos(60), repasse_modelo_em: null })
+  const c = cenario({ alertas: [aberto] })
+  const pdf = midiaRecebida({ type: 'document', document: { id: 'pac2', mime_type: 'application/pdf', filename: '9adbbdb1-187c-43d3-b424-957b38854988.pdf' } })
+  await repassarAoCelular(c.amb, await repasseAberto(c.banco, 'c1', 'conv-1', AGORA), 'conv-1', PACIENTE, 'Segue o resultado do hemograma', pdf)
+  const doc = c.enviados.filter((e) => e.para === DRA).find((e) => e.conteudo.type === 'document')?.conteudo.document
+  confere('repasse de PDF: nome legivel com o rotulo e o paciente', doc?.filename === 'Exame - Maria Teste da Silva.pdf', JSON.stringify(doc))
+  confere('repasse de PDF: o arquivo e o mesmo', doc?.id === 'novo-pac2', JSON.stringify(doc))
+}
+{
   // A copia de verdade, com a Meta de mentira: id -> URL -> bytes -> upload.
   const chamadas = []
   const buscar = async (url, init = {}) => {

@@ -20,6 +20,7 @@ import { dueCount, idadeAnos, pendingFollowups } from '@/lib/followup'
 import { nomeDoCid } from '@/lib/cid'
 import NumerosDoWhatsApp from '@/sections/NumerosDoWhatsApp'
 import Campanha from '@/sections/Campanha'
+import { SaudeDosEnvios } from '@/components/SaudeDosEnvios'
 import NumerosDoInstagram from '@/sections/NumerosDoInstagram'
 import MapaDoPainel from '@/sections/MapaDoPainel'
 import { cidadesDosPacientes } from '@/lib/cidades-no-mapa'
@@ -422,6 +423,11 @@ export default function Dashboard({
           </button>
         ))}
       </div>
+
+      {/* O cartao de saude so existia em Acompanhamentos, uma tela que ninguem
+          abre todo dia (porte de 20/11/2026 do sistema do Dr. Marcello, 17/11).
+          Aqui e a primeira coisa que se ve. */}
+      <SaudeDosEnvios />
 
       {aba === 'whatsapp' ? (
         <NumerosDoWhatsApp />

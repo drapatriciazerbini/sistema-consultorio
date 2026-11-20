@@ -4,7 +4,7 @@
 // Nomes e numeros inventados.
 import assert from 'node:assert/strict'
 import { filtroDasConsultas, idsPorOutroTelefone, juntarPacientes, pacientesDoTelefone, QUEM_E_O_TELEFONE } from './telefones-do-paciente.build.mjs'
-import { procurarPacientes } from './procurar-paciente.build.mjs'
+import { jaCadastrados, procurarPacientes } from './procurar-paciente.build.mjs'
 import { cadastrarDaFicha } from './cadastro.build.mjs'
 import { bancoFalso } from './fixtures/banco-falso.mjs'
 import { readFileSync } from 'node:fs'
@@ -141,6 +141,31 @@ await caso('procurar paciente: sem acento, em qualquer ordem, tambem pelo acompa
   assert.deepEqual(procurarPacientes(lista, '   '), [])
   assert.deepEqual(procurarPacientes(lista, 'zeca'), [])
   assert.equal(procurarPacientes(Array.from({ length: 30 }, (_, i) => ({ id: String(i), nome: 'Maria ' + i })), 'maria').length, 8)
+})
+
+// Porte de 20/11/2026 do sistema do Dr. Marcello (17/11): paciente da casa
+// marcado como "novo", com o telefone digitado errado. A janela de marcar
+// passa a avisar antes de confirmar.
+await caso('paciente novo que ja tem cadastro: avisa pelo nome e pelo telefone', () => {
+  const lista = [
+    { id: '1', nome: 'Antônio Teste Lima Monteiro', telefone: '(13) 99000-3062' },
+    { id: '2', nome: 'Maria Souza', telefone: '13990002222' },
+    { id: '3', nome: 'José Souza', telefone: '5513990002222' },
+    { id: '4', nome: 'Dirce', telefone: '' },
+  ]
+  const ids = (nome, fone) => jaCadastrados(lista, nome, fone).map((a) => a.paciente.id + ':' + a.motivo)
+  // O caso real: nome igual, telefone com um digito trocado.
+  assert.deepEqual(ids('Antônio Teste Lima Monteiro', '13990009062'), ['1:nome'])
+  assert.deepEqual(ids('antonio  monteiro', ''), ['1:nome'], 'sem acento, sem ordem, so parte do nome')
+  assert.deepEqual(ids('Antonia Monteiro', ''), [], 'palavra inteira: Antonio nao e Antonia')
+  assert.deepEqual(ids('Maria', ''), [], 'um nome so nao acende a clinica')
+  assert.deepEqual(ids('dirce', ''), ['4:nome'], 'a nao ser que seja o nome inteiro do cadastro')
+  // Telefone igual com outro nome: o casal no telefone da filha; avisa os dois, sem depender de 55 e DDD.
+  assert.deepEqual(ids('Rosa Souza', '(13) 99000-2222'), ['3:telefone', '2:telefone'])
+  assert.deepEqual(ids('Maria Souza', '13990002222'), ['2:nome', '3:telefone'], 'nome igual vem antes')
+  assert.deepEqual(ids('Zeca Novo', '13988887777'), [], 'paciente novo de verdade nao recebe aviso')
+  assert.deepEqual(ids('Zeca Novo', '2222'), [], 'telefone incompleto nao compara')
+  assert.deepEqual(ids('', ''), [])
 })
 
 // A lista da tela e o limite do banco precisam combinar: rotulo com mais de 40

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Ajuda } from '@/components/Ajuda'
 import {
   AlertTriangle,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react'
 import {
   archiveUnit,
+  avisarRemarcacao,
   cancelAppointment,
   MOTIVOS_DE_CANCELAMENTO,
   type ResultadoDoCancelamento,
@@ -64,6 +66,8 @@ import { getFeriasVoltaEm, saveFeriasVoltaEm } from '@/lib/ferias'
 import { problemaNoWhatsapp, telefoneDoLembrete } from '@/lib/telefone-do-lembrete'
 import { temComoAcharConversa, type ContatoDaAgenda } from '@/lib/conversa-do-contato'
 import { horariosLivresEntre } from '@/lib/prontuario-extra'
+import { jaCadastrados, procurarPacientes } from '@/lib/procurar-paciente'
+import { avisoDeRemarcacao } from '@/lib/remanejar'
 import RemanejarConsulta from '@/sections/agenda/RemanejarConsulta'
 import {
   DURACOES_DO_DOMICILIO,
@@ -464,9 +468,15 @@ function CaixaDeCancelamento({
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#193d36]/40 p-4">
-      <div className="w-full max-w-[440px] rounded-[22px] bg-white p-5 shadow-[0_24px_60px_rgba(25,61,54,.22)]">
+  // Vai para o body (porte de 20/11/2026 do sistema do Dr. Marcello, 16/11):
+  // la, o Edu cancelou uma consulta e a caixa abriu "la embaixo". A div
+  // .animate-enter que embrulha a secao fica com transform depois da animacao
+  // de entrada, vira a referencia do position: fixed, e a caixa se centraliza
+  // na altura da lista inteira em vez da tela. Quem clica no X de uma consulta
+  // do alto nao ve nada acontecer. No body, fixed volta a ser a janela.
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-[#193d36]/40 p-4">
+      <div className="my-auto w-full max-w-[440px] rounded-[22px] bg-white p-5 shadow-[0_24px_60px_rgba(25,61,54,.22)]">
         {resultado ? (
           <>
             <p className="text-sm font-extrabold text-[#193d36]">Consulta cancelada</p>
@@ -593,7 +603,8 @@ function CaixaDeCancelamento({
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -880,6 +891,9 @@ export default function Agenda({
   })
   const [salvandoConsulta, setSalvandoConsulta] = useState(false)
   const [buscaPaciente, setBuscaPaciente] = useState('')
+  // O que foi digitado na janela "Marcar consulta" de um horario livre (porte
+  // de 20/11/2026, ver achadosNoHorario).
+  const [buscaNoHorario, setBuscaNoHorario] = useState('')
   // Mudar data e horario sem cancelar (07/11/2026, ver remanejar.ts).
   const [remanejando, setRemanejando] = useState(false)
 
@@ -929,6 +943,20 @@ export default function Agenda({
     if (alvo.length < 10) return []
     return patients.filter((p) => nacional(p.telefone) === alvo)
   }, [patients, formConsulta.contactPhone])
+
+  // Janela "Marcar consulta" num horario livre: o que foi digitado, quem
+  // casou e quem ja foi escolhido (porte de 20/11/2026 do sistema do Dr.
+  // Marcello, onde entrou em 16/11).
+  const achadosNoHorario = useMemo(() => procurarPacientes(patients, buscaNoHorario, 8), [patients, buscaNoHorario])
+  const pacienteDoHorario = useMemo(
+    () => patients.find((p) => p.id === novaConsulta.patientId) ?? null,
+    [patients, novaConsulta.patientId],
+  )
+  // Digitando como "novo" alguem que ja e da casa (ver jaCadastrados).
+  const jaNaBase = useMemo(
+    () => (novaConsulta.patientId ? [] : jaCadastrados(patients, novaConsulta.nome, novaConsulta.telefone)),
+    [patients, novaConsulta.patientId, novaConsulta.nome, novaConsulta.telefone],
+  )
 
   /**
    * Resultado da busca. Sem termo nao devolve nada de proposito: despejar os
@@ -2284,10 +2312,11 @@ export default function Agenda({
         </div>
       )}
 
-      {/* Marcar consulta num horario livre */}
-      {slotEscolhido && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#193d36]/40 p-4">
-          <div className="w-full max-w-sm rounded-[22px] bg-white p-5 shadow-xl">
+      {/* Marcar consulta num horario livre. No body pelo mesmo motivo da
+          CaixaDeCancelamento: dentro da Agenda a caixa abria fora da tela. */}
+      {slotEscolhido && createPortal(
+        <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-[#193d36]/40 p-4">
+          <div className="my-auto w-full max-w-sm rounded-[22px] bg-white p-5 shadow-xl">
             <p className="flex items-center gap-1.5 text-sm font-extrabold text-[#193d36]">
               <CalendarPlus className="h-4 w-4 text-[#1f5f55]" />
               Marcar consulta
@@ -2317,6 +2346,7 @@ export default function Agenda({
                     const inicio = slotEscolhido
                     const motivo = motivoReserva.trim()
                     setSlotEscolhido(null)
+                    setBuscaNoHorario('')
                     setMotivoReserva('')
                     void acao(async () => {
                       if (!clinicId || !unitId) return
@@ -2334,18 +2364,57 @@ export default function Agenda({
               Ou marcar consulta
             </p>
 
-            <select
-              value={novaConsulta.patientId}
-              onChange={(e) => setNovaConsulta({ patientId: e.target.value, nome: '', telefone: '' })}
-              className="mt-2 w-full rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3 py-2 text-xs outline-none focus:border-[#1f5f55]"
-            >
-              <option value="">Selecione o paciente</option>
-              {patients.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nome}
-                </option>
-              ))}
-            </select>
+            {/* Busca por nome no lugar da lista (porte de 20/11/2026 do
+                sistema do Dr. Marcello). Ate aqui era um <select> com a base
+                inteira, fora de ordem: la, o Dr. Marcello mandou um video
+                rolando dezenas de nomes sem poder digitar ("nao consigo
+                escrever e procurar paciente fica dificil"). Mesma busca da
+                conversa: sem acento, por nome ou acompanhante. */}
+            {pacienteDoHorario ? (
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-[#2f7f74] bg-[#eef3f2] px-3 py-2">
+                <span className="min-w-0 truncate text-xs font-bold text-[#193d36]">{pacienteDoHorario.nome}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNovaConsulta({ patientId: '', nome: '', telefone: '' })
+                    setBuscaNoHorario('')
+                  }}
+                  className="shrink-0 text-[10px] font-extrabold text-[#1f5f55] hover:underline"
+                >
+                  Trocar
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  autoFocus
+                  value={buscaNoHorario}
+                  onChange={(e) => setBuscaNoHorario(e.target.value)}
+                  placeholder="Digite o nome do paciente ou do acompanhante"
+                  aria-label="Procurar paciente"
+                  className="mt-2 w-full rounded-xl border border-[#193d36]/10 bg-[#faf9f4] px-3 py-2 text-xs outline-none focus:border-[#1f5f55] focus:bg-white"
+                />
+                {achadosNoHorario.length > 0 && (
+                  <div className="mt-1.5 max-h-48 space-y-1 overflow-y-auto">
+                    {achadosNoHorario.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setNovaConsulta({ patientId: p.id, nome: '', telefone: '' })}
+                        className="block w-full rounded-xl border border-[#193d36]/10 bg-white px-3 py-2 text-left text-xs font-semibold text-[#193d36] transition hover:bg-[#eef3f2]"
+                      >
+                        {p.nome}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {buscaNoHorario.trim().length >= 2 && achadosNoHorario.length === 0 && (
+                  <p className="mt-1.5 text-[10px] font-bold text-slate-500">
+                    Ninguém com esse nome no cadastro. Se for paciente novo, use os campos abaixo.
+                  </p>
+                )}
+              </>
+            )}
 
             {/* Quem ainda nao esta na base entra por aqui, com nome e WhatsApp.
                 Sem o telefone a consulta nasce muda: nao recebe o lembrete da
@@ -2374,6 +2443,42 @@ export default function Agenda({
                     {problemaNoWhatsapp(novaConsulta.telefone)}
                   </p>
                 )}
+                {/* Ja e da casa (porte de 20/11/2026, ver jaCadastrados): nao
+                    impede (pode ser homonimo, ou o casal no mesmo telefone da
+                    filha); mostra e deixa a um clique. */}
+                {jaNaBase.length > 0 && (
+                  <div role="alert" className="mt-2 rounded-xl border border-[#c98a2b]/50 bg-[#fdf4e3] p-2.5">
+                    <p className="flex items-center gap-1.5 text-[10px] font-extrabold text-[#7a5210]">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      {jaNaBase.length === 1 ? 'Já existe um paciente cadastrado assim' : 'Já existem pacientes cadastrados assim'}
+                    </p>
+                    <div className="mt-1.5 space-y-1">
+                      {jaNaBase.map(({ paciente, motivo }) => (
+                        <button
+                          key={paciente.id}
+                          type="button"
+                          onClick={() => {
+                            setNovaConsulta({ patientId: paciente.id, nome: '', telefone: '' })
+                            setBuscaNoHorario('')
+                          }}
+                          className="flex w-full items-center justify-between gap-2 rounded-lg bg-white px-2.5 py-1.5 text-left transition hover:bg-[#eef3f2]"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-[11px] font-bold text-[#193d36]">{paciente.nome}</span>
+                            <span className="block text-[10px] font-semibold text-slate-500">
+                              {motivo === 'nome' ? 'mesmo nome' : 'mesmo telefone'}
+                              {paciente.telefone ? ` · ${paciente.telefone}` : ' · sem telefone no cadastro'}
+                            </span>
+                          </span>
+                          <span className="shrink-0 text-[10px] font-extrabold text-[#1f5f55]">Usar este cadastro</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-[10px] leading-relaxed text-[#7a5210]">
+                      Marcando como novo, a consulta fica fora do prontuário dele e o lembrete vai para o número digitado aqui.
+                    </p>
+                  </div>
+                )}
                 <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
                   Na véspera ele recebe o lembrete para confirmar, e o cadastro é criado
                   automaticamente com esses dados.
@@ -2386,6 +2491,7 @@ export default function Agenda({
                 type="button"
                 onClick={() => {
                   setSlotEscolhido(null)
+                  setBuscaNoHorario('')
                   setMotivoReserva('')
                   setNovaConsulta({ patientId: '', nome: '', telefone: '' })
                 }}
@@ -2408,6 +2514,7 @@ export default function Agenda({
                   const inicio = slotEscolhido
                   const escolha = novaConsulta
                   setSlotEscolhido(null)
+                  setBuscaNoHorario('')
                   setNovaConsulta({ patientId: '', nome: '', telefone: '' })
                   void acao(async () => {
                     if (!clinicId || !unitId) return
@@ -2430,7 +2537,8 @@ export default function Agenda({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       <Sheet open={emEdicao !== null} onOpenChange={(aberto) => !aberto && setEmEdicao(null)}>
@@ -2479,6 +2587,21 @@ export default function Agenda({
                     duracaoPadrao={prefs.slotMinutes}
                     horariosDoDia={horariosDoDia}
                     onFechar={() => setRemanejando(false)}
+                    // Aviso de remarcacao ao paciente (porte de 20/11/2026, ver avisoDeRemarcacao).
+                    temTelefone={Boolean(telefoneDoLembrete(emEdicao, patients))}
+                    avisar={async (de, para) => {
+                      if (!clinicId) return { avisou: false, motivo: 'clínica não carregada' }
+                      return await avisarRemarcacao(
+                        clinicId,
+                        { patientId: emEdicao.patientId, telefone: telefoneDoLembrete(emEdicao, patients) },
+                        avisoDeRemarcacao({
+                          paciente: emEdicao.patientName,
+                          de,
+                          para,
+                          unidade: units.find((u) => u.id === emEdicao.unitId)?.name ?? '',
+                        }),
+                      )
+                    }}
                     onRemanejado={(mensagem) => {
                       setRemanejando(false)
                       setEmEdicao(null)

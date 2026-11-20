@@ -3482,6 +3482,68 @@ export async function sendTemplateReply(conversationId: string, mensagem: string
 }
 
 /**
+ * Avisa o paciente de que a consulta mudou de horario (porte de 20/11/2026 do
+ * sistema do Dr. Marcello, ver avisoDeRemarcacao em remanejar.ts).
+ *
+ * Acha a conversa pelo paciente ou pelo telefone, e manda como mensagem comum;
+ * com a janela de 24 horas fechada, pelo modelo aprovado de resposta da equipe
+ * (o mesmo do botao "Enviar mensagem agora"). Nunca lanca: a consulta ja foi
+ * remanejada, e quem chama precisa dizer na tela se o aviso saiu ou nao, para
+ * a equipe telefonar. Falha calada aqui deixaria o paciente no horario antigo.
+ */
+export async function avisarRemarcacao(
+  clinicId: string,
+  destino: { patientId: string | null; telefone: string },
+  texto: string,
+): Promise<{ avisou: boolean; motivo?: string }> {
+  try {
+    const digitos = destino.telefone.replace(/\D/g, '')
+    let conversaId: string | null = null
+    if (destino.patientId) {
+      const { data } = await semTipo
+        .from('whatsapp_conversations')
+        .select('id')
+        .eq('clinic_id', clinicId)
+        .eq('patient_id', destino.patientId)
+        .order('last_message_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      conversaId = (data as { id: string } | null)?.id ?? null
+    }
+    if (!conversaId && digitos) {
+      const semPais = digitos.replace(/^55/, '')
+      const { data } = await semTipo
+        .from('whatsapp_conversations')
+        .select('id')
+        .eq('clinic_id', clinicId)
+        .in('wa_id', [...new Set([digitos, `55${semPais}`, semPais])])
+        .limit(1)
+        .maybeSingle()
+      conversaId = (data as { id: string } | null)?.id ?? null
+    }
+    if (!conversaId) {
+      return { avisou: false, motivo: digitos ? 'esse paciente ainda não tem conversa no WhatsApp do consultório' : 'a consulta está sem telefone' }
+    }
+    try {
+      await sendConversationReply(conversaId, texto, true)
+      return { avisou: true }
+    } catch (janelaFechada) {
+      // O servidor recusa o texto livre fora da janela; o modelo e o caminho.
+      try {
+        await sendTemplateReply(conversaId, texto)
+        return { avisou: true }
+      } catch (causa) {
+        const primeira = janelaFechada instanceof Error ? janelaFechada.message : ''
+        const segunda = causa instanceof Error ? causa.message : 'falha no envio'
+        return { avisou: false, motivo: segunda || primeira }
+      }
+    }
+  } catch (causa) {
+    return { avisou: false, motivo: causa instanceof Error ? causa.message : 'falha no envio' }
+  }
+}
+
+/**
  * Manda receita, 2a via, atestado ou outro documento com a janela fechada
  * (07/11/2026, do sistema do Dr. Marcello). O PDF vai no cabecalho do modelo
  * documento_do_consultorio; o servidor guarda no acervo, sobe para a Meta e

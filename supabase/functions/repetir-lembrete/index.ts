@@ -2,6 +2,7 @@ import { adminClient, corsHeaders, json, userClient } from '../_shared/whatsapp.
 import { fimDoDiaLocal } from '../_shared/lembrete.ts'
 import { ESPERA_ENTRE_CLIQUES_MS, mandarLembrete, parametrosDoLembrete } from '../_shared/lembrete-envio.ts'
 import { chaveDoWhatsApp } from '../_shared/whatsapp-teste.ts'
+import { nomeParaAFamilia } from '../_shared/nome-para-familia.ts'
 
 /**
  * "Repetir confirmacao" na conversa (07/11/2026, portado do sistema do Dr.
@@ -129,7 +130,8 @@ Deno.serve(async (req) => {
       graphVersion: Deno.env.get('META_GRAPH_VERSION')?.trim() || 'v25.0',
       modelo,
       idioma: config.whatsapp_template_language || 'pt_BR',
-      parametros: parametrosDoLembrete(consulta, paciente?.name || consulta.contact_name || 'paciente', timezone),
+      // O nome sem o recado da equipe (porte de 20/11/2026, ver nomeParaAFamilia).
+      parametros: parametrosDoLembrete(consulta, paciente?.name || nomeParaAFamilia(consulta.contact_name) || 'paciente', timezone),
       automatico: false,
     })
 

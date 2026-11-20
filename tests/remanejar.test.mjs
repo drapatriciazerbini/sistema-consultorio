@@ -1,6 +1,7 @@
 // Remanejar consulta pela Agenda (28/10/2026): muda a propria consulta, sem
 // cancelar e sem avisar ninguem. Dados inventados: o repositorio e publico.
 import {
+  avisoDeRemarcacao,
   camposDoRemanejamento,
   duracaoEmMinutos,
   impedimentoDoEncaixe,
@@ -117,6 +118,20 @@ confere('consulta cancelada nao empurra o fim do dia',
   impedimentoDoEncaixe(consulta, as1800, '2026-10-28', 40, livresHoje, [...agenda, { id: 'c8', startsAt: '2026-10-28T21:00:00Z', endsAt: '2026-10-28T21:40:00Z', status: 'cancelled' }], true) === null)
 const diaSemAgenda = impedimentoDoEncaixe(consulta, instanteEmSaoPaulo('2026-11-01', '18:00'), '2026-11-01', 40, [], agenda, true)
 confere('dia sem agenda: recusa', /não tem agenda/.test(diaSemAgenda ?? ''), diaSemAgenda)
+
+// Aviso de remarcacao para o paciente (porte de 20/11/2026). Nomes inventados.
+{
+  const texto = avisoDeRemarcacao({ paciente: 'Dirce Teste Lima', de: '2026-11-24T17:00:00Z', para: '2026-11-25T19:00:00Z', unidade: 'Consultório (Gonzaga)' })
+  const tem = (trecho) => texto.includes(trecho)
+  confere('aviso de remarcacao: nome, horario antigo, novo e unidade',
+    tem('de Dirce') && tem('terça-feira, 24/11 às 14:00') && tem('quarta-feira, 25/11 às 16:00') && tem('no Consultório (Gonzaga)'), texto)
+  // Vai dentro de modelo aprovado: uma linha so, e dentro do limite.
+  confere('aviso de remarcacao: uma linha so, ate 700', !/[\n\r\t]/.test(texto) && texto.length <= 700, JSON.stringify(texto))
+  const emCasa = avisoDeRemarcacao({ paciente: 'Rosa Teste', de: '2026-11-24T17:00:00Z', para: '2026-11-25T19:00:00Z', unidade: 'Visita domiciliar' })
+  confere('aviso de remarcacao: visita em casa nao diz "no Visita domiciliar"', emCasa.includes('no atendimento em casa') && !emCasa.includes('Visita domiciliar'), emCasa)
+  const semNome = avisoDeRemarcacao({ paciente: 'Sem paciente vinculado', de: '2026-11-24T17:00:00Z', para: '2026-11-25T19:00:00Z', unidade: '' })
+  confere('aviso de remarcacao sem nome e sem unidade', semNome.startsWith('A consulta com a Dra. Patrícia Zerbini mudou de horário') && !semNome.includes(', no '), semNome)
+}
 
 console.log(`remanejar: ${ok} verificacoes ok`)
 if (falhas.length) {

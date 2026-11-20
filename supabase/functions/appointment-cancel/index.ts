@@ -1,6 +1,7 @@
 import { adminClient, corsHeaders, json, toBrazilE164, userClient } from '../_shared/whatsapp.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
 import { chaveDoWhatsApp, foraDaListaDeTeste, listaDeTeste } from '../_shared/whatsapp-teste.ts'
+import { nomeParaAFamilia } from '../_shared/nome-para-familia.ts'
 
 /**
  * Cancela uma consulta e avisa o paciente pelo WhatsApp.
@@ -357,7 +358,8 @@ Deno.serve(async (req) => {
 
     // Sem cadastro, o nome que a familia deu ao marcar vale mais do que o
     // apelido do WhatsApp - foi ele que a pessoa escreveu para a clinica.
-    const primeiroNome = (paciente?.name || consulta.contact_name || conversa.profile_name || '')
+    // Sem o recado que a equipe escreve no nome (porte de 20/11/2026, ver nomeParaAFamilia).
+    const primeiroNome = (paciente?.name || nomeParaAFamilia(consulta.contact_name) || conversa.profile_name || '')
       .trim()
       .split(/\s+/)[0] ?? ''
 

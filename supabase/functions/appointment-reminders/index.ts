@@ -1,13 +1,16 @@
 import { adminClient, corsHeaders, json, toBrazilE164 } from '../_shared/whatsapp.ts'
 import { cadastrarDaFicha } from '../_shared/cadastro.ts'
-import { janelaDeLembrete } from '../_shared/lembrete.ts'
+import { ANTECEDENCIA_MINIMA_HORAS, janelaDeLembrete } from '../_shared/lembrete.ts'
 import {
   ESPERA_PARA_REPETIR_MS,
+  acabouDeMarcar,
+  esperarOMeioDoCaminho,
   mandarLembrete,
   parametrosDoLembrete,
   repetirOLembrete,
 } from '../_shared/lembrete-envio.ts'
 import { variantesDoTelefone } from '../_shared/telefone-br.ts'
+import { nomeParaAFamilia } from '../_shared/nome-para-familia.ts'
 import { chaveDoWhatsApp, foraDaListaDeTeste, listaDeTeste } from '../_shared/whatsapp-teste.ts'
 import { retomarConversasDoInstagram } from '../_shared/instagram.ts'
 
@@ -199,7 +202,7 @@ async function repetirLembretes(
       graphVersion,
       modelo: clinica.templateName,
       idioma: clinica.templateLanguage,
-      parametros: parametrosDoLembrete(consulta, paciente?.name || consulta.contact_name || 'paciente', clinica.timezone),
+      parametros: parametrosDoLembrete(consulta, paciente?.name || nomeParaAFamilia(consulta.contact_name) || 'paciente', clinica.timezone),
       automatico: true,
     })
     if (envio.ok) {
@@ -280,7 +283,9 @@ Deno.serve(async (req) => {
       const { data: consultas, error: consultasError } = await admin
         .from('appointments')
         .select('id,patient_id,starts_at,unit_id,modality,contact_name,contact_phone,clinic_units(name),' +
-          'intake_patient_name,intake_birth_date,intake_guardian,intake_cpf,intake_email,reminder_failed_at')
+          // created_at: quando a consulta foi marcada, para o meio do caminho
+          // (porte de 20/11/2026). Coluna de sempre da tabela, nao e nova.
+          'intake_patient_name,intake_birth_date,intake_guardian,intake_cpf,intake_email,reminder_failed_at,created_at')
         .eq('clinic_id', clinica.clinic_id)
         .eq('status', 'scheduled')
         .is('reminder_sent_at', null)
@@ -300,6 +305,30 @@ Deno.serve(async (req) => {
       resumo.candidatas += consultas?.length ?? 0
 
       for (const consulta of consultas ?? []) {
+        // Marcou ha menos de meia hora: a pessoa ainda esta respondendo o
+        // cadastro (porte de 20/11/2026, ver acabouDeMarcar).
+        const marcadaEm = (consulta as { created_at?: string | null }).created_at
+        if (acabouDeMarcar(marcadaEm, Date.now())) {
+          resumo.pulados += 1
+          detalhes.push({ appointmentId: consulta.id, resultado: 'marcada ha menos de meia hora; lembrete na proxima passada' })
+          continue
+        }
+
+        // Marcou agora ha pouco: o lembrete espera o meio do caminho ate a
+        // consulta (porte de 20/11/2026, ver esperarOMeioDoCaminho).
+        if (
+          esperarOMeioDoCaminho(
+            { marcadaEm, comecaEm: consulta.starts_at },
+            Date.now(),
+            clinica.timezone,
+            { horaInicial: HORA_INICIAL, horaFinal: HORA_FINAL, antecedenciaMinimaHoras: ANTECEDENCIA_MINIMA_HORAS },
+          )
+        ) {
+          resumo.pulados += 1
+          detalhes.push({ appointmentId: consulta.id, resultado: 'marcada ha pouco; lembrete no meio do caminho' })
+          continue
+        }
+
         // Recusado pela Meta ha menos de 3 horas: nao tenta de novo ainda.
         // Ate 24/09/2026 a recusa voltava a cada passada de hora em hora e
         // deixava ate onze mensagens "falhou" na conversa. A etiqueta "Lembrete
@@ -340,8 +369,9 @@ Deno.serve(async (req) => {
         }
 
         const telefone = paciente?.phone || consulta.contact_phone || ''
+        // O nome sem o recado da equipe (porte de 20/11/2026, ver nomeParaAFamilia).
         const nomeParaMensagem =
-          paciente?.name || consulta.contact_name || 'paciente'
+          paciente?.name || nomeParaAFamilia(consulta.contact_name) || 'paciente'
 
         if (!telefone) {
           resumo.pulados += 1

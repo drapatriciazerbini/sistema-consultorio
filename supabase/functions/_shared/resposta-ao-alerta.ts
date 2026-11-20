@@ -7,6 +7,7 @@ import { quemAtende, type QuemAtende } from './quem-atende.ts'
 import { carregarRespostas, valorCadastrado } from './respostas.ts'
 import { mesmoTelefone } from './telefone-br.ts'
 import { conteudoDaMidia, esteArquivo, midiaRecebida, umArquivo, type CopiaDaMidia, type MidiaRecebida, type TipoDeMidia } from './midia-do-whatsapp.ts'
+import { nomeDoArquivo, rotuloDoAnexo } from './rotulo-do-anexo.ts'
 
 // Para os testes, que importam so este arquivo.
 export { conteudoDaMidia, copiaPelaApi, midiaRecebida, tipoLimpo } from './midia-do-whatsapp.ts'
@@ -972,6 +973,18 @@ export function textoDoRepasse(quem: string, disse: string): string {
   return `💬 ${semDadosPessoais(quem).trim() || 'O paciente'} respondeu:\n\n"${cabe}"\n\nPara responder, escreva ou grave em cima desta: eu mostro antes de enviar.`
 }
 
+/**
+ * O arquivo do paciente como vai ao celular da Dra. (porte de 20/11/2026, ver
+ * rotulo-do-anexo.ts): o documento leva nome de gente, "Exame - Maria
+ * Aparecida.pdf", e nao o codigo que o celular do paciente deu ao arquivo.
+ * Foto, video e audio nao tem nome na Meta; seguem como vieram.
+ */
+export function midiaParaOCelular(midia: MidiaRecebida, quem: string, disse: string): MidiaRecebida {
+  if (midia.tipo !== 'document') return midia
+  const rotulo = rotuloDoAnexo(midia.tipo, `${disse} ${midia.legenda ?? ''} ${midia.nome ?? ''}`)
+  return { ...midia, nome: nomeDoArquivo(rotulo, semDadosPessoais(quem), midia.nome) }
+}
+
 /** O aviso que vai antes do arquivo do paciente no celular (05/11/2026). */
 export function textoDoRepasseDeMidia(quem: string, midia: Pick<MidiaRecebida, 'tipo' | 'legenda'>): string {
   const legenda = midia.legenda ? `\n\n"${semDadosPessoais(midia.legenda).trim().slice(0, LIMITE_DO_TEXTO)}"` : ''
@@ -1028,7 +1041,7 @@ export async function repassarAoCelular(
         copia ??= await amb.copiarMidia(midia)
         if (copia.ok) {
           const antes = await amb.enviarWhatsApp(numero, montarConteudo(textoDoRepasseDeMidia(repasse.quem, midia)))
-          const arquivo = antes.ok ? await amb.enviarWhatsApp(numero, conteudoDaMidia(midia, copia.id)) : antes
+          const arquivo = antes.ok ? await amb.enviarWhatsApp(numero, conteudoDaMidia(midiaParaOCelular(midia, repasse.quem, disse), copia.id)) : antes
           for (const e of [antes, arquivo]) if (e.ok && e.id) ids.push(e.id)
           if (arquivo.ok) certos++
           else erros.push(`final ${numero.slice(-4)}: ${arquivo.erro}`)

@@ -53,6 +53,13 @@ const ROBOS_CONHECIDOS: Record<string, { nome: string; minutos: number }> = {
   'fechar-presencas': { nome: 'Faltou automático', minutos: 24 * 60 },
   'liberar-reservas-vencidas': { nome: 'Liberar reservas vencidas', minutos: 60 },
   'liberar-conversas-travadas': { nome: 'Destravar conversas', minutos: 60 },
+  // Porte de 20/11/2026 do sistema do Dr. Marcello (17/11): os robos que
+  // nasceram depois do cartao e ficaram de fora dele. Se um destes parasse, o
+  // cartao continuava verde: so a falha declarada aparecia, e robo que nem
+  // chega a rodar nao declara nada. Intervalos dos cron.schedule daqui.
+  'depois-do-convenio': { nome: 'Retomada de quem perguntou e não marcou', minutos: 10 },
+  'bom-dia-da-equipe': { nome: 'Bom-dia de quem chamou fora do horário', minutos: 24 * 60 },
+  'gastos-meta': { nome: 'Gasto dos anúncios da Meta', minutos: 3 * 60 },
 }
 
 function haQuanto(iso: string, agora: Date) {

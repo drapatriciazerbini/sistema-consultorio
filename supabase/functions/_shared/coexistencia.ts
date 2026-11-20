@@ -89,6 +89,17 @@ export function campoDoCelular(campo: unknown): boolean {
 export const TEXTO_ARQUIVO_DO_HISTORICO = '[Arquivo de antes da Central: está só no celular do consultório]'
 
 /**
+ * Mensagem do historico ou do eco que a Meta manda sem conteudo, com type
+ * "errors" (20/11/2026, primeiro historico da Dra. Patricia: tres mensagens
+ * chegaram assim e a Central mostrou "[errors]" no balao). E o que a Meta nao
+ * repassa para sistemas: enquete, visualizacao unica, mensagem apagada ou
+ * parecida. O conteudo continua no app do celular; o balao diz isso em vez do
+ * nome cru do tipo.
+ */
+export const TEXTO_SEM_CONTEUDO_NO_HISTORICO =
+  '⚠️ Mensagem do celular que a Meta não repassa para o sistema (enquete, visualização única, mensagem apagada ou parecida). O conteúdo continua no aplicativo do celular do consultório.'
+
+/**
  * Mensagem que so o celular mostra (erro 131060 da Meta).
  *
  * Com o numero em coexistencia, a Meta avisa assim quando a pessoa escreve
@@ -174,8 +185,9 @@ function paraGravar(
   const em = quando(m?.timestamp)
   if (!id || !em) return null
   const reservado = m.type === 'media_placeholder'
-  const midia = reservado ? null : f.midia(m)
-  const texto = reservado ? TEXTO_ARQUIVO_DO_HISTORICO : f.corpo(m)
+  const semConteudo = m.type === 'errors'
+  const midia = reservado || semConteudo ? null : f.midia(m)
+  const texto = reservado ? TEXTO_ARQUIVO_DO_HISTORICO : semConteudo ? TEXTO_SEM_CONTEUDO_NO_HISTORICO : f.corpo(m)
   return {
     external_message_id: id,
     direction: entrada ? 'inbound' : 'outbound',
